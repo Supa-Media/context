@@ -234,6 +234,22 @@ test("a webhook's answer never carries a secret, and a test says how the call we
   for (const [key_] of (await store.treeEntries()).map((entry) => [entry.key])) assert.ok(!(await text(key_)).includes("s3cret"), key_);
 });
 
+// Dev, 2026-11-27: "these bots say they setup their webhooks but it still shows as setup in mail". A bot set up from
+// its prompt saves and tests its webhook but never passes bot.reach, so its card went on saying `reach: mail`.
+test("a webhook that answers its test sets its bot's card to reach: webhook; one that fails leaves it", async () => {
+  const card = "---\nholder: Getrude\nkind: agent\nbot: grok\nbelongs_to: \"@shyoh\"\nreach: mail\n---\n\n# Getrude\n\nX manager.\n";
+  const { store, props, text } = await world({ "areas/finance/about.md": FINANCE, "bots/getrude/about.md": card });
+  const failing = store.botHooks;
+  store.botHooks = async (request) => (request.action === "test" ? { ok: false, status: 0 } : failing(request));
+  await run(store, { area: "areas/finance", test_webhook: "Getrude" });
+  assert.equal((await props("bots/getrude/about.md")).reach, "mail");
+  store.botHooks = failing;
+  const result = await run(store, { area: "areas/finance", test_webhook: "Getrude" });
+  assert.equal(result.isError, undefined, said(result));
+  assert.equal((await props("bots/getrude/about.md")).reach, "webhook");
+  assert.match(await text("bots/getrude/about.md"), /X manager\./);
+});
+
 test("a webhook without a signing key says Context made one nobody can see", async () => {
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   const result = await run(store, { area: "areas/finance", webhook: { bot: "Finance", address: "https://bot.example.com/hook" } });

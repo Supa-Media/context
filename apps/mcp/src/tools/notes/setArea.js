@@ -360,6 +360,18 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const answer = await store.botHooks({ action: "test", bot: hookBot }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try test_webhook again." }));
     if (answer?.error) problems.push(`test: ${answer.error}`);
     else done.push(answer.ok ? `${hookBot}: test call answered (${answer.status})` : `${hookBot}: test call ${answer.status === 0 ? "didn't reach it" : `answered ${answer.status}`}`);
+    // A webhook that answers its test is how Context reaches the bot, so its card says so: a bot set up from its
+    // prompt saved the webhook but never wrote `reach: webhook`, and its card went on saying it checks its mail (Dev,
+    // 2026-11-27: "these bots say they setup their webhooks but it still shows as setup in mail").
+    if (answer?.ok === true) {
+      const paths = botCardPaths(root, hookBot.trim());
+      const found = await factProps(store, paths);
+      const cardAt = paths.find((path) => found?.get(path)?.props);
+      if (cardAt !== undefined && found.get(cardAt).props.properties?.reach !== "webhook") {
+        const wrote = await change(store, scope, rules, overrides, cardAt, [["reach", "webhook"]]);
+        if (wrote.error) problems.push(`card: ${wrote.error}`);
+      }
+    }
   }
 
   // Which projects serve this area: one `area:` line in each project's front note.
