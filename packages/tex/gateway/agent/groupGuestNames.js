@@ -25,7 +25,7 @@ export const NAME_GUEST = "name_guest";
 export const GUEST_NAME_SEND_ACTIONS = {
   name_guest: {
     tool: NAME_GUEST,
-    summary: "In a group chat, keep the name of someone shown by a guest label once someone here says who they are, so you and everyone here call them by it.",
+    summary: "In a group chat, keep a name for someone here: a guest known only by their number once someone says who they are, or another name a member goes by (\"call me boss\"), so you and everyone here call them by it.",
   },
 };
 

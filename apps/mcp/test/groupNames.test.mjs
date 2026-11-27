@@ -186,7 +186,7 @@ test("a guest who tagged Tex is named by number, never label, and only a label t
  * fails "a kept name sits beside the label on every line"; dropping the `here` check in `name_guest` fails
  * "name_guest keeps only a guest of this chat".
  */
-import { guestNameEntry, guestNameFacts, guestNamesFrom, memberAliasFacts, memberAliasesFrom, memberNameEntry, readChatNames, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
+import { guestNameEntry, guestNameFacts, guestNamesFrom, memberAliasFacts, memberAliasesFrom, memberNameEntry, readChatNames, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames, GUEST_NAME_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
 import { chatLines } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { groupQuestion } from "../../../packages/tex/gateway/agent/groupLedgerHistory.js";
 
@@ -390,4 +390,13 @@ test("name_guest keeps another name a member goes by, and the list and the judge
   assert.match(line, /@jo \(Jo\);/);
   assert.deepEqual(memberAliasFacts(memberAliasesFrom([memberNameEntry("sayo", "Boss", { at: 2 }), memberNameEntry("sayo", "Shyoh", { at: 1 })])), [JSON.stringify({ also_called: { "@sayo": ["Boss", "Shyoh"] } })]);
   assert.doesNotMatch(rosterLine({ ...group, memberAliases: [{ member: "sayo", aliases: ["Boba"] }] }), /also called Boba/, "a name someone else here has now is theirs");
+});
+
+test("the send action's summary says name_guest keeps a member's other name too, as the tool itself does", () => {
+  // Lab test chat, 2026-11-27: told by this summary that name_guest only "covers guests by number", Tex answered
+  // "Got it, boss." to "keep that as another name for me" and kept nothing.
+  const summary = GUEST_NAME_SEND_ACTIONS.name_guest.summary;
+  assert.match(summary, /member/);
+  assert.match(summary, /number/);
+  assert.doesNotMatch(summary, /shown by a guest label/);
 });
