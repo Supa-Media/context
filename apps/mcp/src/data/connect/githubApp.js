@@ -11,6 +11,8 @@
  *   against the owner's own session, trades the code for the owner's GitHub token, and keeps the installation only
  *   if GitHub lists it among the installations that person can reach. That token is then revoked; it is never kept.
  *   An installation id alone, or one from somebody else's link, binds nothing.
+ *   The binding keeps the repositories the owner's own GitHub account can read in that installation, and every run
+ *   and the repository picker read only those; a binding with none kept reads nothing until connected again.
  * - **Every run mints its own token**, an hour long, from the App's key, narrowed to read-only Metadata, Pull
  *   requests, Deployments and Actions whatever the App itself is later given. An uninstalled App, or one whose
  *   access was cut, refuses the mint and the source stops.
@@ -30,6 +32,7 @@ const STATE_INFO = new TextEncoder().encode("context github install state v1");
 export const READ_ONLY = Object.freeze({ metadata: "read", pull_requests: "read", deployments: "read", actions: "read" });
 const MAX_INSTALLATION_PAGES = 5;
 const MAX_REPO_PAGES = 10;
+const REPO_NAME = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 
 export const githubHeaders = (token) => ({
   authorization: `Bearer ${token}`,
@@ -181,9 +184,10 @@ function tradeRefusal(traded, secrets) {
 
 /**
  * The owner's return from GitHub, checked: the code traded for the owner's GitHub token, the installation found
- * among the ones that person can reach, the token revoked, and a read-only token minted to prove the App can read.
- * `{ok: true, kept: {installation, repos: null}}` or `{ok: false, said}`. `repos: null` reads every repository the
- * installation was given, until the owner picks.
+ * among the ones that person can reach, the repositories that person can reach in it listed, the token revoked, and
+ * a read-only token minted to prove the App can read. `{ok: true, kept: {installation, repos: null, reach}}` or
+ * `{ok: false, said}`. `repos: null` reads every repository in `reach` (the ones the owner can read), until the owner
+ * picks; `reach` is what keeps an installation's other repositories out of reach.
  */
 export async function checkGithubInstall(input, fetcher, env, nowMs = Date.now()) {
   const app = githubAppOf(env);
@@ -208,12 +212,25 @@ export async function checkGithubInstall(input, fetcher, env, nowMs = Date.now()
     return { ok: false, said: `GitHub didn't confirm who approved it (${why}); connect it again` };
   }
   let reachable = false;
+  const reach = [];
   try {
     for (let page = 1; page <= MAX_INSTALLATION_PAGES && !reachable; page += 1) {
       const listed = await appJson(fetcher, `${GITHUB_API}/user/installations?per_page=100&page=${page}`, { headers: githubHeaders(userToken) }, NAME);
       if (!listed.ok) return { ok: false, said: "GitHub didn't list your installations; connect it again" };
       const found = Array.isArray(listed.body?.installations) ? listed.body.installations : [];
       reachable = found.some((each) => String(each?.id) === installation);
+      if (found.length < 100) break;
+    }
+    // GitHub lists an installation for one repository the person can read in it, so the repositories themselves
+    // are asked too: only these are kept, never the installation's whole set.
+    for (let page = 1; reachable && page <= MAX_REPO_PAGES; page += 1) {
+      const listed = await appJson(fetcher, `${GITHUB_API}/user/installations/${installation}/repositories?per_page=100&page=${page}`, { headers: githubHeaders(userToken) }, NAME);
+      if (!listed.ok) return { ok: false, said: "GitHub didn't list the repositories you can reach; connect it again" };
+      const found = Array.isArray(listed.body?.repositories) ? listed.body.repositories : [];
+      for (const repo of found) {
+        const name = typeof repo?.full_name === "string" ? repo.full_name : "";
+        if (REPO_NAME.test(name)) reach.push(name);
+      }
       if (found.length < 100) break;
     }
   } finally {
@@ -227,9 +244,21 @@ export async function checkGithubInstall(input, fetcher, env, nowMs = Date.now()
     ).catch(() => null);
   }
   if (!reachable) return { ok: false, said: "That GitHub installation isn't one you can reach" };
+  if (reach.length === 0) return { ok: false, said: "That GitHub installation has no repository you can read" };
   const minted = await installationToken({ app, installation, fetcher, nowMs });
   if (!minted.ok) return { ok: false, said: minted.said };
-  return { ok: true, kept: { installation, repos: null } };
+  return { ok: true, kept: { installation, repos: null, reach: [...new Set(reach)].sort() } };
+}
+
+/**
+ * The installation's repositories a kept binding reads: those its owner could read, when the binding names them.
+ * A binding made before `reach` was kept names none, so this is null, and the caller refuses until it is connected
+ * again (fail closed on purpose).
+ */
+export function withinReach(kept, repos) {
+  if (!Array.isArray(kept?.reach)) return null;
+  const reachSet = new Set(kept.reach);
+  return repos.filter((repo) => reachSet.has(repo.name));
 }
 
 /** The installation's repositories, by full name: `{ok: true, repos: [{name, branch, private}]}` or `{ok: false, said, refused}`. */
@@ -241,7 +270,7 @@ export async function installationRepos({ token, fetcher }) {
     const found = Array.isArray(listed.body?.repositories) ? listed.body.repositories : [];
     for (const repo of found) {
       const name = typeof repo?.full_name === "string" ? repo.full_name : "";
-      if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(name)) continue;
+      if (!REPO_NAME.test(name)) continue;
       repos.push({ name, branch: typeof repo.default_branch === "string" ? repo.default_branch.slice(0, 200) : "main", private: repo.private === true });
     }
     if (found.length < 100) break;
@@ -255,5 +284,10 @@ export async function listGithubRepos({ kept, env, fetcher, now }) {
   if (app === null) return { ok: false, refused: false, said: "This deployment has no GitHub App set up" };
   const minted = await installationToken({ app, installation: kept?.installation, fetcher, nowMs: now });
   if (!minted.ok) return minted;
-  return await installationRepos({ token: minted.token, fetcher });
+  const listed = await installationRepos({ token: minted.token, fetcher });
+  if (!listed.ok) return listed;
+  const repos = withinReach(kept, listed.repos);
+  return repos === null ? { ok: false, refused: true, said: REACH_AGAIN } : { ok: true, repos };
 }
+
+export const REACH_AGAIN = "GitHub needs connecting again so Context reads only the repositories you can";

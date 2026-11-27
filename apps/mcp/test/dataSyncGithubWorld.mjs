@@ -49,7 +49,11 @@ export const CI_RUN = { id: 5001, name: "CI", head_branch: "main", run_started_a
 /** The deploy workflow's runs per repo: the one deploy on a prod-deploy branch for supa/app, and a 404 for supa/context. */
 const DEFAULT_DEPLOY_RUNS = (repo) => (repo === "supa/app" ? [DEPLOY_RUN] : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }));
 
-export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, search = () => [], mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
+/**
+ * GitHub as it answers. `repos` is what the installation holds; `reach` is what the owner's own token can read in it
+ * (`/user/installations/<id>/repositories`), which defaults to all of them.
+ */
+export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], reach = repos, trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, search = () => [], mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
   const seen = [];
   const auth = (init) => String(new Headers(init?.headers ?? {}).get("authorization") ?? "");
   w.net.answers.set("github.com", (url, init) => {
@@ -65,6 +69,12 @@ export function github(w, { installations = [Number(INSTALLATION)], mintStatus =
     const call = { host: "api.github.com", path: pathname, method: init?.method ?? "GET", auth: auth(init), body: init?.body ? JSON.parse(init.body) : null, query: searchParams };
     seen.push(call);
     if (pathname === "/user/installations") return call.auth === `Bearer ${USER_TOKEN}` ? Response.json({ installations: installations.map((id) => ({ id })) }) : new Response("{}", { status: 401 });
+    const reaching = /^\/user\/installations\/(\d+)\/repositories$/.exec(pathname);
+    if (reaching) {
+      if (call.auth !== `Bearer ${USER_TOKEN}`) return new Response("{}", { status: 401 });
+      if (reaching[1] !== INSTALLATION) return new Response("{}", { status: 404 });
+      return Response.json({ repositories: reach.map((full_name) => ({ full_name, default_branch: "main", private: true })) });
+    }
     if (pathname.startsWith("/applications/")) return new Response(null, { status: 204 });
     const minting = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(pathname);
     if (minting) {
