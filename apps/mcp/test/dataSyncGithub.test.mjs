@@ -39,13 +39,13 @@ import assert from "node:assert/strict";
 import { SYNC_EVERY_MS } from "../src/data/sync/object.js";
 import { READ_ONLY, installState, readInstallState } from "../src/data/connect/githubApp.js";
 import { sealConnection } from "../src/data/connect/seal.js";
-import { fillDeployed, pullRequestRow } from "../src/data/connect/github.js";
+import { fillDeployed, mergeShas, pullRequestRow } from "../src/data/connect/github.js";
 import { skip, NOW, SECRET, world, send, dataObject, roleOf } from "./dataSyncWorld.mjs";
 import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, INSTALLATION, CODE, ABOUT, CI_RUN, DEPLOY_RUN, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed, firstRun } from "./dataSyncGithubWorld.mjs";
 
 const sha = (n) => String(n).padStart(4, "0").repeat(10);
 /** A merged pull request row whose squash merge made commit `sha(number)`. */
-const merged = (number, opened, at) => ({ ...pullRequestRow("supa/app", { ...pr(number, opened, at), mergeCommit: { oid: sha(number) } }) });
+const merged = (number, opened, at) => ({ ...pullRequestRow("supa/app", pr(number, opened, at), sha(number)) });
 
 test("a pull request's deployed is the first production deployment that ships its merge commit", () => {
   const pull = merged(3, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z");
@@ -60,8 +60,10 @@ test("a pull request's deployed is the first production deployment that ships it
   ];
   assert.deepEqual(fillDeployed([pull], deploys, [], [pull, before]).map((row) => row.deployed), ["2026-11-24T11:20:00Z"]);
   assert.deepEqual(fillDeployed([{ ...pull, merged: "" }], deploys, [], [pull, before]), []);
-  assert.equal(pullRequestRow("supa/app", { ...pr(4, "2026-11-20T09:00:00Z", null), mergeCommit: { oid: sha(4) } }).merge_commit, "", "an open pull request names no merge commit");
-  assert.equal(pullRequestRow("supa/app", { ...pr(5, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"), mergeCommit: null }).merge_commit, "none", "a merge GitHub names no commit for is not read again");
+  assert.equal(pullRequestRow("supa/app", pr(4, "2026-11-20T09:00:00Z", null), sha(4)).merge_commit, "", "an open pull request names no merge commit");
+  assert.equal(pullRequestRow("supa/app", pr(5, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"), null).merge_commit, "none", "a merge GitHub names no commit for is not read again");
+  assert.equal(pullRequestRow("supa/app", pr(5, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z")).merge_commit, "", "a merge not reached this run is read again");
+  assert.notEqual(merged(6, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z").merge_commit, "f".repeat(40), "the branch head is never the merge commit");
 });
 
 test("a pull request's follow_up is the kind from its follow-up: label, and nothing else is read", () => {
@@ -122,6 +124,47 @@ test("a deployed time filled wrong is corrected once the runs cover its merge, a
   assert.deepEqual(fillDeployed([older], [], runs, [older, wrong]), [], "a merge before the kept runs keeps the time it had");
 });
 
+/** GitHub's closed pull request list for `count` pull requests (#count down to #1), and every page it was asked for. */
+function closedList(count, shaOf = sha) {
+  const pages = [];
+  const fetcher = async (url) => {
+    const query = new URL(url).searchParams;
+    const size = Number(query.get("per_page"));
+    const page = Number(query.get("page"));
+    pages.push(page);
+    const numbers = Array.from({ length: Math.max(0, Math.min(size, count - (page - 1) * size)) }, (_, i) => count - (page - 1) * size - i);
+    return Response.json(numbers.map((number) => ({ number, merge_commit_sha: shaOf(number), head: { sha: "f".repeat(40) } })));
+  };
+  return { fetcher, pages };
+}
+
+test("merge commits are found page by page in GitHub's closed list, deep history included, without one call per pull request", async () => {
+  const { fetcher, pages } = closedList(9000);
+  const recent = [8999, 8990, 8950];
+  const slice = Array.from({ length: 500 }, (_, i) => 2400 - i);
+  const got = await mergeShas({ fetcher, token: "t", repo: "supa/app", numbers: [...recent, ...slice, 3] });
+  assert.equal(got.ok, true);
+  for (const number of [...recent, ...slice, 3]) assert.equal(got.shas.get(number), sha(number), `#${number}`);
+  // 503 pull requests over 180 pages: the ten pages the slice spans, and a few to find each run of numbers.
+  assert.ok(pages.length <= 40, `${pages.length} pages read`);
+  assert.equal(new Set(pages).size, pages.length, "a page was read twice");
+  // GitHub naming no commit is null (the row says "none"); a number past the end is not reached.
+  const none = await mergeShas({ ...closedList(120, (number) => (number === 7 ? null : sha(number))), token: "t", repo: "supa/app", numbers: [7, 500] });
+  assert.deepEqual([...none.shas], [[7, null]]);
+});
+
+test("merge commit reads stop at their page budget, and a refused page fails the read", async () => {
+  const { fetcher, pages } = closedList(100_000);
+  const numbers = Array.from({ length: 60 }, (_, i) => 99_000 - i * 1500);
+  const got = await mergeShas({ fetcher, token: "t", repo: "supa/app", numbers });
+  assert.equal(got.ok, true);
+  assert.ok(pages.length <= 40, `${pages.length} pages read`);
+  assert.ok(got.shas.size > 0 && got.shas.size < numbers.length, `${got.shas.size} reached`);
+  for (const [number, value] of got.shas) assert.equal(value, sha(number));
+  const refused = await mergeShas({ fetcher: async () => new Response("{}", { status: 403 }), token: "t", repo: "supa/app", numbers: [5] });
+  assert.equal(refused.ok, false);
+});
+
 test("an install state holds only its own signature, for 30 minutes", async () => {
   const state = await installState({ secret: SECRET, workspaceId: "pAlice", userId: "uAlice", noteId: "n1", nowMs: NOW });
   assert.deepEqual(await readInstallState({ secret: SECRET, state, nowMs: NOW + 60_000 }), { workspaceId: "pAlice", userId: "uAlice", noteId: "n1" });
@@ -167,12 +210,17 @@ test("an owner installs GitHub: the owner's token is revoked, nothing is kept bu
   assert.equal(object.storage.alarm, NOW + SYNC_EVERY_MS);
   const pulls = (await sheet(w.alice, ids.pulls)).rows;
   assert.deepEqual(
-    pulls.map((row) => [row.id, row.merged, row.deployed, row.lines_added]).sort(),
+    pulls.map((row) => [row.id, row.merged, row.deployed, row.lines_added, row.merge_commit]).sort(),
     [
-      ["supa/app#1", "", "", "10"],
-      ["supa/app#2", "2026-11-24T10:00:00Z", "2026-11-24T11:20:00Z", "20"],
+      ["supa/app#1", "", "", "10", ""],
+      ["supa/app#2", "2026-11-24T10:00:00Z", "2026-11-24T11:20:00Z", "20", "b".repeat(40)],
     ],
   );
+  // The merge commit is the REST pull request field, read with the installation token; GraphQL is never asked for
+  // mergeCommit, which needs Contents (#4379 asked, and every run failed).
+  assert.equal(seen.some((call) => call.path === "/graphql" && call.body.query.includes("mergeCommit")), false, "GraphQL was asked for mergeCommit");
+  assert.ok(seen.some((call) => call.path === "/repos/supa/app/pulls" && call.auth === `Bearer ${INSTALL_TOKEN}`));
+  assert.equal(seen.some((call) => call.path === "/repos/supa/context/pulls"), false, "a repository with no merged pull request read was listed");
   assert.deepEqual((await sheet(w.alice, ids.deploys)).rows.map((row) => [row.id, row.status]).sort(), [["901", "success"], ["902", "success"]]);
   assert.deepEqual(
     (await sheet(w.alice, ids.runs)).rows.map((row) => [row.id, row.workflow, row.branch, row.conclusion]).sort(),
@@ -253,6 +301,29 @@ test("sheets kept before commits were read gain merge_commit and sha, kept pull 
   const runs = await sheet(w.alice, ids.runs);
   assert.ok(runs.columns.some((c) => c.name === "sha"));
   assert.deepEqual(runs.rows.filter((row) => row.id === "6001").map((row) => row.sha), [""], "a kept run keeps an empty sha; its branch names the commit");
+});
+
+test("a merge commit already kept stays when a run's list does not reach it", { skip }, async () => {
+  const w = await world();
+  const { ids, state } = await installed(w, { closed: () => [] });
+  await w.alice.bucket.put(`files/${ids.pulls}.csv`, [
+    "id,repo,number,title,author,opened:date,merged:date,deployed:date,lines_added:number,lines_removed:number,merge_commit,follow_up",
+    `supa/app#2,supa/app,2,Change 2,dev,2026-11-24T09:00:00Z,2026-11-24T10:00:00Z,,20,2,${"b".repeat(40)},`,
+    "",
+  ].join("\n"));
+  const last = await firstRun(w, state);
+  assert.equal(last.outcome, "ok", JSON.stringify(last));
+  const pulls = (await sheet(w.alice, ids.pulls)).rows;
+  assert.deepEqual(pulls.filter((row) => row.id === "supa/app#2").map((row) => [row.merge_commit, row.deployed]), [["b".repeat(40), "2026-11-24T11:20:00Z"]]);
+});
+
+test("a refused merge commit list fails the run and writes nothing", { skip }, async () => {
+  const w = await world();
+  const { ids, state } = await installed(w, { closed: () => { throw new Error("unreachable"); } });
+  w.net.answers.set("api.github.com", ((answer) => (url, init) => (new URL(url).pathname.endsWith("/pulls") ? new Response("{}", { status: 403 }) : answer(url, init)))(w.net.answers.get("api.github.com")));
+  const last = await firstRun(w, state);
+  assert.notEqual(last.outcome, "ok", JSON.stringify(last));
+  assert.deepEqual((await sheet(w.alice, ids.pulls)).rows, []);
 });
 
 test("a non-404 failure of the deploy read fails the run and keeps no workflow runs", { skip }, async () => {

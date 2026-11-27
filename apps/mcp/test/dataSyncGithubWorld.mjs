@@ -40,8 +40,17 @@ export async function withSource(w, who, source = "github") {
   return ids;
 }
 
-/** A pull request as GitHub answers it; a merged one's squash commit is its number's letter, 40 times (#2 → "b"…). */
-export const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" }, mergeCommit: merged && number <= 26 ? { oid: String.fromCharCode(96 + number).repeat(40) } : null });
+/**
+ * A pull request as GitHub's GraphQL answers it. Its merge commit is not here: that is the REST list's
+ * `merge_commit_sha` (`mergeShaOf`). `headRefOid` is its branch head, never its merge, planted so a read that took it
+ * would show.
+ */
+export const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" }, headRefOid: "f".repeat(40) });
+
+/** A merged pull request's squash commit is its number's letter, 40 times (#2 → "b"…); past #26 GitHub names none. */
+export const mergeShaOf = (number) => (number <= 26 ? String.fromCharCode(96 + number).repeat(40) : null);
+/** The closed pull requests of a repository, newest first, as the REST list answers them: #30 down to #2. */
+const DEFAULT_CLOSED = () => Array.from({ length: 29 }, (_, i) => 30 - i).map((number) => ({ number, merged_at: "2026-11-01T00:00:00Z", merge_commit_sha: mergeShaOf(number) }));
 
 /** GitHub as it answers, recording each call's host, path and the authorization it carried. */
 export const DEPLOY_RUN = { id: 7001, name: "Deploy to Production", head_branch: `prod-deploy/${"c".repeat(40)}`, run_started_at: "2026-11-25T08:30:00Z", updated_at: "2026-11-25T08:50:00Z", conclusion: "failure" };
@@ -53,7 +62,7 @@ const DEFAULT_DEPLOY_RUNS = (repo) => (repo === "supa/app" ? [DEPLOY_RUN] : new 
  * GitHub as it answers. `repos` is what the installation holds; `reach` is what the owner's own token can read in it
  * (`/user/installations/<id>/repositories`), which defaults to all of them.
  */
-export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], reach = repos, trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, search = () => [], mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
+export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], reach = repos, trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, search = () => [], closed = DEFAULT_CLOSED, mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
   const seen = [];
   const auth = (init) => String(new Headers(init?.headers ?? {}).get("authorization") ?? "");
   w.net.answers.set("github.com", (url, init) => {
@@ -91,6 +100,8 @@ export function github(w, { installations = [Number(INSTALLATION)], mintStatus =
     if (pathname === "/installation/repositories") return Response.json({ repositories: repos.map((full_name) => ({ full_name, default_branch: "main", private: true })) });
     if (pathname === "/graphql") {
       const { query, variables } = call.body;
+      // A pull request's mergeCommit is a Commit, which needs Contents: the read-only installation is refused it.
+      if (query.includes("mergeCommit")) return Response.json({ data: null, errors: [{ type: "FORBIDDEN", message: "Resource not accessible by integration" }] });
       call.repo = variables.owner ? `${variables.owner}/${variables.name}` : variables.q;
       if (query.includes("pullRequests")) {
         const nodes = variables.name === "app" ? [pr(2, "2026-11-24T09:00:00Z", "2026-11-24T10:00:00Z"), pr(1, "2026-11-20T09:00:00Z", null, "2026-11-24T08:00:00Z")] : [];
@@ -106,6 +117,14 @@ export function github(w, { installations = [Number(INSTALLATION)], mintStatus =
         return Response.json({ data: { repository: { deployments: { nodes, pageInfo: { hasNextPage: false } } } } });
       }
       return Response.json({ data: { search: { nodes: search(variables.q), pageInfo: { hasNextPage: false } } } });
+    }
+    const listing = /^\/repos\/(.+)\/pulls$/.exec(pathname);
+    if (listing) {
+      call.repo = listing[1];
+      const size = Number(searchParams.get("per_page") ?? 30);
+      const page = Number(searchParams.get("page") ?? 1);
+      if (searchParams.get("state") !== "closed" || searchParams.get("sort") !== "created" || searchParams.get("direction") !== "desc") return new Response("{}", { status: 422 });
+      return Response.json(closed(listing[1]).slice((page - 1) * size, page * size));
     }
     const deploying = /^\/repos\/(.+)\/actions\/workflows\/([^/]+)\/runs$/.exec(pathname);
     if (deploying) {
