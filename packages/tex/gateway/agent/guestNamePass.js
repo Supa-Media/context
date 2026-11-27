@@ -23,7 +23,7 @@ import { requestViaGateway } from "./aiGateway.js";
 import { cleanName } from "./groupNames.js";
 import { guestNameEntry, guestNamesFrom } from "./groupGuestNames.js";
 import { withArchitecture } from "./texArchitecture.js";
-import { texWords } from "./texConfig.js";
+import { texEffort, texModel, texWords } from "./texConfig.js";
 
 export const GUEST_NAMES_MODEL = "anthropic/claude-haiku-5-5";
 /** The chat's newest text lines it reads, and the most characters of them the model is shown. */
@@ -34,6 +34,20 @@ const MAX_LINE_CHARS = 400;
 export const RECENT_GUEST_LINES = 8;
 const GUEST = /^guest-[0-9a-f]{4}$/;
 const MAX_NAMES_READ = 500;
+const NODE = "guestNames";
+
+/**
+ * The step's model and effort in this config (a Lab draft's included), main's shelf default when it has no such step.
+ * Its effort is `off` there: a JSON answer with thinking on spent the 300 tokens thinking and answered nothing (Lab,
+ * 2026-11-27: two passes over a chat that named its guest found no name).
+ */
+export function guestNamesSetup(tex) {
+  try {
+    return { model: texModel(NODE, tex), ...texEffort(NODE, tex) };
+  } catch {
+    return { model: GUEST_NAMES_MODEL, effort: "low", thinking: "off" };
+  }
+}
 
 const idOf = (entry) => (typeof entry?.eid === "string" ? entry.eid : entry?.id);
 const labelOf = (entry) => (entry?.from?.kind === "person" && typeof entry.from.name === "string" && GUEST.test(entry.from.name) ? entry.from.name : null);
@@ -131,7 +145,7 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   let found;
   try {
     const reply = await request(
-      { model: GUEST_NAMES_MODEL, system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300, effort: "low" },
+      { ...guestNamesSetup(config.tex), system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300 },
       config,
       { metadata },
     );
