@@ -260,13 +260,15 @@ test("the object client asks ws.bots.check at the reader's clearance", async () 
   assert.equal(await unserved.check("Grok Bot"), null);
 });
 
-test("what a bot with no webhook keeps says to check every 5 minutes, and a webhook bot's not", () => {
+test("what every bot keeps says to check every 5 minutes, a webhook bot's too (Dev, 2026-11-27)", () => {
   const polling = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "mail" });
   assert.match(polling, /every 5 minutes/i);
   assert.match(polling, /orient \{ for: "Grok Bot", check: true \}/);
   assert.match(polling, /on a timer that survives/);
   const hooked = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "webhook" });
-  assert.doesNotMatch(hooked, /check: true/);
+  // Dev, 2026-11-27: "maybe we should setup both webhook and a lightweight check every 5 minutes".
+  assert.match(hooked, /orient \{ for: "Grok Bot", check: true \}/);
+  assert.match(hooked, /Keep it even though you have a webhook/);
 });
 
 // ---- through the real object ----

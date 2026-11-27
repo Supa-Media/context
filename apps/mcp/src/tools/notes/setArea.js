@@ -242,7 +242,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (seated !== undefined) {
       const mailPath = `${area}/mail/${mailJoinName(seated[1])}.md`;
       const made = await makeMailNote(store, scope, rules, overrides, mailPath);
-      if (made === "made") done.push(`${mailPath}: made, for ${seated[1]}'s answers`);
+      if (made === "made") done.push(`${mailPath}: made`);
     }
   }
 
