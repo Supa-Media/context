@@ -166,6 +166,46 @@ describe("the Routines section", () => {
     ]);
   });
 
+  test("a second tap before the first lands writes nothing twice", async () => {
+    windowOf(1440);
+    const files: string[] = [];
+    const notes = AREAS.filter((note) => !note.path.includes("/routines/"));
+    await mount(host([], { notes, files }), LISTING);
+    await press(one("area-row-areas/finance"));
+    const button = one("area-panel-pulse");
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    await settle();
+    expect(files.map((file) => file.split("\n")[0])).toEqual([
+      "create areas/finance/routines/daily/improve-your-metric.md",
+      "create areas/finance/routines/daily/manager-loop.md",
+    ]);
+  });
+
+  test("quick changes are written in order, each from the one before", async () => {
+    windowOf(1440);
+    const writes: Write[] = [];
+    await mount(host(writes, { notes: AREAS, files: [] }), LISTING);
+    await press(one("area-row-areas/finance"));
+    await press(one("area-panel-routine-areas/finance/routines/daily/manager-loop.md"));
+    // The second press lands while the first write is still on its way.
+    await press(one("area-panel-routine-day-2"));
+    await press(one("area-panel-routine-day-4"));
+    await settle();
+    const on = writes.filter(([at, k]) => at === "areas/finance/routines/daily/manager-loop.md" && k === "on").map(([, , value]) => value);
+    expect(on.at(-1)).toBe("mon, tue, thu");
+  });
+
+  test("a row tells a screen reader what it shows: the schedule, paused, and why one won't run", async () => {
+    windowOf(1440);
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(one("area-row-areas/finance"));
+    expect(one("area-panel-routine-areas/finance/routines/daily/manager-loop.md").getAttribute("aria-label")).toMatch(/^Manager loop, for the Manager, Weekdays at 10 am/);
+    expect(one("area-panel-routine-areas/finance/routines/monthly/month-end-close.md").getAttribute("aria-label")).toBe("Month-end close, Monthly on the 1st at 4 pm, paused");
+  });
+
   test("a reader sees the routines and changes none", async () => {
     windowOf(1440);
     await mount(host(null, { notes: AREAS }), LISTING);

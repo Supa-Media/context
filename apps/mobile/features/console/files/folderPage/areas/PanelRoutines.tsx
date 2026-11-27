@@ -12,7 +12,7 @@
  * projects list's row and hover, "+ Attach a project"'s link, the attach list's box, and "Open area"'s button.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -53,11 +53,23 @@ interface HoverState {
 export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
   const styles = useThemedStyles(makeStyles);
   // The routine being edited, and its draft as last written, for the moment after a move before the notes say so.
-  const [editingAt, setEditingAt] = useState<{ path: string; draft: Draft | null } | null>(null);
+  // `opened` names one editing session, so a move (which changes the path) keeps the editor and its draft.
+  const [editingAt, setEditingAt] = useState<{ path: string; draft: Draft | null; opened: number } | null>(null);
   const editing = editingAt?.path ?? null;
-  const setEditing = (path: string | null, draft: Draft | null = null) => setEditingAt(path === null ? null : { path, draft });
+  // Where the routine is now, set the moment a move lands, before the next render: a queued change writes there.
+  const livePath = useRef<string | null>(null);
+  const setEditing = (path: string | null) => {
+    livePath.current = path;
+    setEditingAt(path === null ? null : { path, draft: null, opened: Date.now() });
+  };
+  const moved = (path: string, draft: Draft) => {
+    livePath.current = path;
+    setEditingAt((now) => (now === null ? null : { ...now, path, draft }));
+  };
   const [adding, setAdding] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  // A second tap before the first render after it would write the pulse notes twice.
+  const turning = useRef(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { routines, canEdit } = tools;
   const writes = canEdit && tools.change !== undefined;
@@ -65,23 +77,29 @@ export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
   const editingRow = editing === null ? undefined : routines.find((routine) => routine.path === editing);
   const editingDraft = editing === null ? null : (tools.draftOf(editing) ?? editingAt?.draft ?? null);
   const turnOn = async () => {
-    if (tools.pulseOn === undefined || busy) return;
+    if (tools.pulseOn === undefined || turning.current) return;
+    turning.current = true;
     setBusy(true);
-    setProblem(await tools.pulseOn());
-    setBusy(false);
+    try {
+      setProblem(await tools.pulseOn());
+    } finally {
+      turning.current = false;
+      setBusy(false);
+    }
   };
   const editor = (path: string, draft: Draft) => (
     <RoutineEditor
-      key={`edit:${path}`}
+      key={`edit:${editingAt?.opened ?? path}`}
       area={tools.area}
       root={tools.root}
       draft={draft}
       path={path}
       onChange={async (before, after) => {
         if (tools.change === undefined) return null;
-        const done = await tools.change(path, before, after);
+        const from = livePath.current ?? path;
+        const done = await tools.change(from, before, after);
         if ("problem" in done) return done.problem;
-        if (done.path !== path) setEditing(done.path, after);
+        if (done.path !== from) moved(done.path, after);
         return null;
       }}
       onOpen={() => tools.open(path)}
@@ -103,11 +121,11 @@ export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
             <>
               <View style={styles.emptyActions}>
                 {tools.pulseOn === undefined ? null : (
-                  <Pressable role="button" onPress={() => void turnOn()} disabled={busy} style={[styles.primary, busy && styles.primaryOff]} testID="area-panel-pulse">
+                  <Pressable hitSlop={8} role="button" onPress={() => void turnOn()} disabled={busy} style={[styles.primary, busy && styles.primaryOff]} testID="area-panel-pulse">
                     <Text variant="treeMeta" style={styles.primaryWord}>Turn on pulse checks</Text>
                   </Pressable>
                 )}
-                <Pressable role="button" onPress={() => setAdding(blankDraft())} style={styles.add} testID="area-panel-routine-add">
+                <Pressable hitSlop={8} role="button" onPress={() => setAdding(blankDraft())} style={styles.add} testID="area-panel-routine-add">
                   <Text variant="treeMeta" style={styles.addWord}>+ Add routine</Text>
                 </Pressable>
               </View>
@@ -128,7 +146,7 @@ export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
       {adding !== null && tools.create !== undefined ? (
         <RoutineEditor key="add" area={tools.area} root={tools.root} draft={adding} onCreate={tools.create} onDone={() => setAdding(null)} />
       ) : routines.length > 0 && canEdit && tools.create !== undefined ? (
-        <Pressable role="button" onPress={() => setAdding(blankDraft())} style={styles.add} testID="area-panel-routine-add">
+        <Pressable hitSlop={8} role="button" onPress={() => setAdding(blankDraft())} style={styles.add} testID="area-panel-routine-add">
           <Text variant="treeMeta" style={styles.addWord}>+ Add routine</Text>
         </Pressable>
       ) : null}
@@ -196,7 +214,7 @@ function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRou
       onPress={onPress}
       disabled={onPress === undefined}
       role={onPress === undefined ? undefined : "button"}
-      accessibilityLabel={`${routine.title}, ${routine.when || "won't run"}`}
+      accessibilityLabel={rowLabel(routine, next, tools.budget?.bot ?? null, tools.now)}
       style={({ hovered }: HoverState) => [styles.row, hovered && onPress !== undefined && styles.hover]}
       testID={`area-panel-routine-${routine.path}`}
     >
@@ -223,19 +241,40 @@ function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRou
   );
 }
 
+/** What a screen reader says for a row: everything the row shows, in the order it shows it. */
+function rowLabel(routine: RoutineRow, next: string | null, bot: string | null, now: number): string {
+  const parts = [routine.title];
+  if (routine.mode !== null) parts.push(`for the ${routine.mode}`);
+  if (routine.problem !== null) return [...parts, `won't run: ${routine.problem}`].join(", ");
+  parts.push(routine.when || "no schedule");
+  if (routine.paused) parts.push("paused");
+  else if (next !== null) parts.push(`next ${next}`);
+  if (routine.last) {
+    const [word, rest] = lastWords(routine.last, bot, now);
+    parts.push(`last run: ${word}${rest ? `, ${rest}` : ""}`);
+  }
+  return parts.join(", ");
+}
+
+/** A last run as words: the outcome and what follows it. */
+function lastWords(last: NonNullable<RoutineRow["last"]>, bot: string | null, now: number): [string, string, "ok" | "muted" | "warn" | "crit"] {
+  if (last.at === null || last.outcome === null) return ["Hasn't run yet", "", "muted"];
+  const at = clockAt(last.at, now);
+  const said: Record<Outcome, [string, string, "ok" | "muted" | "warn" | "crit"]> = {
+    sent: last.answeredAt !== null ? ["Answered", clockAt(last.answeredAt, now), "ok"] : ["Not answered yet", `sent ${at}`, "muted"],
+    held: ["Held", `${at}, sends again Monday`, "warn"],
+    not_listed: ["Not sent", at, "warn"],
+    no_bot: ["Not sent", "no bot holds this area", "warn"],
+    failed: [`Didn't reach ${bot ?? "the bot"}`, at, "crit"],
+  };
+  return said[last.outcome];
+}
+
 /** The last run, its outcome first and in its tone, then when. The word carries the meaning, never the colour alone. */
 function Last({ last, bot, now }: { last: NonNullable<RoutineRow["last"]>; bot: string | null; now: number }) {
   const styles = useThemedStyles(makeStyles);
   if (last.at === null || last.outcome === null) return <Text variant="treeMeta" style={styles.muted}>Hasn't run yet</Text>;
-  const at = clockAt(last.at, now);
-  const said: Record<Outcome, [string, "ok" | "muted" | "warn" | "crit", string]> = {
-    sent: last.answeredAt !== null ? ["Answered", "ok", clockAt(last.answeredAt, now)] : ["Not answered yet", "muted", `sent ${at}`],
-    held: ["Held", "warn", `${at}, sends again Monday`],
-    not_listed: ["Not sent", "warn", at],
-    no_bot: ["Not sent", "warn", "no bot holds this area"],
-    failed: [`Didn't reach ${bot ?? "the bot"}`, "crit", at],
-  };
-  const [word, tone, rest] = said[last.outcome];
+  const [word, rest, tone] = lastWords(last, bot, now);
   const ink = tone === "ok" ? styles.ok : tone === "warn" ? styles.warn : tone === "crit" ? styles.crit : styles.muted;
   return (
     <Text variant="treeMeta" style={styles.muted} numberOfLines={2}>

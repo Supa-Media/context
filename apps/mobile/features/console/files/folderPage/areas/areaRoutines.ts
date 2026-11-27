@@ -15,6 +15,7 @@
 
 import { areaRoutineNext, areaRoutineOf, areaRoutineWhen, botAllowedIn, cardSlug, DEFAULT_ROUTINE_ZONE, MAX_ROUTINE_TIMES, parseWorksIn, type AreaRoutine } from "@context/shared/src/areaRoutines.cjs";
 import { pulseTemplates, templatePath, templateText } from "@context/shared/src/areaRoutineTemplates.cjs";
+import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 import { cadenceFromFolder, frontMatter, parseTime, parseWeekdays } from "@context/shared/src/routines.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 
@@ -183,7 +184,8 @@ export function budgetOf(area: string, bot: string | null, worksIn: PropertyValu
   if (state === "loading") return undefined;
   if (bot === null) return null;
   const { allowed, cap } = botAllowedIn(parseWorksIn(worksIn), area);
-  const names = new Set([cardSlug(bot), ...(botSlug === undefined ? [] : [cardSlug(botSlug)])]);
+  // The workspace object counts usage under the bot's mail name (`mailJoinName`), which cuts a long name short.
+  const names = new Set([cardSlug(bot), cardSlug(mailJoinName(bot)), ...(botSlug === undefined ? [] : [cardSlug(botSlug)])]);
   const used = state === null ? null : (state.usage.find((one) => one.area.toLowerCase() === area.toLowerCase() && names.has(cardSlug(one.bot)))?.used ?? 0);
   return { bot, used, cap, listed: allowed };
 }

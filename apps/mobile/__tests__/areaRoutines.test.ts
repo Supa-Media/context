@@ -205,3 +205,11 @@ describe("pulse checks", () => {
     expect(pulsePlan(AREA, [], [note("areas/finance/routines/daily/improve-your-metric.md", { paused: "true" })])).toEqual({ create: [], resume: [] });
   });
 });
+
+describe("a long bot name", () => {
+  test("its usage is found under the mail name the workspace object counts it by", () => {
+    const { budgetOf } = require("../features/console/files/folderPage/areas/areaRoutines");
+    const state = { week: "2026-11-23", routines: [], usage: [{ bot: "tex-quality-tex-reply-qu", area: "areas/x", used: 7 }] };
+    expect(budgetOf("areas/x", "Tex Quality · Tex reply quality", ["areas/x · 20%"], state)).toEqual({ bot: "Tex Quality · Tex reply quality", used: 7, cap: 20, listed: true });
+  });
+});

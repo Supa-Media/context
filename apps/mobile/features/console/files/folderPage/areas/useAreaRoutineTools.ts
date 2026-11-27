@@ -101,7 +101,10 @@ export function useAreaRoutineTools({
       }
       for (const path of plan.resume) {
         const why = await chooseMany(path, [["paused", null]], false);
-        if (why !== null) return why;
+        if (why !== null) {
+          settle(written, []);
+          return why;
+        }
       }
       settle(written, []);
       return null;

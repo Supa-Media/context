@@ -5,7 +5,7 @@
  * it is made, the way every other panel field is, with "Runs on schedule" (`paused:`), "Open the job" and "Done".
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Switch } from "../../../../design/components/Switch";
@@ -55,28 +55,43 @@ export function RoutineEditor({
   const [busy, setBusy] = useState(false);
   const words = draftWords(area, root, { ...draft, name });
 
+  // What the note holds as far as this editor knows, and the writes waiting their turn: one at a time, in order,
+  // each from what the last one left, so two quick taps never race and a refusal goes back to what was written.
+  const written = useRef(initial);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const latest = useRef({ onChange });
+  latest.current.onChange = onChange;
+  const creating = useRef(false);
+
   /** One change: drawn at once, written when editing, taken back if refused. */
-  const put = async (next: Draft) => {
-    const before = draft;
+  const put = (next: Draft) => {
     setDraft(next);
     setProblem(null);
     if (adding || onChange === undefined) return;
-    const why = await onChange(before, next);
-    if (why !== null) {
-      setDraft(before);
-      setProblem(why);
-    }
+    queue.current = queue.current.then(async () => {
+      const write = latest.current.onChange;
+      if (write === undefined) return;
+      const why = await write(written.current, next).catch((error: unknown) => (error instanceof Error && error.message !== "" ? error.message : "The change couldn't be saved. Try again."));
+      if (why === null) written.current = next;
+      else {
+        setDraft(written.current);
+        setProblem(why);
+      }
+    });
   };
   const commitName = () => {
     const trimmed = name.trim();
     if (adding || trimmed === draft.name.trim()) return;
-    if (trimmed === "") return setName(draft.name);
-    void put({ ...draft, name: trimmed });
+    if (trimmed === "") {
+      setName(draft.name);
+      return setProblem("A routine needs a name, so the old one is kept.");
+    }
+    put({ ...draft, name: trimmed });
   };
   const toggleDay = (day: number) => {
     const on = draft.days.includes(day);
     if (on && draft.days.length === 1) return;
-    void put({ ...draft, days: on ? draft.days.filter((each) => each !== day) : [...draft.days, day].sort((a, b) => a - b) });
+    put({ ...draft, days: on ? draft.days.filter((each) => each !== day) : [...draft.days, day].sort((a, b) => a - b) });
   };
   const addTime = () => {
     if (typing === null) return;
@@ -84,13 +99,21 @@ export function RoutineEditor({
     if (typing.trim() === "") return setTyping(null);
     if (time === null) return setProblem("Write a time like 2 pm or 14:00.");
     setTyping(null);
-    if (!draft.times.includes(time)) void put({ ...draft, times: sortTimes([...draft.times, time]) });
+    if (!draft.times.includes(time)) put({ ...draft, times: sortTimes([...draft.times, time]) });
   };
   const create = async () => {
-    if (onCreate === undefined || busy) return;
+    if (onCreate === undefined || creating.current) return;
+    creating.current = true;
     setBusy(true);
-    const why = await onCreate({ ...draft, name });
-    setBusy(false);
+    let why: string | null;
+    try {
+      why = await onCreate({ ...draft, name });
+    } catch (error) {
+      why = error instanceof Error && error.message !== "" ? error.message : "The routine couldn't be added. Try again.";
+    } finally {
+      creating.current = false;
+      setBusy(false);
+    }
     if (why === null) onDone();
     else setProblem(why);
   };
@@ -118,7 +141,7 @@ export function RoutineEditor({
           {REPEATS.map((each: Repeats) => {
             const on = each === draft.repeats;
             return (
-              <Pressable key={each} onPress={() => void put(withRepeats(draft, each))} role="radio" aria-checked={on} style={[styles.chip, on && styles.chipOn]} testID={`area-panel-routine-repeats-${each}`}>
+              <Pressable hitSlop={4} key={each} onPress={() => put(withRepeats(draft, each))} role="radio" aria-checked={on} style={[styles.chip, on && styles.chipOn]} testID={`area-panel-routine-repeats-${each}`}>
                 <Text variant="treeMeta" style={on ? styles.chipWordOn : styles.chipWord}>{each}</Text>
               </Pressable>
             );
@@ -128,11 +151,11 @@ export function RoutineEditor({
       {draft.repeats === "Hourly" ? (
         <Field label="Every">
           <View style={styles.inline}>
-            <Pressable role="button" accessibilityLabel="Fewer hours" disabled={hours <= 0} onPress={() => void put({ ...draft, everyHours: HOURS[Math.max(0, hours - 1)]! })} style={styles.step} testID="area-panel-routine-hours-less">
+            <Pressable hitSlop={8} role="button" accessibilityLabel="Fewer hours" disabled={hours <= 0} onPress={() => put({ ...draft, everyHours: HOURS[Math.max(0, hours - 1)]! })} style={styles.step} testID="area-panel-routine-hours-less">
               <Icon name="minus" size={11} color={colors.text2} />
             </Pressable>
             <Text variant="tree">{draft.everyHours === 1 ? "1 hour" : `${draft.everyHours} hours`}</Text>
-            <Pressable role="button" accessibilityLabel="More hours" disabled={hours >= HOURS.length - 1} onPress={() => void put({ ...draft, everyHours: HOURS[Math.min(HOURS.length - 1, hours + 1)]! })} style={styles.step} testID="area-panel-routine-hours-more">
+            <Pressable hitSlop={8} role="button" accessibilityLabel="More hours" disabled={hours >= HOURS.length - 1} onPress={() => put({ ...draft, everyHours: HOURS[Math.min(HOURS.length - 1, hours + 1)]! })} style={styles.step} testID="area-panel-routine-hours-more">
               <Icon name="plus" size={11} color={colors.text2} />
             </Pressable>
           </View>
@@ -146,7 +169,7 @@ export function RoutineEditor({
                 {DAY_LETTERS.map((letter, day) => {
                   const on = draft.days.includes(day);
                   return (
-                    <Pressable key={day} onPress={() => toggleDay(day)} role="checkbox" aria-checked={on} accessibilityLabel={DAY_NAMES[day]} style={[styles.day, on && styles.chipOn]} testID={`area-panel-routine-day-${day}`}>
+                    <Pressable hitSlop={4} key={day} onPress={() => toggleDay(day)} role="checkbox" aria-checked={on} accessibilityLabel={DAY_NAMES[day]} style={[styles.day, on && styles.chipOn]} testID={`area-panel-routine-day-${day}`}>
                       <Text variant="treeMeta" style={on ? styles.chipWordOn : styles.chipWord}>{letter}</Text>
                     </Pressable>
                   );
@@ -159,7 +182,7 @@ export function RoutineEditor({
               {draft.times.map((time) => (
                 <View key={time} style={styles.time}>
                   <Text variant="treeMeta" style={styles.timeWord}>{time}</Text>
-                  <Pressable role="button" accessibilityLabel={`Remove ${time}`} hitSlop={6} disabled={draft.times.length === 1} onPress={() => void put({ ...draft, times: draft.times.filter((each) => each !== time) })} testID={`area-panel-routine-time-remove-${time}`}>
+                  <Pressable role="button" accessibilityLabel={`Remove ${time}`} hitSlop={6} disabled={draft.times.length === 1} onPress={() => put({ ...draft, times: draft.times.filter((each) => each !== time) })} testID={`area-panel-routine-time-remove-${time}`}>
                     <Icon name="close" size={10} color={colors.muted} />
                   </Pressable>
                 </View>
@@ -178,7 +201,7 @@ export function RoutineEditor({
                   testID="area-panel-routine-time-new"
                 />
               ) : draft.times.length < MAX_ROUTINE_TIMES ? (
-                <Pressable role="button" onPress={() => setTyping("")} accessibilityLabel="Add a time" style={styles.timeAdd} testID="area-panel-routine-time-add">
+                <Pressable hitSlop={8} role="button" onPress={() => setTyping("")} accessibilityLabel="Add a time" style={styles.timeAdd} testID="area-panel-routine-time-add">
                   <Icon name="plus" size={11} color={colors.text2} />
                 </Pressable>
               ) : null}
@@ -189,7 +212,7 @@ export function RoutineEditor({
       )}
       {adding ? null : (
         <View style={styles.inline}>
-          <Switch value={!draft.paused} onValueChange={(runs) => void put({ ...draft, paused: !runs })} label={`Run ${draft.name}`} testID="area-panel-routine-runs" />
+          <Switch value={!draft.paused} onValueChange={(runs) => put({ ...draft, paused: !runs })} label={`Run ${draft.name}`} testID="area-panel-routine-runs" />
           <Text variant="tree">{draft.paused ? "Paused" : "Runs on schedule"}</Text>
         </View>
       )}
@@ -197,19 +220,19 @@ export function RoutineEditor({
       <View style={styles.foot}>
         {adding ? (
           <>
-            <Pressable role="button" onPress={onDone} style={styles.link} testID="area-panel-routine-cancel">
+            <Pressable hitSlop={8} role="button" onPress={onDone} style={styles.link} testID="area-panel-routine-cancel">
               <Text variant="treeMeta" style={styles.muted}>Cancel</Text>
             </Pressable>
-            <Pressable role="button" onPress={() => void create()} disabled={busy || name.trim() === ""} style={[styles.primary, (busy || name.trim() === "") && styles.primaryOff]} testID="area-panel-routine-create">
+            <Pressable hitSlop={8} role="button" onPress={() => void create()} disabled={busy || name.trim() === ""} style={[styles.primary, (busy || name.trim() === "") && styles.primaryOff]} testID="area-panel-routine-create">
               <Text variant="treeMeta" style={styles.primaryWord}>Create and write the job</Text>
             </Pressable>
           </>
         ) : (
           <>
-            <Pressable role="link" onPress={onOpen} style={styles.link} testID="area-panel-routine-open">
+            <Pressable hitSlop={8} role="link" onPress={onOpen} style={styles.link} testID="area-panel-routine-open">
               <Text variant="treeMeta" style={styles.linkWord}>Open the job ›</Text>
             </Pressable>
-            <Pressable role="button" onPress={onDone} style={styles.link} testID="area-panel-routine-done">
+            <Pressable hitSlop={8} role="button" onPress={onDone} style={styles.link} testID="area-panel-routine-done">
               <Text variant="treeMeta" style={styles.doneWord}>Done</Text>
             </Pressable>
           </>
