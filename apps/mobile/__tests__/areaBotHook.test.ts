@@ -65,11 +65,13 @@ describe("a bot's webhook on its page", () => {
     expect(one("area-panel-hook-key").textContent).toContain(second);
   });
 
-  test("once saved it shows the host and the header's end, never the address, and sends a test", async () => {
+  test("once saved it shows the host alone, never the address or the header, and sends a test", async () => {
     const test_ = jest.fn(async () => ({ ok: false, status: 503 }));
     await show({ bot: "Finance", row: ROW, canEdit: true, save: async () => {}, test: test_ });
     expect(one("area-panel-hook-saved").textContent).toBe("Webhook at bot.example.com");
-    expect(one("area-panel-hook-detail").textContent).toBe("Header ends 1234 · set by @seyi");
+    // Dev, 2026-11-27: "what does this mean? and why do we have to show it", of "Header ends … · set by @seyi".
+    expect(all("area-panel-hook-detail")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("1234");
     expect(all("area-panel-hook-address")).toHaveLength(0);
     await press(one("area-panel-hook-test"));
     expect(test_).toHaveBeenCalled();

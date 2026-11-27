@@ -257,9 +257,9 @@ describe("The bots folder", () => {
     const MUSE: FolderListing = { path: "bots/muse", folderDefault: "team", entries: [entry("file", "bots/muse/about.md")], truncated: false, manifestUsable: true };
     await mount(host(writes, { notes, bodies: BODIES, files: [] }), MUSE);
     await settle();
-    // A card that names no webhook checks in; it never has, so its setup prompt is open.
+    // A card that names no webhook checks in; it never has, so its setup steps are drawn.
     expect(one("bot-setup-way-check").getAttribute("aria-checked")).toBe("true");
-    expect(all("bot-setup-prompt")).toHaveLength(1);
+    expect(all("bot-setup-steps")).toHaveLength(1);
     expect(all("area-panel-hook-by-hand")).toHaveLength(0);
     await press(one("bot-setup-way-webhook"));
     await settle();
