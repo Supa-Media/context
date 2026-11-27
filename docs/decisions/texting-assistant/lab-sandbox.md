@@ -194,7 +194,8 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   shows it below the real note when it is read. `save_email_draft` saves nothing in Gmail: the write keeps who to, cc,
   subject and the whole body (`sent: false`). `send_email` runs through the real email gate (`policy.js` `REAL_GATE`,
   since 2026-11-27): the Mail checker, the shown-copy check and the hold all run as in a real chat, a held ask lands in
-  the test chat's own store and is answered by a 👍 or yes there, and the send itself is answered as sent at the control
+  the test chat's own store (its approval records under `.context/approvals/` are the test chat's overlay,
+  `labSandbox/approvalsOverlay.js`, since a test turn's keyless bucket refuses them) and is answered by a 👍 or yes there, and the send itself is answered as sent at the control
   plane and kept as the write (`sent: false`, "would have sent"), never sent. Its limits check only reads, so it runs
   for real, except in a chat shared with the developers, where it is answered here. A `.page.md` is a page served from the test chat
   (`labSandbox/pages.js`, `GET /tex-lab/sandbox/page/<sandboxId>/<id>` and the route's `page` op), read at the moment it
