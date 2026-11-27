@@ -19,11 +19,12 @@ const wired = (from, to) => TEX_CONFIG.edges.some((edge) => edge.from === from &
 const webSession = { actorClientId: "web_app", workspaceId: "ws_test", grantId: "grant_test" };
 const personalStore = { contexts: [{ current: true, kind: "personal" }] };
 
-test("send's background wires run Learn, After the reply, Chat day summaries and Connect, behind the reply, and nothing wires reflect or the nudge", () => {
+test("send's background wires run Learn, After the reply, Chat day summaries, Connect and Guest names, behind the reply, and nothing wires reflect or the nudge", () => {
   const send = TEX_CONFIG.edges.filter((edge) => edge.from === "send");
   // Still answers them? (Dev2, 2026-11-23, the no-shadow steps) is a uses wire: the Worker asks it before a held group reply goes.
   // Connect (Dev2, 2026-11-20: "score, then finder + connect step"): links the notes a turn wrote, after the reply.
-  assert.deepEqual(send.map((edge) => [edge.to, edge.mode]).sort(), [["afterReply", "background"], ["chatDays", "background"], ["connect", "background"], ["learn", "background"], ["recheck", "uses"]]);
+  // Guest names (Dev2, 2026-11-27): reads the names the chat gives the people Tex knows only by number.
+  assert.deepEqual(send.map((edge) => [edge.to, edge.mode]).sort(), [["afterReply", "background"], ["chatDays", "background"], ["connect", "background"], ["guestNames", "background"], ["learn", "background"], ["recheck", "uses"]]);
   assert.ok(!wired("send", "reflect") && !wired("send", "nudge"), "the halves run inside Learn, never as steps of their own");
   for (const half of ["reflect", "nudge"]) assert.ok(!TEX_CONFIG.nodes.some((node) => node.id === half), `${half} is retired off the config`);
   assert.ok(!wired("tools", "learn") && !wired("tools", "reflect"), "tools has no wire to Learn, so a fire from it is refused");
