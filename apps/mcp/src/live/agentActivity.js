@@ -1,8 +1,8 @@
 /** Which tool calls show as agent activity on a note, and recording them. Moved out of `src/index.js`. */
 
 import { AGENT_ACTIVITY_MAX_ENTRIES_PER_CALL, agentActivityKey } from "../agentActivity.js";
-import { botFor, boundBotsOf } from "../mail/boundBot.js";
 import { roomByName } from "../objectPlace.js";
+import { activityBot } from "./activityBot.js";
 import { isConsoleActor, presenceActor, presenceClientKey } from "./presence.js";
 
 /**
@@ -33,9 +33,10 @@ export const AGENT_ACTIVITY_TOOLS = new Map([
  * `reportUsage` makes for the same reason. Keyed by the workspace this store
  * reaches, so a cross-context call marks the context it was routed to. One
  * request per call however many notes it moved, and at most
- * `AGENT_ACTIVITY_MAX_ENTRIES_PER_CALL` of them.
+ * `AGENT_ACTIVITY_MAX_ENTRIES_PER_CALL` of them. `mailbox` is the one the call
+ * passed, which names the bot a shared connection is (`./activityBot.js`).
  */
-export function recordAgentActivity(store, entries) {
+export function recordAgentActivity(store, entries, { mailbox = null } = {}) {
   const rooms = store.presenceRooms;
   const workspaceId = store.actor?.workspaceId;
   if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
@@ -52,11 +53,8 @@ export function recordAgentActivity(store, entries) {
         typeof userId !== "string" || !userId
       ) return;
       const shown = await presenceActor(store.actor);
-      // A login bound as a bot here (`tools/notes/botBind.js`) shows as that bot, never as "@seyi's Cursor" (Dev,
-      // 2026-11-27: "all grokbots still show up as cursor even though they are registered bots"). A connection bound
-      // as several bots shows as the one whose folder the note is in, or its only one; otherwise as the app, as before.
-      const bots = await boundBotsOf(store).catch(() => []);
-      const bot = botFor(bots, { path: entries[0]?.path ?? null }).bot ?? null;
+      // A login bound as a bot here shows as that bot, never as "@seyi's Cursor" (`./activityBot.js`).
+      const bot = await activityBot(store, { path: entries[0]?.path ?? null, mailbox }).catch(() => null);
       const actor = {
         ...shown,
         ...(bot === null ? {} : { name: bot.name }),

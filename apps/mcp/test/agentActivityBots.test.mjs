@@ -4,14 +4,15 @@
  * name?"). `src/live/agentActivity.js` asks `mail/boundBot.js` which bots the grant is here.
  *
  * Sabotage: dropping the bound-bot lookup from `recordAgentActivity` fails the first two checks; dropping the bot from
- * the activity id fails the third (two bots on one connection collapse into one row).
+ * the activity id fails the third (two bots on one connection collapse into one row); dropping the short name fails
+ * three; dropping the `works_in` fallback fails the last.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { recordAgentActivity } from "../src/live/agentActivity.js";
 
 /** A store whose activity room keeps what it is told, and whose object says which bots grant `g1` is. */
-function storeOf(bots) {
+function storeOf(bots, { cards = {}, mailboxes = {} } = {}) {
   const posted = [];
   const deferred = [];
   const rooms = {
@@ -21,6 +22,12 @@ function storeOf(bots) {
   const store = {
     actor: { workspaceId: "w1", grantId: "g1", clientId: "cursor", client: "Cursor", name: "@seyi", userId: "u1" },
     presenceRooms: rooms,
+    mail: { get: async (id) => mailboxes[id] ?? null },
+    // Each card's front matter, as the tree's facts answer it.
+    treeFacts: async ({ ask, paths }) =>
+      ask === "jobs"
+        ? { served: true, jobs: { areas: "areas" }, roots: ["areas", "bots"] }
+        : { served: true, props: paths.filter((path) => cards[path]).map((path) => ({ path, props: JSON.stringify({ properties: cards[path] }) })) },
     defer: (work) => deferred.push(work),
     objectReading: {
       client: { mail: { bound: async ({ grantId }) => ({ served: true, bots: grantId === "g1" ? bots : [] }) } },
@@ -63,4 +70,43 @@ test("two bots on one connection are two rows, and an unbound login stays the ap
   recordAgentActivity(plain.store, [{ kind: "read", path: "todo.md" }]);
   await plain.settle();
   assert.equal(plain.posted[0].actor.name, "@seyi's Cursor");
+});
+
+test("a bot's long card name shows as its short name", async () => {
+  const { store, posted, settle } = storeOf([{ bot: "pablo", name: "Pablo · Social Strategist & SEO/AEO Visibility Lead" }]);
+  recordAgentActivity(store, [{ kind: "read", path: "areas/growth/SEO/plan.md" }]);
+  await settle();
+  assert.equal(posted[0].actor.name, "Pablo");
+});
+
+test("one connection that is several bots shows as the bot its mailbox joined as, else the one whose card works there", async () => {
+  // Sayo's bots share one Grok connector (Dev, 2026-11-27: "simply Pablo").
+  const bots = [
+    { bot: "pablo", name: "Pablo · Social Strategist" },
+    { bot: "beth", name: "Beth" },
+    { bot: "dorothy", name: "Dorothy" },
+  ];
+  const cards = {
+    "bots/pablo/about.md": { kind: "agent", works_in: ["areas/growth/Socials", "areas/growth/SEO"] },
+    "bots/beth/about.md": { kind: "agent", works_in: ["areas/growth/Socials/supaseyi"] },
+    "bots/dorothy/about.md": { kind: "agent", works_in: ["areas/growth/Socials/contextdotlc"] },
+  };
+  const mailboxes = { mb1: { name: "dorothy", path: "bots/dorothy/mail/pablo.md" }, mb2: { name: "somebody-else" } };
+  const { store, posted, settle } = storeOf(bots, { cards, mailboxes });
+  recordAgentActivity(store, [{ kind: "read", path: "todo.md" }], { mailbox: "mb1" });
+  recordAgentActivity(store, [{ kind: "read", path: "areas/growth/SEO/plan.md" }]);
+  recordAgentActivity(store, [{ kind: "edit", path: "areas/growth/Socials/supaseyi/drafts.md" }], { mailbox: "mb2" });
+  recordAgentActivity(store, [{ kind: "read", path: "areas/operations/x.md" }]);
+  await settle();
+  // Keyed by note: each call's lookup finishes in its own time.
+  assert.deepEqual(
+    Object.fromEntries(posted.map((one) => [one.entries[0].path, one.actor.name])),
+    {
+      "todo.md": "Dorothy",
+      "areas/growth/SEO/plan.md": "Pablo",
+      "areas/growth/Socials/supaseyi/drafts.md": "Beth",
+      "areas/operations/x.md": "@seyi's Cursor",
+    },
+    "mailbox first, then the deepest works_in; a mailbox that is not one of its bots is ignored; nowhere, the app",
+  );
 });
