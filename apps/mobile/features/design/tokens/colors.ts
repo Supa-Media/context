@@ -237,6 +237,10 @@ export const darkColors = {
   claudeTile: "#3A2A23",
   /** Claude Code's own mark, a touch lighter on the dark tile. */
   claudeMark: "#E0825F",
+  /** The tile behind Context's own mark, the drawn hash of the app icon, on a mail face (`console/faces/ContextFace.tsx`). */
+  contextTile: "#E3D9C6",
+  /** Context's mark, a touch brighter on the dark page. */
+  contextMark: "#3651DB",
   /**
    * The fill of a card or floating control lying on a screen: Home's tiles and
    * lists, the folder card, the search capsule, the round buttons. On a pointer
@@ -497,6 +501,10 @@ export const lightColors: Colors = {
   claudeTile: "#F6E7DF",
   /** Claude Code's own mark. */
   claudeMark: "#D97757",
+  /** The tile behind Context's own mark: the app icon's cream (`assets/source/favicon.svg`). */
+  contextTile: "#EDE4D3",
+  /** Context's mark: the app icon's blue. */
+  contextMark: "#2A45CF",
   cardSurface: "#FFFDF9",
   menuSurface: "#FFFDF9",
   rootSurface: "#F7F4ED",

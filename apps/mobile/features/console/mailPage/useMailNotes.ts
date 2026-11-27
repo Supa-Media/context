@@ -83,10 +83,14 @@ export async function mailNotesThroughGateway(options: {
   url: string;
   token: (refresh: false | { rejected: string }) => Promise<string>;
   fetchImpl?: typeof fetch;
-}): Promise<{ notes: MailNoteRow[]; complete: boolean } | null> {
-  const body = await askMailGateway({ ...options, body: {} });
-  return body === null ? null : mailNotesAnswer(body);
+}): Promise<{ notes: MailNoteRow[]; complete: boolean } | typeof NOT_SERVED | null> {
+  const answer = await askMailGatewayFor({ ...options, body: {} });
+  if (answer?.status === 409 && (answer.body as { error?: unknown } | null)?.error === "not_object") return NOT_SERVED;
+  return answer?.status === 200 ? mailNotesAnswer(answer.body) : null;
 }
+
+/** The gateway's word that this workspace's mail is not gathered in one place yet (`not_object`): asking again soon will not change it. */
+export const NOT_SERVED = "not_served" as const;
 
 /** One ask of `/files/mail` with the console grant, its 200 answer's body or null: refused once, re-minted once, never a loop. */
 export async function askMailGateway(options: {
@@ -95,6 +99,17 @@ export async function askMailGateway(options: {
   body: Record<string, unknown>;
   fetchImpl?: typeof fetch;
 }): Promise<unknown | null> {
+  const answer = await askMailGatewayFor(options);
+  return answer?.status === 200 ? answer.body : null;
+}
+
+/** As `askMailGateway`, with the status: `{status, body}` of the last answer, or null where none came. */
+async function askMailGatewayFor(options: {
+  url: string;
+  token: (refresh: false | { rejected: string }) => Promise<string>;
+  body: Record<string, unknown>;
+  fetchImpl?: typeof fetch;
+}): Promise<{ status: number; body: unknown } | null> {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   if (typeof doFetch !== "function") return null;
   const send = async (token: string) => {
@@ -129,15 +144,22 @@ export async function askMailGateway(options: {
     }
     answer = await send(token);
   }
-  return answer?.status === 200 ? answer.body : null;
+  return answer;
 }
 
-export type MailState = { readonly status: "loading" } | { readonly status: "unavailable" } | { readonly status: "ready"; readonly notes: readonly MailNoteRow[]; readonly complete: boolean };
+/**
+ * `unavailable`: no answer yet. `retrying` when the ask failed on the way (a deploy, a slow answer, the network), which
+ * is asked again soon (`RETRY_MS`); not when the gateway said this workspace's mail is not gathered (`NOT_SERVED`).
+ */
+export type MailState = { readonly status: "loading" } | { readonly status: "unavailable"; readonly retrying: boolean } | { readonly status: "ready"; readonly notes: readonly MailNoteRow[]; readonly complete: boolean };
 
 /** One workspace's answer, shared by every caller. */
 interface Entry {
   state: MailState;
   at: number;
+  /** Failed asks in a row with no answer yet, for the next retry's wait. */
+  failures: number;
+  retry: ReturnType<typeof setTimeout> | null;
   asking: Promise<void> | null;
   listeners: Set<() => void>;
 }
@@ -147,7 +169,7 @@ const LOADING: MailState = { status: "loading" };
 function entryOf(workspaceId: string): Entry {
   let entry = entries.get(workspaceId);
   if (entry === undefined) {
-    entry = { state: LOADING, at: 0, asking: null, listeners: new Set() };
+    entry = { state: LOADING, at: 0, failures: 0, retry: null, asking: null, listeners: new Set() };
     entries.set(workspaceId, entry);
   }
   return entry;
@@ -155,12 +177,31 @@ function entryOf(workspaceId: string): Entry {
 
 /** Forgets every answer (tests, and signing out). */
 export function forgetMail(): void {
+  for (const entry of entries.values()) if (entry.retry !== null) clearTimeout(entry.retry);
   entries.clear();
   seenStores.clear();
 }
 
 /** Where the notes come from in place of the gateway: a fixture's. */
-export type MailLoad = () => Promise<{ notes: MailNoteRow[]; complete: boolean } | null>;
+export type MailLoad = () => Promise<{ notes: MailNoteRow[]; complete: boolean } | typeof NOT_SERVED | null>;
+
+/**
+ * How long to wait before asking again after a failed ask that left no answer to show, by failures in a row. Two
+ * minutes (`MAIL_REFRESH_MS`) was the only wait, so one failed ask while a deploy rolled out left the page saying mail
+ * could not be gathered for minutes after the gateway was back (Dev, 2026-11-27: "all the sudden agentmail stopped
+ * working?", then "it came back all the sudden").
+ */
+export const RETRY_MS = [5_000, 15_000, 30_000, 60_000] as const;
+
+/** The state after one ask: the answer, else what was shown, else unavailable (retrying unless not served). */
+export function nextMailState(
+  was: MailState,
+  answer: { notes: MailNoteRow[]; complete: boolean } | typeof NOT_SERVED | null,
+): MailState {
+  if (answer !== null && answer !== NOT_SERVED) return { status: "ready", ...answer };
+  if (was.status === "ready") return was;
+  return { status: "unavailable", retrying: answer === null };
+}
 
 /** The workspace's notes with mail, asked when `active` and again every `MAIL_REFRESH_MS`; `refresh` asks now. */
 export function useMailNotes(workspaceId: string | null, active: boolean, load?: MailLoad): { state: MailState; refresh: () => void } {
@@ -176,12 +217,23 @@ export function useMailNotes(workspaceId: string | null, active: boolean, load?:
       if (url === null && load === undefined) return;
       const token = async (refresh: false | { rejected: string }) => (await mint.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken;
       entry.asking = (load !== undefined ? load() : mailNotesThroughGateway({ url: url!, token }))
+        .catch(() => null)
         .then((answer) => {
-          entry.state = answer === null ? (entry.state.status === "ready" ? entry.state : { status: "unavailable" }) : { status: "ready", ...answer };
+          entry.state = nextMailState(entry.state, answer);
+          entry.failures = entry.state.status === "unavailable" && entry.state.retrying ? entry.failures + 1 : 0;
         })
         .finally(() => {
           entry.at = Date.now();
           entry.asking = null;
+          if (entry.retry !== null) clearTimeout(entry.retry);
+          entry.retry = null;
+          // Nothing to show yet and the ask failed on the way: ask again soon rather than at the next refresh.
+          if (entry.failures > 0) {
+            entry.retry = setTimeout(() => {
+              entry.retry = null;
+              if (entry.listeners.size > 0) ask(true);
+            }, RETRY_MS[Math.min(entry.failures, RETRY_MS.length) - 1]);
+          }
           for (const listener of [...entry.listeners]) listener();
         });
     },

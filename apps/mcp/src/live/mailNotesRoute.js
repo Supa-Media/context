@@ -99,8 +99,24 @@ function rowOf(row) {
   return { path: row.path, count: row.count, joined, apps, last };
 }
 
-/** Serves the Mail page's notes for `session` on `store`, the request's own store. */
+/**
+ * Serves the Mail page's notes for `session` on `store`, the request's own store, and logs how it went: the outcome
+ * and how long it took, never a path or a name. Agent Mail went blank for some minutes on 2026-11-27 with nothing in
+ * the gateway's logs to say whether the object refused, failed or was slow; this line says which next time.
+ */
 export async function handleMailNotes(request, store, session) {
+  const started = Date.now();
+  const response = await serveMailNotes(request, store, session);
+  if (response.status !== 200) {
+    const reason = await response.clone().json().then((body) => (typeof body?.error === "string" ? body.error : null)).catch(() => null);
+    console.log(JSON.stringify({ event: "mail_notes", outcome: "refused", status: response.status, reason, ms: Date.now() - started }));
+  } else {
+    console.log(JSON.stringify({ event: "mail_notes", outcome: "served", status: 200, ms: Date.now() - started }));
+  }
+  return response;
+}
+
+async function serveMailNotes(request, store, session) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!hasScope(session, SCOPE_READ)) return json({ error: "forbidden" }, 403);
   const asked = await askOf(request);
