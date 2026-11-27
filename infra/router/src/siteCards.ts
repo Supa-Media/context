@@ -9,6 +9,7 @@
  */
 
 import { GENERIC_PREVIEW, renderPreviewHtml } from "./preview";
+import { notFoundResponse } from "./publicPages";
 import { parseSitePreview, previewForSitePage, type SitePreviewAnswer } from "./preview/sites";
 
 const PREVIEW_TIMEOUT_MS = 2_500;
@@ -197,4 +198,24 @@ function missingCard(): Response {
     status: 404,
     headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet" },
   });
+}
+
+/**
+ * The homepage website's own page at its own apex address (`/devlog`): its
+ * card with a self-canonical URL, or a real 404 when the site has no such
+ * page. Context's marketing site is public by intent, so its absence is not a
+ * secret the frozen card has to keep.
+ */
+export async function homePagePreviewResponse(
+  handle: string,
+  routePath: string,
+  convexOrigin: string | null,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  return await sitePreviewResponse(
+    { handle, routePath, origin: "https://context.lc", prefix: "", home: true },
+    convexOrigin,
+    ctx,
+    () => Promise.resolve(notFoundResponse()),
+  );
 }
