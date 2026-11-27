@@ -2,8 +2,7 @@
  * The person's own name on their account, changed after sign-up (Dev2, 2026-11-25: a group asked Tex for someone's
  * last name, and the account held only the first name typed at sign-up, with no way to change it).
  *
- * `users.name` is what Tex answers a contact ask with (`packages/tex/gateway/agent/askPersonalTex.js`) and what
- * people see beside a note. It was written once, by `accountSetup.finishSetup`. Now it changes two ways, both on the
+ * `users.name` is what Tex is told about the person it texts, and what people see beside a note. It was written once, by `accountSetup.finishSetup`. Now it changes two ways, both on the
  * person's own account only:
  *  - in the app: Settings › Profile › Name (`setMyName`);
  *  - by text: their own chat with Tex (`gatewayRoutes/accountName.ts`, the person taken off the turn's own texting

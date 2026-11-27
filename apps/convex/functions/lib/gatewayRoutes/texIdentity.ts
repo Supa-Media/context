@@ -1,9 +1,7 @@
 /**
  * `POST /gateway/agent/identity` — `{ accessToken, expectedWorkspaceId }` →
  * `{ identity: { name, handle, phones, emails, google } | null }`; with
- * `{ accessToken, asker: true }`, who tagged Tex in a group chat, on their own
- * tag only (`askerIdentityHandler`); with `{ accessToken, expectedWorkspaceId,
- * groups: true }`, `{ groups: [{ key, name, people, lastSeenAt }] | null }`, the
+ * `{ accessToken, expectedWorkspaceId, groups: true }`, `{ groups: [{ key, name, people, lastSeenAt }] | null }`, the
  * group chats the 1:1 texting grant's own person is in (`lib/texIdentity/groups.ts`); with `{ accessToken, cards:
  * true }`, `{ cards: [{ handle, workspaceId }] | null }`, whose member card a group chat's turn may read, on an
  * account holder's own tag only (`lib/texIdentity/cards.ts`); with `{ accessToken, holders: "<workspace>" }`,
@@ -23,11 +21,6 @@ import { json, stringField } from "../gatewayAuth";
 
 export async function gatewayAgentIdentityHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
-  // `{ accessToken, asker: true }`: who tagged Tex in a group chat, on that person's own tag only (`askerIdentityHandler`).
-  if (body.asker === true) {
-    if (accessToken === null) return json({ identity: null });
-    return json({ identity: await ctx.runQuery(internal.functions.texIdentity.askerForGateway, { hashedAccessToken: await hashToken(accessToken) }) });
-  }
   // `{ accessToken, cards: true }`: whose member card a group chat's own tag may read (`memberCardsHandler`).
   if (body.cards === true) {
     if (accessToken === null) return json({ cards: null });

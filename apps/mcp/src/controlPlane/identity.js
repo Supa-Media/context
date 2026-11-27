@@ -25,16 +25,6 @@ export function createIdentityMethods({ post }) {
     },
 
     /**
-     * Who tagged Tex in a group chat, for their own ask of their personal Tex (`agent/askPersonalTex.js`): the same
-     * facts, only on the token minted for that person's own tag, else `null`.
-     */
-    async askerIdentity(accessToken) {
-      const parsed = await post("/gateway/agent/identity", { accessToken, asker: true });
-      const identity = parsed?.identity;
-      return identity !== null && typeof identity === "object" && !Array.isArray(identity) ? identity : null;
-    },
-
-    /**
      * Whose member card a group chat's turn may read (`agent/memberCards.js`; `lib/texIdentity/cards.ts`): the people
      * the tag's grant was minted for, `[{ handle, workspaceId }]`, on an account holder's own tag only, else `null`.
      */
