@@ -23,11 +23,7 @@ import { requestViaGateway } from "./aiGateway.js";
 import { cleanName } from "./groupNames.js";
 import { guestNameEntry, guestNamesFrom } from "./groupGuestNames.js";
 import { withArchitecture } from "./texArchitecture.js";
-<<<<<<< HEAD
 import { texEffort, texModel, texWords } from "./texConfig.js";
-=======
-import { texWords } from "./texConfig.js";
->>>>>>> 975f2f56bac31f05da0b56051fb79eb8247a6245
 
 export const GUEST_NAMES_MODEL = "anthropic/claude-haiku-5-5";
 /** The chat's newest text lines it reads, and the most characters of them the model is shown. */
@@ -38,7 +34,6 @@ const MAX_LINE_CHARS = 400;
 export const RECENT_GUEST_LINES = 8;
 const GUEST = /^guest-[0-9a-f]{4}$/;
 const MAX_NAMES_READ = 500;
-<<<<<<< HEAD
 const NODE = "guestNames";
 
 /**
@@ -53,8 +48,6 @@ export function guestNamesSetup(tex) {
     return { model: GUEST_NAMES_MODEL, effort: "low", thinking: "off" };
   }
 }
-=======
->>>>>>> 975f2f56bac31f05da0b56051fb79eb8247a6245
 
 const idOf = (entry) => (typeof entry?.eid === "string" ? entry.eid : entry?.id);
 const labelOf = (entry) => (entry?.from?.kind === "person" && typeof entry.from.name === "string" && GUEST.test(entry.from.name) ? entry.from.name : null);
@@ -152,11 +145,7 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   let found;
   try {
     const reply = await request(
-<<<<<<< HEAD
       { ...guestNamesSetup(config.tex), system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300 },
-=======
-      { model: GUEST_NAMES_MODEL, system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300, effort: "low" },
->>>>>>> 975f2f56bac31f05da0b56051fb79eb8247a6245
       config,
       { metadata },
     );
