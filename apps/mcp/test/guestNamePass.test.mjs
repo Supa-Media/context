@@ -10,12 +10,14 @@
  *  1. `checkedNames` without the own/under/label check → "a name said to the room is nobody's" fails.
  *  2. `checkedNames` not skipping a kept name → "a name already kept is never replaced" fails.
  *  3. `nameGuestsFromChat` without the recent-unnamed check → "a chat whose guests are all named asks no model" fails.
+ *  4. `guestNamesSetup` returning `{ effort: "low" }` (thinking on) → "it asks with thinking off" fails. In the Lab,
+ *     thinking on spent the answer's 300 tokens and two passes over a chat that named its guest found nothing.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { checkedNames, nameGuestsFromChat, readNames, renderLines, saysName } from "../../../packages/tex/gateway/agent/guestNamePass.js";
+import { checkedNames, guestNamesSetup, nameGuestsFromChat, readNames, renderLines, saysName } from "../../../packages/tex/gateway/agent/guestNamePass.js";
 import { guestNameEntry } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
 
 const DIEGO = "guest-1a2b";
@@ -97,6 +99,7 @@ test("one pass keeps what it found in the chat's ledger as a name entry", async 
   assert.match(asked[0].system, /Find the names\.$/, "the guest-names module, after the map of how Tex works");
   assert.match(asked[0].system, /WHERE YOU ARE: you are the Guest names step: After a group reply/);
   assert.equal(asked[0].model, "anthropic/claude-haiku-5-5");
+  assert.equal(asked[0].thinking, "off", "it asks with thinking off");
   const names = ledger.kept.filter((entry) => entry.kind === "name");
   assert.deepEqual(names.map(({ guest: g, name, by }) => ({ g, name, by })), [{ g: DIEGO, name: "Diego", by: "tunde" }]);
 });
@@ -115,4 +118,10 @@ test("a model that fails or a ledger that can't be read writes nothing and never
   const broken = { read: async () => { throw new Error("x"); }, append: async () => {} };
   assert.deepEqual(await nameGuestsFromChat({ ledger: broken, chat: "group:abc", config: { stub: true }, words: {}, request: async () => ({}) }), { outcome: "unread" });
   assert.equal(ledger.kept.filter((entry) => entry.kind === "name").length, 0);
+});
+
+test("a draft that wires the step sets its model and effort; with no such step, the shelf's Haiku with thinking off", () => {
+  assert.deepEqual(guestNamesSetup(undefined), { model: "anthropic/claude-haiku-5-5", effort: "low", thinking: "off" });
+  const draft = { models: { "haiku-5-5": "anthropic/claude-haiku-5-5" }, nodes: [{ id: "guestNames", model: "haiku-5-5", effort: "medium" }] };
+  assert.deepEqual(guestNamesSetup(draft), { model: "anthropic/claude-haiku-5-5", effort: "medium" });
 });
