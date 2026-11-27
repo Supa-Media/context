@@ -170,6 +170,10 @@ export function whyLines(row) {
   // What the turn did and the background jobs it started: which one wrote a note nobody asked for (core/q6, 2026-11-27).
   if (row.steps) out.push(`    - first run's steps: ${row.steps}`);
   if (row.handoff?.jobs) out.push(`    - background jobs run: ${row.handoff.jobs} (${row.handoff.parts} part(s))`);
+  for (const [k, run] of (row.runs ?? []).slice(0, 3).entries()) {
+    const wrote = run.changes.map((c) => clip(c.replace(/:.*$/, ""), 80));
+    out.push(`    - run ${k + 1}: ${clip(run.tools, 200) || "no tools"}${wrote.length ? `; changed ${wrote.slice(0, 6).join(", ")}` : "; changed nothing"}`);
+  }
   return out;
 }
 

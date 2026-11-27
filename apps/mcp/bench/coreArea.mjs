@@ -139,6 +139,9 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const steps = answers.find((a) => runIds.includes(a.id) && typeof a.steps === "string" && a.steps !== "")?.steps ?? null;
     // Each failed tool's own error on its runs (`toolErrors.mjs`): why a tool failed, shown on the row, never a score.
     const toolErrors = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.toolErrors ?? []))].slice(0, 6);
+    // Each run's tool list and the notes it changed (`report.mjs` "Changes recorded"): which call wrote a note nobody
+    // asked for, on the nightly scoreboard (core/q6, 2026-11-27). Fixture notes only, never a person's.
+    const runs = answers.filter((a) => runIds.includes(a.id)).map((a) => ({ tools: a.toolsLine ?? "", changes: (a.changes ?? []).map((line) => line.slice(2, 142)) }));
     rows.push({
       ...(bench.length > 0 ? { bench } : {}),
       misses,
@@ -150,6 +153,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
       ...(fallbacks > 0 ? { fallbacks } : {}),
       ...(steps !== null ? { steps } : {}),
       ...(toolErrors.length > 0 ? { toolErrors } : {}),
+      ...(runs.some((r) => r.tools || r.changes.length) ? { runs } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,
