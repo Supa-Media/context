@@ -133,12 +133,17 @@ describe("who is texting Tex", () => {
     expect(await identity(t, await grant(t, workspaceId, userId, "context_texts_group"), workspaceId)).toBeNull();
   });
 
-  test("the group asker route answers no one-person grant: it is a group chat's own tag alone", async () => {
+  test("a group chat's grant asking with `asker` is refused, and no name, phone or email comes back", async () => {
     const t = setupTest();
     const { userId, workspaceId } = await person(t, "ada");
-    for (const client of [TEXTS_CLIENT_ID, "context_texts_group", "mcp_client_someone_else"]) {
-      const response = await gatewayPost(t, "/gateway/agent/identity", { accessToken: await grant(t, workspaceId, userId, client), asker: true });
-      expect(((await response.json()) as { identity: unknown }).identity).toBeNull();
+    const token = await grant(t, workspaceId, userId, "context_texts_group");
+    for (const body of [{ accessToken: token, asker: true }, { accessToken: token, expectedWorkspaceId: workspaceId, asker: true }]) {
+      const response = await gatewayPost(t, "/gateway/agent/identity", body);
+      const text = await response.text();
+      expect(JSON.parse(text)).toEqual({ identity: null });
+      expect(text).not.toContain("ada");
+      expect(text).not.toContain("@example.invalid");
+      expect(text).not.toContain("+1555");
     }
   });
 
