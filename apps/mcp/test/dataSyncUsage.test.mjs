@@ -297,6 +297,12 @@ test("a person is marked once a day per kind, and the app and Tex are not caller
   assert.deepEqual(probe(""), []);
 });
 
+test("a Tex job on the person's computer is not their AI client calling", () => {
+  const marked = [];
+  markCaller({ actor: { clientId: "context_tex_machine_run" }, markPersonActive: (kind) => marked.push(kind) });
+  assert.deepEqual(marked, []);
+});
+
 test("app vitals keep a platform, a kind, a timing's ms and the session id, and drop anything else", async () => {
   const rows = await usageRows(
     {
