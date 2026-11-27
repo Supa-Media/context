@@ -40,11 +40,11 @@ describe("bots", () => {
     expect(bots[1]!.card.path).toBe("areas/people/pipeline.md");
   });
 
-  test("the areas it holds, with its cap on each, and an area its card doesn't list", () => {
+  test("the areas it holds, with its cap on each, and no cap where its card gives no number", () => {
     const grok = bots[0]!;
     expect(grok.areas).toEqual([
-      { folder: "areas/finance", title: "Finance", role: "delegate", cap: null, listed: false },
-      { folder: "areas/operations/scorecard", title: "Scorecard", role: "owner", cap: 20, listed: true },
+      { folder: "areas/finance", title: "Finance", role: "delegate", cap: null },
+      { folder: "areas/operations/scorecard", title: "Scorecard", role: "owner", cap: 20 },
     ]);
     expect(capWords(grok)).toBe("20% of its week here");
     expect(capWords(bots[2]!)).toBe("No caps");

@@ -3,7 +3,7 @@
  *
  * One row per note in `<area>/routines/<how often>/`: its name, the schedule in words (`areaRoutineWhen`), when it
  * runs next, and its last run's outcome from the workspace object's state (sent → answered / not answered yet, held,
- * not listed, no bot, failed), or the problem that stops it. Above the rows, the bot's share of its week spent here.
+ * no bot, failed), or the problem that stops it. Above the rows, the bot's share of its week spent here.
  * A row opens its editor in place (the panel edits everything inline: the owner, 2026-11-24); the job itself is the
  * note's text, so "Open the job" opens it. "Run now" sends one out of turn, under the same cap (Dev, 2026-11-27: "add
  * the run now button for every routine"). "Add routine" is the same editor, empty. An area with none offers "Turn
@@ -197,9 +197,6 @@ function BudgetLine({ tools }: { tools: PanelRoutinesTools }) {
   if (budget === null) {
     return <Text variant="treeMeta" style={[styles.warn, styles.budget]} testID="area-panel-routines-budget">No bot holds this area, so its routines aren't sent. Pick a delegate under Owner.</Text>;
   }
-  if (!budget.listed) {
-    return <Text variant="treeMeta" style={styles.warn} testID="area-panel-routines-budget">{`${budget.bot}'s card doesn't list ${tools.areaName}, so nothing is sent here. Its person adds it on the card.`}</Text>;
-  }
   // Nothing known of its week: no line rather than one that guesses.
   if (budget.used === null) return null;
   const spent = budget.cap !== null && budget.used >= budget.cap;
@@ -317,7 +314,6 @@ function lastWords(last: NonNullable<RoutineRow["last"]>, bot: string | null, no
   const said: Record<Outcome, [string, string, "ok" | "muted" | "warn" | "crit"]> = {
     sent: last.answeredAt !== null ? ["Answered", clockAt(last.answeredAt, now), "ok"] : ["Not answered yet", `sent ${at}`, "muted"],
     held: ["Held", `${at}, sends again Monday`, "warn"],
-    not_listed: ["Not sent", at, "warn"],
     no_bot: ["Not sent", "no bot holds this area", "warn"],
     failed: [`Didn't reach ${bot ?? "the bot"}`, at, "crit"],
   };

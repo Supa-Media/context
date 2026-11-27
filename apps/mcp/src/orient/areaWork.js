@@ -11,7 +11,7 @@ import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import { factProps } from "../tree/facts.js";
 
-const { PEOPLE_FOLDER, areaRoutineOf, botAllowedIn, botCardPaths, botsHome, cardSlug, isBotCardPath, parseWorksIn, mailOnlyText } = areaRoutines;
+const { PEOPLE_FOLDER, areaRoutineOf, botCapIn, botCardPaths, botsHome, cardSlug, isBotCardPath, parseWorksIn, mailOnlyText } = areaRoutines;
 const { mailJoinName } = areaBots;
 
 /** Bots an `orient` names in "Other bots here". */
@@ -62,8 +62,6 @@ function outcomeWords(routine) {
     }
     case "held":
       return `held ${at}: this area's share of its bot's week was spent`;
-    case "not_listed":
-      return `not sent ${at}: its bot's card doesn't list this area`;
     case "no_bot":
       return `not sent ${at}: no bot holds this area`;
     default: {
@@ -99,16 +97,14 @@ export async function areaWorkSections(store, entries, area, areasRoot, properti
   );
   const bot = botOfSeat(properties);
   if (bot !== null) {
-    const { allowed, cap } = botAllowedIn(await worksInOf(store, areasRoot, bot), area);
+    const cap = botCapIn(await worksInOf(store, areasRoot, bot), area);
     const used = (state?.usage ?? []).filter((row) => row.bot === mailJoinName(bot) && row.area === area).reduce((sum, row) => sum + row.used, 0);
     const week = state?.week ? ` (week of ${state.week})` : "";
     parts.push(
       "## Budget\n" +
-        (!allowed
-          ? `${bot}'s card doesn't list this area, so Context sends it nothing from here until its person adds it.`
-          : cap === null
-            ? `No cap: ${bot} may spend any share of its week here. ${state ? `It has said it used ${used}% here this week${week}.` : ""}`.trim()
-            : `${bot} may spend ${cap}% of its weekly usage here; it has said it used ${used}%${week}. ${used >= cap ? "That share is spent: routines and mail pings here wait until Monday." : `${cap - used}% is left.`}`) +
+        (cap === null
+          ? `No cap: ${bot} may spend any share of its week here. ${state ? `It has said it used ${used}% here this week${week}.` : ""}`.trim()
+          : `${bot} may spend ${cap}% of its weekly usage here; it has said it used ${used}%${week}. ${used >= cap ? "That share is spent: routines and mail pings here wait until Monday." : `${cap - used}% is left.`}`) +
         '\nSay what each answer used with write { action: "mail", ..., args: { text, used: <whole percent> } }.',
     );
   }

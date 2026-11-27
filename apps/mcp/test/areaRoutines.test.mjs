@@ -8,7 +8,7 @@ import areaRoutines from "../../../packages/shared/src/areaRoutines.cjs";
 import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 
-const { areaRoutineOf, areaRoutineNext, parseWorksIn, botAllowedIn, botCardPaths, weekOf } = areaRoutines;
+const { areaRoutineOf, areaRoutineNext, parseWorksIn, botCapIn, botCardPaths, weekOf } = areaRoutines;
 
 let DatabaseSync = null;
 try {
@@ -114,7 +114,7 @@ test("a routine's next time comes from its front matter, in New York by default"
   assert.equal(areaRoutineNext(areaRoutineOf(`${AREA}/routines/someday/x.md`, "areas"), "", Date.now()).problems.length, 1);
 });
 
-test("a card's works_in reads as a list or one line, and an area not on it is not allowed", () => {
+test("a card's works_in reads as a list or one line, and an area with no number has no cap", () => {
   const listed = parseWorksIn([`${AREA} · 20%`, "areas/finance"]);
   assert.deepEqual(listed, [
     { area: AREA, cap: 20 },
@@ -123,9 +123,11 @@ test("a card's works_in reads as a list or one line, and an area not on it is no
   assert.deepEqual(parseWorksIn(`[${AREA} · 20%, areas/finance]`), listed);
   assert.equal(parseWorksIn(undefined), null);
   assert.deepEqual(parseWorksIn([`${AREA} · 120%`]), []);
-  assert.deepEqual(botAllowedIn(null, AREA), { allowed: true, cap: null });
-  assert.deepEqual(botAllowedIn(listed, AREA.toLowerCase()), { allowed: true, cap: 20 });
-  assert.deepEqual(botAllowedIn(listed, "areas/people-ops"), { allowed: false, cap: null });
+  assert.equal(botCapIn(null, AREA), null);
+  assert.equal(botCapIn(listed, AREA.toLowerCase()), 20);
+  assert.equal(botCapIn(listed, "areas/finance"), null);
+  // An area off the list has no number, so no cap (Dev, 2026-11-27).
+  assert.equal(botCapIn(listed, "areas/people-ops"), null);
   assert.deepEqual(botCardPaths("areas", "Grok Bot"), ["bots/grok-bot/about.md", "areas/bots/grok-bot/about.md", "areas/people/grok-bot.md"]);
   // A card's longer words, `Name · what it does`, look under the name too.
   assert.deepEqual(botCardPaths("areas", "Tex Quality · Tex reply quality").slice(3), ["bots/tex-quality/about.md", "areas/bots/tex-quality/about.md", "areas/people/tex-quality.md"]);
@@ -248,13 +250,19 @@ test("Run now sends a routine out of turn, as its clock would, and leaves its ne
   assert.deepEqual(w.told, []);
 });
 
-test("a bot whose card doesn't list the area is sent nothing from it, by routine or by mail", { skip }, () => {
-  const w = world({ worksIn: ["areas/finance · 10%"] });
-  w.routines.run();
-  w.at("2026-11-25T14:00:01.000Z");
-  assert.deepEqual(w.routines.run(), [{ path: ROUTINE, outcome: "not_listed" }]);
-  w.save("m1", `${AREA}/mail/kim.md`, withMail("", { from: "@kim", text: "hi", at: "2026-11-25T14:05:00.000Z" }));
-  assert.deepEqual(w.told, []);
+// Dev, 2026-11-27: "if theres not a number we should assume no cap". An area with no number on the bot's card, listed
+// bare or not listed at all, runs its routines and pings its mail uncapped; it used to be sent nothing.
+test("an area with no cap number on its bot's card runs uncapped, by routine and by mail", { skip }, () => {
+  for (const worksIn of [["areas/finance · 10%"], [AREA, "areas/finance · 10%"]]) {
+    const w = world({ worksIn });
+    w.routines.run();
+    w.at("2026-11-25T14:00:01.000Z");
+    assert.deepEqual(w.routines.run(), [{ path: ROUTINE, outcome: "sent" }]);
+    assert.equal(w.routines.budget(AREA).cap, null);
+    w.told.length = 0;
+    w.save("m1", `${AREA}/mail/kim.md`, withMail("", { from: "@kim", text: "hi", at: "2026-11-25T14:05:00.000Z" }));
+    assert.equal(w.told.length, 1);
+  }
 });
 
 test("an area with no bot, or with Tex as its delegate, runs nothing", { skip }, () => {
