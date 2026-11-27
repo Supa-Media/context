@@ -302,7 +302,7 @@
  {
   "test": "everyday-groups",
   "id": "cello-bell-snow-gold",
-  "line": "give a rough price for each place it names",
+  "line": "give a rough price for each place it suggests (a place named only to say it is closed needs none)",
   "label": "pass",
   "by": "Dev2",
   "labelled": "2026-11-26"
@@ -357,5 +357,166 @@
   "by": "Dev2",
   "labelled": "2026-11-26",
   "note": "genuinely missing"
+ },
+ {
+  "test": "everyday",
+  "id": "lake-flute-bottle-kite",
+  "line": "ask Lena for Puttery's address or which email she means",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "clay-noble-avid-thistle",
+  "line": "put her words under Day 2 in study/spanish.md",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "brook-planet-valley-stream",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it; saying noted or got it acknowledges, it does not claim a save",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "beach-brush-ferry-yarn",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "cabin-cube-bolt-flute",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "angel-pocket-wave-grass",
+  "line": "ask Lena for the date or time",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "bear-dusk-summit-ruby",
+  "line": "give a rough price for each place it suggests (a place named only to say it is closed needs none)",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "delta-ivy-tide-dawn",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it; saying noted or got it acknowledges, it does not claim a save",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "cabin-planet-apple-seal",
+  "line": "say it has no record or ask Lena to tell it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26",
+  "note": "pass here, but case dependent"
+ },
+ {
+  "test": "everyday",
+  "id": "honey-oyster-banjo-petal",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "lion-bagel-marsh-hive",
+  "line": "say it can't see or reach her calendar",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "paper-jewel-atlas-frost",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "night-fleet-cloak-petal",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it; saying noted or got it acknowledges, it does not claim a save",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "paper-spark-grape-basil",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it; saying noted or got it acknowledges, it does not claim a save",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "glow-ocean-ocean-house",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "jar-bold-pansy-desk",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "guitar-petal-prairie-grape",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "arrow-dune-honey-chalk",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "field-planet-mist-pepper",
+  "line": "give a rough price for each place it suggests (a place named only to say it is closed needs none)",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "swift-gravel-glow-gravel",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first. A draft shown for a 👍, with its From/To/Subject block and a line like \"Here's the email I'd send:\", is how Tex shows a draft and is fine; so is a short opener such as the time or \"got it\" when the answer follows in the same text",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
  }
 ]

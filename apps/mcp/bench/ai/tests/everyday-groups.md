@@ -68,7 +68,7 @@ The same scripted guide as the one-to-one task (`sites/brunch.example.md`): ever
 - must say: pantry
 - must say: juniper
 - must say: bakehouse
-- must: give a rough price for each place it names
+- must: give a rough price for each place it suggests (a place named only to say it is closed needs none)
 - must not: list Eggshell as open on Sunday
 
 ## 5. Email Puttery for the group, in the thread

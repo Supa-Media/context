@@ -44,6 +44,28 @@ Changes recorded:
 
 Time 6.9 s, $0.0036, 1 text
 
+#### arrow-dune-honey-chalk
+
+**Person:** tex add dish soap and paper towels to the grocery list
+
+**Assistant:** Added.
+
+https://app.bench.invalid/note/@supper-club/lists/groceries.md?t=Groceries&k=EMpOsYgXH4bimfoSJIhtiA
+
+Tools: search_notes, read_note, write_note
+
+Filed: {"supper-club/lists/groceries.md":{"at":"supper-club/lists/groceries.md","front":{},"text":"# Groceries\n\n- Olive oil\n- Rice\n- Lemons\n- Dish soap\n- Paper towels\n"}}
+
+Rounds: [{"used":4,"of":24}]
+
+Steps: tools search_notes ok, read_note ok, write_note ok | outcome: replied
+
+Changes recorded:
+
+- written supper-club/lists/groceries.md: - Dish soap - Paper towels
+
+Time 6.4 s, $0.0035, 1 text
+
 ### 2. What did we decide about the budget
 as Lena, task
 
@@ -83,6 +105,24 @@ Tool errors: fetch: In @context-lc: not found. Search for it by its words, or fe
 
 Time 7.2 s, $0.0020, 1 text
 
+#### swift-gravel-glow-gravel
+
+**Person:** tex what did we decide about the budget?
+
+**Person:** @omar: wait how much are we each putting in again
+
+**Assistant:** $25 each per supper, ingredients and drinks included. Whoever hosts pays, and the others pay them back by the next Sunday.
+
+Decided on November 1: $25 a head per supper, ingredients and drinks together. The host pays and everyone else pays them back by the next Sunday.
+
+Tools: search_notes, search_notes
+
+Rounds: [{"used":2,"of":24}]
+
+Steps: tools search_notes ok, search_notes ok | outcome: replied
+
+Time 6.2 s, $0.0020, 1 text
+
 ### 3. Who's hosting next
 
 as Lena, task
@@ -100,6 +140,20 @@ Rounds: [{"used":2,"of":24}]
 Steps: tools search_notes ok, search_notes ok | outcome: replied
 
 Time 4.7 s, $0.0018, 1 text
+
+#### guitar-petal-prairie-grape
+
+**Person:** tex who's hosting this sunday and what are they making
+
+**Assistant:** Omar, with lamb tagine.
+
+Tools: search_notes, search_notes
+
+Rounds: [{"used":2,"of":24}]
+
+Steps: tools search_notes ok, search_notes ok | outcome: replied
+
+Time 6.0 s, $0.0019, 1 text
 
 ### 4. Brunch spots for the group, with prices
 as Lena, task
@@ -148,6 +202,27 @@ Rounds: [{"used":3,"of":24}]
 Steps: tools open_page open_page ok, search_notes ok, open_page open_page ok | outcome: replied
 
 Time 10.1 s, $0.0032, 1 text
+
+#### field-planet-mist-pepper
+
+**Person:** tex find us brunch spots in riverside open sunday with rough prices, brunch.example has a list
+
+**Assistant:** on it, checking the brunch list
+
+**Assistant:** juniper cafe, 40 river road: open every day 8 to 2, mains $11 to $15
+the pantry, 3 park lane: sun 9 to 3, mains $14 to $19. the one for pancakes
+mill street bakehouse, 22 mill st: sun 8 to 4, brunch plate $21. eggshell's closed sundays
+juniper's the cheapest, the pantry's the one for a sit-down brunch
+
+Tools: text_progress, open_page, open_page
+
+Browser: read brunch.example | read brunch.example/the-pantry | read brunch.example/juniper | read brunch.example/eggshell | read brunch.example/bakehouse
+
+Rounds: [{"used":3,"of":24}]
+
+Steps: tools text_progress progress ok, open_page open_page ok, open_page open_page ok | outcome: replied
+
+Time 9.1 s, $0.0031, 2 texts
 
 ### 5. Email Puttery for the group, in the thread
 
