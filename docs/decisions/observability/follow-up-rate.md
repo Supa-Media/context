@@ -25,8 +25,10 @@ other side was left behind. To tell which fix lowers that rate, the rate has to 
   the same `follow-up:<kind>` convention.
 - **The metric lives in the workspace's DevOps area beside Open to live:** follow-ups of all pull requests that
   state one, over a rolling 7 days,
-  `count(github/pull-requests.follow_up where follow_up != none) ÷ count(github/pull-requests.follow_up)`, with a
-  chart by kind. A pull request with no label has an empty `follow_up` and is in neither count.
+  `count(github/pull-requests.follow_up where follow_up != none and follow_up != unstated) ÷
+  count(github/pull-requests.follow_up where follow_up != unstated)`, with a chart by kind. A pull request with no
+  label (empty `follow_up`) or an `unstated` one is in neither count; the count of `unstated` is shown beside it,
+  so a rule nobody follows is visible.
 
 ## What a simplification would cost
 
