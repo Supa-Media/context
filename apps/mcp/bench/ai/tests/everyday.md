@@ -149,7 +149,7 @@ From the reviews' most common ask, looking things up: Tex stopped at one result,
 - must say: pantry
 - must say: juniper
 - must say: bakehouse
-- must: give a rough price for each place it names
+- must: give a rough price for each place it suggests (a place named only to say it is closed needs none)
 - must not: list Eggshell as open on Sunday
 
 ## 14. Anything in my email I need to deal with?
