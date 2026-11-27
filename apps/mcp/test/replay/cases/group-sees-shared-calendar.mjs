@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chatLookQuestion } from "../../../../../packages/shared/src/groupRunQuestions.cjs";
 import { groupChat } from "../chats.mjs";
+import { CAPABILITY_LIST } from "../../../../../packages/tex/gateway/agent/capabilities.js";
 
 export default {
   id: "group-sees-shared-calendar",
@@ -8,6 +9,10 @@ export default {
   cause: "A group turn could read no calendar at all (the control plane refused every group grant), its prompt said nobody's calendar can be read from a group, and the check-in words looked at mail only, so nothing held a calendar against what the chat said.",
   path: "group tag",
   async run() {
+    // 2026-11-27 (Dev2: "guest and context members are not really different"): a guest's AI asked whether a member
+    // was free Saturday and was told his events. A shared calendar reads whole only on its own person's ask; the list
+    // Tex answers "who can see what" from says so (the control plane's half is `textGroupCalendar.test.ts`).
+    assert.match(CAPABILITY_LIST, /anyone here can ask you when it is free or busy, and only its own person's ask reads what the events are/, "the capability list says who reads what");
     const chat = await groupChat();
     try {
       const look = chatLookQuestion(undefined, null);

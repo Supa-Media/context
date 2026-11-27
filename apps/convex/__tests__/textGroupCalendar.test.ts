@@ -17,7 +17,8 @@
  *  - drop `inChat` from `askerCalendars`: "the asker's own calendars stop when they leave the chat" fails;
  *  - delete the row in `unshareCalendar` instead of ending it: "a second stop says it was already stopped" fails;
  *  - drop the `endedAt` filter in `liveCalendarShares`: "unsharing stops reads" fails;
- *  - drop `guestAsked` from `chatCalendarClearance`: "a guest's ask reads free and busy only" fails.
+ *  - mark every row `whole` in `chatCalendarClearance`: "a guest's ask and another member's both read when it is busy"
+ *    and "a turn nobody asked for reads it as free and busy" fail.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -324,20 +325,32 @@ describe("stopping a share says what it found (Dev2, 2026-11-27)", () => {
   });
 });
 
-describe("a guest's ask reads a shared calendar as free and busy only (Dev2, 2026-11-27)", () => {
-  test("a guest's ask reads when it is busy, never an event's words; a member's reads it whole", async () => {
+describe("a shared calendar reads whole only on its own person's ask (Dev2, 2026-11-27)", () => {
+  // "guest and context members are not really different ... they should be treated the same relatively".
+  test("a guest's ask and another member's both read when it is busy, never an event's words; its own person's reads it whole", async () => {
     const { w, t, turn } = await world();
     calendar();
     const everyone = { participants: [SEYI, DAD, GUEST, LINE] };
     await command(t, (await turn(SEYI, everyone)).accessToken as string, { kind: "share_calendar", address: WORK });
-    const guest = await turn(GUEST, everyone);
-    const asGuest = (await days(t, guest.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
-    expect(asGuest.ok).toBe(true);
-    const text = asGuest.days.map((day) => day.text).join("\n");
-    expect(text).not.toContain("Dinner with Ada");
-    expect(JSON.parse(asGuest.days[0]!.text)).toMatchObject({ free_busy_only: true, calendar: WORK, date: DATE, busy: [{ from: "19:00", to: "21:00" }] });
-    const member = await turn(DAD, everyone);
-    const asMember = (await days(t, member.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
-    expect(asMember.days.map((day) => day.text).join("\n")).toContain("Dinner with Ada");
+    for (const who of [GUEST, DAD]) {
+      const ready = await turn(who, everyone);
+      const read = (await days(t, ready.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
+      expect(read.ok, who).toBe(true);
+      expect(read.days.map((day) => day.text).join("\n"), who).not.toContain("Dinner with Ada");
+      expect(JSON.parse(read.days[0]!.text), who).toMatchObject({ free_busy_only: true, calendar: WORK, date: DATE, busy: [{ from: "19:00", to: "21:00" }] });
+    }
+    const own = await turn(SEYI, everyone);
+    const asOwner = (await days(t, own.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
+    expect(asOwner.days.map((day) => day.text).join("\n")).toContain("Dinner with Ada");
+  });
+
+  test("a turn nobody asked for reads it as free and busy", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    const routine = await turn(SEYI, { routine: true });
+    const read = (await days(t, routine.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
+    expect(read.ok).toBe(true);
+    expect(JSON.parse(read.days[0]!.text)).toMatchObject({ free_busy_only: true });
   });
 });
