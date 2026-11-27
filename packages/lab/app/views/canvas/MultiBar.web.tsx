@@ -15,14 +15,14 @@ import { fromWhere, makeComponent, NEW_NAME, whyNot } from "../../engine/makeCom
 import { clearPicks } from "../../engine/picks";
 import { set } from "../../engine/state";
 import { useLab } from "../../store";
+import { isApplePlatform } from "../../fromApp/applePlatform.web";
 
 const DIAMOND = '<path d="M12 3.5l8.5 8.5-8.5 8.5-8.5-8.5z"/>';
 const CROSS = '<path d="M7 7l10 10M17 7L7 17"/>';
 
 /** The shortcut as this keyboard writes it: ⌥⌘K on a Mac, Ctrl+Alt+K elsewhere. */
 export function makeKeys(): string {
-  const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
-  return mac ? "⌥⌘K" : "Ctrl+Alt+K";
+  return isApplePlatform() ? "⌥⌘K" : "Ctrl+Alt+K";
 }
 
 /** ⌥⌘K or Ctrl+Alt+K (read by the key's place, since ⌥ changes the letter a Mac types). */
