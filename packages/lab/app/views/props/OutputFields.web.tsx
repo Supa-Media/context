@@ -56,7 +56,9 @@ export function OutputGrp({ n, m }: { n: LabNode; m: LabModel }) {
   );
   return (
     <div className="grp">
-      <h4>Output · {outTok(n)} tokens</h4>
+      <h4>
+        Output<small>{`${outTok(n)} tokens`}</small>
+      </h4>
       {only ? null : (
         <div className="seg" id="nOutKind">
           <button data-v="text" aria-pressed={!typed} onClick={() => setKind("text")}>
@@ -112,15 +114,17 @@ export function OutputGrp({ n, m }: { n: LabNode; m: LabModel }) {
               </div>
             ))}
           </div>
-          <button className="add" id="fAdd" style={{ marginTop: 8 }} onClick={addField}>
+        </>
+      ) : null}
+      <div className="flex" style={{ marginTop: typed ? 8 : 10, gap: 8 }}>
+        {typed ? (
+          <button className="add" id="fAdd" onClick={addField}>
             <svg className="i" viewBox="0 0 24 24" style={{ width: 14, height: 14 }}>
               <path d="M12 5v14M5 12h14" />
             </svg>
             Field
           </button>
-        </>
-      ) : null}
-      <div className="flex" style={{ marginTop: 10 }}>
+        ) : null}
         {sup}
       </div>
     </div>
