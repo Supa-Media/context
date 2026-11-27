@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 3331,
+  "total": 3328,
   "folders": [
     "packages/tex/worker",
     "packages/tex/gateway",
@@ -141,7 +141,7 @@
     "packages/tex/gateway/agent/checkInTexts.js": 4,
     "packages/tex/gateway/agent/checkoutChecks.js": 3,
     "packages/tex/gateway/agent/claimCheck.js": 11,
-    "packages/tex/gateway/agent/commandTools.js": 39,
+    "packages/tex/gateway/agent/commandTools.js": 37,
     "packages/tex/gateway/agent/computer.js": 38,
     "packages/tex/gateway/agent/confession.js": 3,
     "packages/tex/gateway/agent/consentContext.js": 2,
@@ -190,7 +190,7 @@
     "packages/tex/gateway/agent/groupGuestNames.js": 5,
     "packages/tex/gateway/agent/groupGuests.js": 5,
     "packages/tex/gateway/agent/groupLedgerHistory.js": 1,
-    "packages/tex/gateway/agent/groupMail.js": 4,
+    "packages/tex/gateway/agent/groupMail.js": 3,
     "packages/tex/gateway/agent/groupNames.js": 8,
     "packages/tex/gateway/agent/groupPageCopy.js": 1,
     "packages/tex/gateway/agent/groupPageFormat.js": 3,

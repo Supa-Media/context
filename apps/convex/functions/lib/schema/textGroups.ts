@@ -200,6 +200,11 @@ export const textGroupTables = {
     userId: v.id("users"),
     address: v.string(),
     createdAt: v.number(),
+    /**
+     * When its person stopped it: the row is kept, read by nothing, so a later "stop sharing" can say it was already
+     * stopped and when, rather than that it was never shared (Dev2, 2026-11-27).
+     */
+    endedAt: v.optional(v.number()),
   })
     .index("by_group", ["groupKey"])
     .index("by_user", ["userId"]),

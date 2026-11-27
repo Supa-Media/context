@@ -14,7 +14,10 @@
  *  - read every share instead of this chat's: "a chat never reads a calendar shared into another chat" fails;
  *  - return a read with no share instead of `not_allowed`: "a group grant with no share is refused" fails;
  *  - drop the `reachFor` check in `askerOf`: "a turn nobody asked for reads none of the asker's own" fails;
- *  - drop `inChat` from `askerCalendars`: "the asker's own calendars stop when they leave the chat" fails.
+ *  - drop `inChat` from `askerCalendars`: "the asker's own calendars stop when they leave the chat" fails;
+ *  - delete the row in `unshareCalendar` instead of ending it: "a second stop says it was already stopped" fails;
+ *  - drop the `endedAt` filter in `liveCalendarShares`: "unsharing stops reads" fails;
+ *  - drop `guestAsked` from `chatCalendarClearance`: "a guest's ask reads free and busy only" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -39,6 +42,7 @@ const GROUP = "5A1B2C3D-4E5F-4061-8728-394A5B6C7D8E";
 const OTHER_GROUP = "6B2C3D4E-5F60-4172-8839-4A5B6C7D8E9F";
 const SEYI = "+15555550120";
 const DAD = "+15555550131";
+const GUEST = "+15555550144";
 const WORK = "seyi@work.example";
 const HOUR = 60 * 60 * 1000;
 const DATE = "2026-10-23";
@@ -162,7 +166,7 @@ describe("a calendar shared with a group chat is read by that chat", () => {
     expect(await days(t, token, w.pinned)).toMatchObject({ ok: true });
     // A fresh turn of the sharer's own: each turn mints its grant for the one who spoke.
     const seyiFresh = (await turn(SEYI)).accessToken as string;
-    expect(await command(t, seyiFresh, { kind: "unshare_calendar" })).toEqual({ status: "done", count: 1 });
+    expect(await command(t, seyiFresh, { kind: "unshare_calendar" })).toMatchObject({ status: "done", count: 1, unshared: { stopped: [WORK] } });
     expect(await days(t, token, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
     expect((await turn(DAD)).calendar).toBeUndefined();
   });
@@ -280,5 +284,60 @@ describe("the asker's own calendar, on a turn they asked for (Dev2, 2026-11-26)"
       await ctx.db.patch(chat._id, { homeUsers: (chat.homeUsers ?? []).filter((id) => id !== seyi.userId) });
     });
     expect(await days(t, token, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
+  });
+});
+
+describe("stopping a share says what it found (Dev2, 2026-11-27)", () => {
+  test("a second stop says it was already stopped, and when, never that it was not shared", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    const first = await command(t, (await turn(SEYI)).accessToken as string, { kind: "unshare_calendar", address: WORK });
+    expect(first).toMatchObject({ status: "done", count: 1, unshared: { stopped: [WORK], alreadyStopped: [], neverShared: [], stillShared: [] } });
+    const again = await command(t, (await turn(SEYI)).accessToken as string, { kind: "unshare_calendar", address: WORK });
+    expect(again).toMatchObject({ status: "done", count: 0, unshared: { stopped: [], alreadyStopped: [{ address: WORK, at: expect.any(Number) }], neverShared: [] } });
+    void w;
+  });
+
+  test("an address never shared here says so, and the rest still shared are named", async () => {
+    const { w, t, seyi, turn } = await world();
+    calendar();
+    const HOME = "seyi@home.example";
+    await connectCalendar(t, seyi.workspaceId, seyi.userId, HOME);
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: HOME });
+    const one = await command(t, (await turn(SEYI)).accessToken as string, { kind: "unshare_calendar", address: HOME });
+    expect(one).toMatchObject({ unshared: { stopped: [HOME], stillShared: [WORK] } });
+    const never = await command(t, (await turn(SEYI)).accessToken as string, { kind: "unshare_calendar", address: "seyi@other.example" });
+    expect(never).toMatchObject({ count: 0, unshared: { stopped: [], alreadyStopped: [], neverShared: ["seyi@other.example"], stillShared: [WORK] } });
+    void w;
+  });
+
+  test("a stopped share shared again reads again", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "unshare_calendar" });
+    expect(await days(t, (await turn(DAD)).accessToken as string, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    expect(await days(t, (await turn(DAD)).accessToken as string, w.pinned)).toMatchObject({ ok: true });
+  });
+});
+
+describe("a guest's ask reads a shared calendar as free and busy only (Dev2, 2026-11-27)", () => {
+  test("a guest's ask reads when it is busy, never an event's words; a member's reads it whole", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    const everyone = { participants: [SEYI, DAD, GUEST, LINE] };
+    await command(t, (await turn(SEYI, everyone)).accessToken as string, { kind: "share_calendar", address: WORK });
+    const guest = await turn(GUEST, everyone);
+    const asGuest = (await days(t, guest.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
+    expect(asGuest.ok).toBe(true);
+    const text = asGuest.days.map((day) => day.text).join("\n");
+    expect(text).not.toContain("Dinner with Ada");
+    expect(JSON.parse(asGuest.days[0]!.text)).toMatchObject({ free_busy_only: true, calendar: WORK, date: DATE, busy: [{ from: "19:00", to: "21:00" }] });
+    const member = await turn(DAD, everyone);
+    const asMember = (await days(t, member.accessToken as string, w.pinned)) as { ok: boolean; days: { text: string }[] };
+    expect(asMember.days.map((day) => day.text).join("\n")).toContain("Dinner with Ada");
   });
 });

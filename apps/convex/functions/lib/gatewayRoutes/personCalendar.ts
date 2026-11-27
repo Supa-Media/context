@@ -42,6 +42,26 @@ function log(fields: Record<string, string | number | boolean>): void {
 
 type Calendar = { connectionId: Id<"googleConnections">; address: string };
 
+type Day = { address: string; timezone: string; date: string; events: number; busy: { start: string; end: string }[]; allDay: number; text: string };
+
+/** An instant as the calendar's own wall clock, "HH:MM". */
+function wallClock(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+}
+
+/**
+ * A day read for a guest's ask in a group chat (Dev2, 2026-11-27: "by default we should share free and busy"): when it
+ * is busy, on its own wall clock, and how many all-day events it has, as data. No title, place, guest or description:
+ * the rendered day (`text`) is replaced, so nothing of an event's words reaches the turn.
+ */
+export function freeBusyDay(day: Day): Day {
+  const busy = day.busy.map((slot) => ({ from: wallClock(slot.start, day.timezone), to: wallClock(slot.end, day.timezone) }));
+  return {
+    ...day,
+    text: JSON.stringify({ free_busy_only: true, calendar: day.address, date: day.date, timezone: day.timezone, busy, all_day_events: day.allDay }),
+  };
+}
+
 export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
   const expected = stringField(body, "expectedWorkspaceId");
@@ -89,7 +109,9 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
           nonce,
           now,
         });
-        return read.days.map((day) => ({ address: calendar.address, timezone: read.timezone, ...day }));
+        const readDays = read.days.map((day) => ({ address: calendar.address, timezone: read.timezone, ...day }));
+        // A guest's ask gets free and busy times only: no event's words leave here (`freeBusyDay`).
+        return claimed.freeBusy === true ? readDays.map(freeBusyDay) : readDays;
       } catch (error) {
         unanswered.push(calendar.address);
         log({ outcome: "google_error", status: Number((error as { status?: unknown })?.status) || 0 });

@@ -85,6 +85,15 @@ const answerValidator = v.object({
   mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   /** The calendars shared with a chat, by address, from a share command. */
   addresses: v.optional(v.array(v.string())),
+  /** What a calendar unshare found (`lib/textGroupCalendar.ts` `unshareCalendar`), by address. */
+  unshared: v.optional(
+    v.object({
+      stopped: v.array(v.string()),
+      alreadyStopped: v.array(v.object({ address: v.string(), at: v.number() })),
+      neverShared: v.array(v.string()),
+      stillShared: v.array(v.string()),
+    }),
+  ),
   /** A group chat's settings: whose calendar is shared there. */
   calendar: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
 });
@@ -212,7 +221,9 @@ export const applyTexCommand = internalMutation({
       }
       case "unshare_calendar": {
         const address = args.command.address === undefined ? undefined : (cleanAddress(args.command.address) ?? "");
-        return { status: "done", count: person === null ? 0 : await unshareCalendar(ctx, group, person, address) };
+        // What it found, by address, for Tex to word: stopped now, stopped earlier, never shared, still shared.
+        const found = person === null ? { stopped: [], alreadyStopped: [], neverShared: [], stillShared: [] } : await unshareCalendar(ctx, group, person, address, now);
+        return { status: "done", count: found.stopped.length, unshared: found };
       }
       case "review_sharing":
         // A person's review sharing is theirs to set in their own chat, never from a group.

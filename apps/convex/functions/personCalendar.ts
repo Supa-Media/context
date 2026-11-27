@@ -30,6 +30,8 @@ const calendarAnswer = v.union(
     calendars: v.array(v.object({ connectionId: v.id("googleConnections"), address: v.string() })),
     reconnect: v.array(v.string()),
     aiAccess: v.optional(v.array(v.string())),
+    /** Read as free and busy times only: a guest asked in a group chat (`lib/textGroupCalendar.ts` `guestAsked`). */
+    freeBusy: v.optional(v.literal(true)),
   }),
   v.object({
     ok: v.literal(false),
@@ -92,18 +94,21 @@ async function answerRead(ctx: MutationCtx, sorted: Sorted, readers: Id<"users">
 
 /**
  * A group chat's read of the calendars shared with it (`lib/textGroupCalendar.ts`): `account` narrows to one shared
- * address, and a chat that shares none is refused, never answered with another person's calendar.
+ * address, and a chat that shares none is refused, never answered with another person's calendar. A guest's ask reads
+ * them as free and busy only (`freeBusy`): the route then hands over no event's words.
  */
 async function chatCalendarRead(
   ctx: MutationCtx,
   args: { hashedAccessToken: string; expectedWorkspaceId: string; account?: string },
 ): Promise<Answer> {
-  const shares = await chatCalendarClearance(ctx, args);
-  if (shares === null || shares.length === 0) return { ok: false, refused: "not_allowed" };
+  const cleared = await chatCalendarClearance(ctx, args);
+  if (cleared === null || cleared.shares.length === 0) return { ok: false, refused: "not_allowed" };
+  const { shares } = cleared;
   const wanted = args.account === undefined ? shares : shares.filter(({ share }) => share.address === args.account);
   if (wanted.length === 0) return { ok: false, refused: "other_calendar" };
   const sorted = sortCalendars(wanted.map(({ connection }) => connection));
-  return await answerRead(ctx, sorted, [...new Set(wanted.map(({ share }) => share.userId))]);
+  const answer = await answerRead(ctx, sorted, [...new Set(wanted.map(({ share }) => share.userId))]);
+  return answer.ok && cleared.freeBusy ? { ...answer, freeBusy: true } : answer;
 }
 
 export const claimPersonCalendarRead = internalMutation({
