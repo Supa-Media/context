@@ -404,6 +404,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Above the right rail's rule, full-page apps; below it, side-panel apps](./app-and-console/rail-pages-and-panels.md#above-the-rails-rule-full-page-apps-below-it-side-panel-apps-2026-11-26) (2026-11-26)
 - [The vault is a tab on the right rail, and a phone's account sheet button, not a page of Settings](./app-and-console/vault-on-the-rail.md#the-vault-is-a-tab-on-the-right-rail-and-a-phones-account-sheet-button-not-a-page-of-settings-2026-11-23) (2026-11-23)
 - [Approvals are cards in the Tex chat, and there is no Approvals tab](./app-and-console/approvals-in-tex-chat.md#approvals-are-cards-in-the-tex-chat-and-there-is-no-approvals-tab-2026-11-19) (2026-11-19)
 - [Settings is one scrolling page, each row one line and one action](./app-and-console/settings-one-page.md#settings-is-one-scrolling-page-each-row-one-line-and-one-action-2026-11-12) (2026-11-12)

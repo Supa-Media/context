@@ -153,9 +153,12 @@ export function AreasView(props: AreasViewProps) {
   const faceOf = useCallback(
     (owner: string | null): Face => {
       const face = plainFace(owner);
-      if (owner === null || face.kind !== "agent" || readPicture === undefined) return face;
-      const avatar = cardFor(owner, "agent").avatar;
-      if (avatar === "") return face;
+      if (owner === null || readPicture === undefined) return face;
+      // A bot is known by its card too: `Tex Quality · Tex reply quality` is on the agents list as Tex Quality (Dev, 2026-11-26).
+      const written = cardFor(owner, "agent");
+      if (face.kind !== "agent" && (written.creates || written.kind !== "agent")) return face;
+      const avatar = written.avatar;
+      if (avatar === "") return { kind: "agent" };
       const card = cardPath(root, owner, withCards);
       const workspace = host?.workspaceId ?? "";
       // Agent Mail draws this bot from here without reading its card again (`botPictures.ts`).
@@ -362,7 +365,7 @@ export function AreasView(props: AreasViewProps) {
           canEdit={canEdit}
           {...(myHandle === undefined ? {} : { me: myHandle })}
           // A mail note is named for its sender (`grok-bot`, `seyi`): a bot's is drawn with its face, a person's with their name.
-          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") ? faceOf(who) : { kind: "person", name: who })))}
+          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") || !cardFor(who, "agent").creates ? faceOf(who) : { kind: "person", name: who })))}
           label={label}
           {...(readBody === undefined ? {} : { read: readBody })}
           {...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {})}

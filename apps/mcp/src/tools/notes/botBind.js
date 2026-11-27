@@ -25,7 +25,7 @@ import comments from "../../../../../packages/shared/src/comments.cjs";
 import { bindBot } from "../../mail/boundBot.js";
 
 const { mailJoinName } = areaBots;
-const { botCardPaths } = areaRoutines;
+const { botCardPaths, botShortName } = areaRoutines;
 const { appendMail } = mail;
 
 const CHECK_TEXT =
@@ -99,17 +99,19 @@ export async function toolBindBot(store, scope, rules, overrides, raw) {
     );
   }
   const holder = typeof card.props.holder === "string" && card.props.holder.trim() !== "" ? card.props.holder.trim() : name;
-  const bot = mailJoinName(name);
+  // Its mail name is its card's folder (`bots/tex-quality/about.md` → `tex-quality`), whatever words it was called by.
+  const folderName = /\/([^/]+)\/about\.md$/.exec(card.path)?.[1];
+  const bot = mailJoinName(folderName ?? botShortName(name) ?? name);
   const answer = await bindBot(store, { bot, name: holder });
   if (answer.ok !== true) return toolError(`not bound: ${answer.error}. Fix that, then try again.`);
   // A card in a folder (`bots/<bot>/about.md`) has its mail beside it; an old one-note card has none, so no check.
   const folder = card.path.endsWith("/about.md") ? card.path.slice(0, -"/about.md".length) : null;
-  if (folder === null) return toolText(`- ${holder}: this connection is now ${holder} here; what it writes is signed ${holder}.`);
+  if (folder === null) return toolText(`- ${holder}: this connection is now ${holder} here (as well as any bot it was already); what it writes in ${holder}'s folder is signed ${holder}, and elsewhere it passes as: "${bot}" when it is several bots.`);
   const checkPath = `${folder}/mail/context.md`;
   const failed = await mailCheck(store, scope, rules, overrides, checkPath, holder);
   return toolText(
     [
-      `- ${holder}: this connection is now ${holder} here; what it writes is signed ${holder}.`,
+      `- ${holder}: this connection is now ${holder} here (as well as any bot it was already); what it writes in ${holder}'s folder is signed ${holder}, and elsewhere it passes as: "${bot}" when it is several bots.`,
       failed === null
         ? `- check: mailed to ${checkPath}. Answer it there from your main chat within 5 minutes: write { action: "mail", path: "${checkPath}", args: { text, used } }.`
         : `- not done: the check mail (${failed}). Ask the person to mail you from the app's bot page instead.`,

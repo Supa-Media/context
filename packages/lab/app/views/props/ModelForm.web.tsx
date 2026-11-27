@@ -160,6 +160,7 @@ export function NewModelButton() {
   useLab();
   return (
     <button
+      className="lnk"
       id="mNewModel"
       aria-label="Add a model"
       title="Add a model"
@@ -172,10 +173,7 @@ export function NewModelButton() {
         )
       }
     >
-      <svg className="i" viewBox="0 0 24 24" style={{ width: 14, height: 14 }}>
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-      Model
+      + Model
     </button>
   );
 }
@@ -188,13 +186,12 @@ export function EditModelLink({ m }: { m: LabModel }) {
     <button
       className="lnk"
       id="mEditModel"
-      style={{ marginTop: 8 }}
       onClick={() => {
         const k = node(selId())!.model;
         setModelForm({ key: k, v: { ...MODELS[k] } });
       }}
     >
-      Edit {m.name}
+      Edit
     </button>
   );
 }

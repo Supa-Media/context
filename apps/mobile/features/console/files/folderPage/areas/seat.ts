@@ -28,6 +28,7 @@
  */
 
 import { botKind, botLabel, reachKind, type ReachKind } from "@context/shared/src/areaBots.cjs";
+import { botShortName } from "@context/shared/src/areaRoutines.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 import { ABOUT_NOTE, baseName } from "../../paths";
 import { entriesIn, type ItemEntry } from "../model";
@@ -404,11 +405,14 @@ export function isBotCardPath(root: string, path: string): boolean {
  * for a person.
  */
 export function cardPath(root: string, holder: string, notes: readonly ListNote[] = [], kind: Card["kind"] = "agent"): string {
-  const home = `${botsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`;
-  const written = [home, `${legacyBotsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`, `${peopleFolder(root)}/${cardSlug(holder)}.md`];
-  const found = written.find((path) => notes.some((note) => note.path === path));
+  const at = (slug: string) => [`${botsFolder(root)}/${slug}/${ABOUT_NOTE}`, `${legacyBotsFolder(root)}/${slug}/${ABOUT_NOTE}`, `${peopleFolder(root)}/${slug}.md`];
+  const written = at(cardSlug(holder));
+  // A card's words may say more than its folder's name: `Tex Quality · Tex reply quality` is `bots/tex-quality/`
+  // (`botShortName`, `@context/shared/src/areaRoutines.cjs`; Dev, 2026-11-26: its logo was drawn as a plain robot).
+  const short = botShortName(holder);
+  const found = [...written, ...(short === null ? [] : at(cardSlug(short)))].find((path) => notes.some((note) => note.path === path));
   if (found !== undefined) return found;
-  return kind === "agent" ? home : written[2]!;
+  return kind === "agent" ? written[0]! : written[2]!;
 }
 
 /**

@@ -205,6 +205,8 @@ describe("the Lab with your own texts", () => {
       lab.sel = { t: "node", id: "tools" };
       emit();
     });
+    // What it ran with is under the step's More.
+    await click(q("#nMore"));
     expect(qa("#nIO .io b").map((x) => x.textContent)).toEqual(["search_web · 650 ms"]);
     expect(q("#nIO pre")?.textContent).toContain("→ results");
     await click(q("#nIcon"));

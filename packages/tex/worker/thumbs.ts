@@ -31,12 +31,12 @@ export const THUMB_HOLD_MS = 0;
 export const THUMB_KEY = "thumb";
 export const GROUP_THUMB_KEY = "gthumb";
 
-/**
- * The openings and the closing line of the gateway's asks (`askLine`). Only a
- * text that reads as one is held; the gateway still checks the words match
- * what is waiting.
- */
-const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
+/*
+  Which text is an ask is a fact the gateway hands over, never read from its wording (Dev2, 2026-11-26: Tex writes its
+  own asks, so no fixed opening marks one). A reply that armed something carries its ask text (`verbatim`, `askIds`);
+  a phone's chat keeps it with the reply's texts (`rememberAskReply`), a group's with its open ask (`OpenAsk.words`),
+  and a tapback is on the ask when its words are that text, or that text cut short.
+*/
 
 /**
  * The ask to run a job on a computer lent to a group (`apps/mcp/src/machines/groupAsk.js`): its yes is the
@@ -49,14 +49,20 @@ export function onMachineAsk(reaction: Reaction): boolean {
   return MACHINE_ASK.test(reaction.words);
 }
 
-/** Whether a text of Tex's is one of the gateway's asks. */
-export function isAsk(text: string): boolean {
-  return ASK.test(text);
+/** Whether a tapback is one that can answer an ask: a like, a love or a dislike, not taken back. */
+export function isAnswerTap(reaction: Reaction): boolean {
+  return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved" || reaction.how === "Disliked");
 }
 
-/** Whether a tapback is a yes to hold: a like or a love on an ask. */
-export function holdsAsYes(reaction: Reaction): boolean {
-  return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && ASK.test(reaction.words);
+/** Whether a tapback's words are this ask's text, whole or cut short. */
+export function onAsk(reaction: Reaction, ask: string | undefined): boolean {
+  if (typeof ask !== "string" || ask.trim() === "") return false;
+  return folded(reaction.words) === folded(ask) || quotesText(ask, reaction.words);
+}
+
+/** Whether a tapback is a yes to hold: a like or a love on the ask. */
+export function holdsAsYes(reaction: Reaction, ask: string | undefined): boolean {
+  return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && onAsk(reaction, ask);
 }
 
 /**
@@ -66,13 +72,13 @@ export function holdsAsYes(reaction: Reaction): boolean {
  * and the ask stayed armed, so a later "yes" could still send it. The gateway
  * checks the words as it does a 👍's (`thumbsDownIsNo`).
  */
-export function holdsAsNo(reaction: Reaction): boolean {
-  return !reaction.removed && reaction.how === "Disliked" && ASK.test(reaction.words);
+export function holdsAsNo(reaction: Reaction, ask: string | undefined): boolean {
+  return !reaction.removed && reaction.how === "Disliked" && onAsk(reaction, ask);
 }
 
-/** Whether a tapback goes as the answer to an ask: a 👍, ❤️ or 👎 on one. */
-export function holdsAsAnswer(reaction: Reaction): boolean {
-  return holdsAsYes(reaction) || holdsAsNo(reaction);
+/** Whether a tapback goes as the answer to an ask: a 👍, ❤️ or 👎 on it. */
+export function holdsAsAnswer(reaction: Reaction, ask: string | undefined): boolean {
+  return holdsAsYes(reaction, ask) || holdsAsNo(reaction, ask);
 }
 
 type Held<T> = { item: T; words: string; at: number };
@@ -90,10 +96,10 @@ const ASK_REPLY_KEY = "askReply";
 const ASK_REPLY_FOR_MS = 12 * 60 * 60 * 1000;
 type AskReply = { ask: string; texts: string[]; at: number };
 
-/** Keep the texts of a reply that carried an ask, or forget the last one when this reply carried none. */
-export async function rememberAskReply(storage: InboxStorage, texts: readonly string[], now: number): Promise<void> {
+/** Keep the texts of a reply that carried an ask (`ask`, its text as the gateway sent it), or forget the last one when this reply carried none. */
+export async function rememberAskReply(storage: InboxStorage, texts: readonly string[], now: number, asked?: string): Promise<void> {
   try {
-    const ask = texts.find((text) => ASK.test(text));
+    const ask = typeof asked === "string" && asked.trim() !== "" ? (texts.find((text) => text.trim() === asked.trim()) ?? asked) : undefined;
     if (ask === undefined) await storage.delete(ASK_REPLY_KEY);
     else await storage.put<AskReply>(ASK_REPLY_KEY, { ask, texts: texts.slice(0, 8).map((text) => text.slice(0, 2_000)), at: now });
   } catch {

@@ -28,7 +28,10 @@ export function botCardsOf(conversations: readonly Pick<Conversation, "path" | "
  * `name`'s face, and `app` the app its line was signed with (`Claude Code · @seyi`): a bot with a card is drawn by its
  * own logo; any other agent signing as Claude by Claude Code's mark with its person's face (Dev, 2026-11-26).
  */
-export type FaceOf = (name: string, app?: string | null) => Face;
+export type FaceOf = ((name: string, app?: string | null) => Face) & {
+  /** Whether `name` is a bot with a card here: its lines are its own, so the app it wrote from is not said beside it. */
+  readonly isBot?: (name: string) => boolean;
+};
 
 export function useBotFaces(conversations: readonly Conversation[], io: MailNoteIO, workspaceId: string): FaceOf {
   const cards = useMemo(() => botCardsOf(conversations), [conversations]);
@@ -41,13 +44,15 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
     }),
     [cardKey, io],
   );
-  // Redrawn as each card answers; what this session already knows is drawn from the first frame.
+  // Redrawn as each card answers; what this session already knows is drawn from the first frame, and every card is
+  // read again each time the page opens, so a logo changed since is drawn (Dev, 2026-11-26: Agent Mail kept drawing a
+  // bot's old logo after its card named a new one).
   const [, setAnswered] = useState(0);
   useEffect(() => {
     let live = true;
     for (const card of cards.values()) {
-      if (knownAvatar(cardKey(card)) !== undefined) continue;
-      void readLeaf(card).then(() => live && setAnswered((count) => count + 1));
+      const before = knownAvatar(cardKey(card));
+      void readLeaf(card).then((leaf) => live && leaf !== before && setAnswered((count) => count + 1));
     }
     return () => {
       live = false;
@@ -56,7 +61,7 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardsKey, cardKey, readLeaf]);
 
-  return useCallback(
+  const faceOf = useCallback(
     (name: string, app?: string | null): Face => {
       if (isPersonName(name)) return { kind: "person", name };
       const card = cards.get(cardSlug(name));
@@ -83,4 +88,5 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cardsKey, cardKey, io, readLeaf],
   );
+  return useMemo(() => Object.assign((name: string, app?: string | null) => faceOf(name, app), { isBot: (name: string) => !isPersonName(name) && cards.has(cardSlug(name)) }), [faceOf, cards]);
 }

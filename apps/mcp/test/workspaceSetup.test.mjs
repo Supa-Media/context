@@ -198,8 +198,9 @@ test("Tex asks by text before claiming a handle, and the texted YES claims it", 
     { text: "I can set up @woodshop for you." },
   ]);
   const asked = await text("make me a workspace called Woodshop, @woodshop");
-  assert.match(asked, /I need your OK: claim the handle @woodshop/);
-  assert.match(asked, /Give it a 👍 and I'll go ahead\./);
+  // Tex's own words, then what the yes does, whole: no fixed ask line (2026-11-27, `textedApprovals.js` `withCopies`).
+  assert.match(asked, /^I can set up @woodshop for you\.\n\nclaim the handle @woodshop/);
+  assert.doesNotMatch(asked, /Give it a 👍/);
   assert.equal(claims(), before, "a turn that read nothing still waits: the handle is permanent");
 
   const yes = await text("YES");

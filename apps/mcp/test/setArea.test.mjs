@@ -138,6 +138,40 @@ test("a bot's logo is stored in the workspace and named on its card's avatar lin
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
 });
 
+test("a bot's logo line names a picture the workspace holds", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } });
+  const avatar = String((await props("bots/finance/about.md")).avatar);
+  // The card's leaf is the stored object's name, not a name for some other copy (Tex Quality, 2026-11-26).
+  assert.notEqual(await store.get(`.context/assets/images/${avatar}`), null);
+});
+
+// Tex Quality, 2026-11-26: its card says "Tex Quality · Tex reply quality" in bots/tex-quality/.
+const TQ_CARD = "---\nholder: Tex Quality · Tex reply quality\nkind: agent\nbot: claude\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n";
+
+test("a bot called by its card's full words is that card, not a second one", async () => {
+  const { store, props } = await world({ "areas/about.md": "---\nagents:\n  - Tex Quality\n---\n", "areas/finance/about.md": FINANCE, "bots/tex-quality/about.md": TQ_CARD });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Tex Quality · Tex reply quality", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.match(said(result), /card bots\/tex-quality\/about\.md/);
+  assert.match(String((await props("bots/tex-quality/about.md")).avatar), /^upload-/);
+  assert.equal(await store.get("bots/tex-quality-tex-reply-quality/about.md"), null);
+  assert.deepEqual((await props("areas/about.md")).agents, ["Tex Quality"]);
+});
+
+test("a bot called by its short name keeps the words and kind its card says", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/tex-quality/about.md": TQ_CARD });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Tex Quality", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  const card = await props("bots/tex-quality/about.md");
+  assert.equal(card.holder, "Tex Quality · Tex reply quality");
+  assert.equal(card.bot, "claude");
+  assert.match(said(result), /^- Tex Quality · Tex reply quality: /);
+  // Passing a kind still changes it.
+  await run(store, { area: "areas/finance", bot: { name: "Tex Quality", kind: "grok" } });
+  assert.equal((await props("bots/tex-quality/about.md")).bot, "grok");
+});
+
 test("an area's one delegate is written on its about.md, and null takes it away", async () => {
   // The owner, 2026-11-25: "1 delegate per area please".
   const { store, props, text } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: Old Bot\n---\n\n# Finance\n" });
@@ -272,4 +306,56 @@ test("a blank owner or delegate is the field left empty, never a clear: null cle
   const cleared = await run(store, { area: "areas/finance", owner: null });
   assert.equal(cleared.isError, undefined, said(cleared));
   assert.equal((await props("areas/finance/about.md")).owner, undefined);
+});
+
+/*
+  WHOSE BOT IT IS IS NOT ANOTHER EDITOR'S TO SAY (2026-11-27). `bind_bot` binds a card to the connection the card
+  names (`botBind.js`), so rewriting `belongs_to` on a card made for somebody else is taking their bot's identity:
+  what the bound connection writes is signed by the bot. The bots folder is team-visible, so an editor can write the
+  card; only an owner, or the person it names, says whose bot it is.
+
+  Sabotage: the whole guard removed → "an editor does not make somebody else's bot theirs" (the card says @kim and
+  bind_bot no longer refuses) and "an editor does not claim a card that is already here and names nobody" fail.
+  Applied, file run, both observed failing, restored.
+*/
+const GROK_CARD = '---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: "@seyi"\n---\n\n# Grok Bot\n';
+const bindAs = async (store) => (await import("../src/tools/notes/botBind.js")).toolBindBot(store, "team", RULES, new PrivacyOverrides(), "Grok Bot");
+
+test("an editor does not make somebody else's bot theirs, and cannot bind it after trying", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } });
+  assert.equal(result.isError, true, said(result));
+  assert.match(said(result), /@seyi's bot/);
+  assert.equal((await props("bots/grok-bot/about.md")).belongs_to, "@seyi", "the card is unchanged");
+  assert.match(said(await bindAs(store)), /only their own connection binds it/);
+});
+
+test("an editor does not claim a card that is already here and names nobody", async () => {
+  const unnamed = '---\nholder: Grok Bot\nkind: agent\nbot: grok\n---\n\n# Grok Bot\n';
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": unnamed });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } });
+  assert.equal(result.isError, true, said(result));
+  assert.equal((await props("bots/grok-bot/about.md")).belongs_to, undefined);
+});
+
+test("the person a card names hands their own bot on, and an owner says whose any bot is", async () => {
+  const mine = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  mine.store.actor = { ...mine.store.actor, role: "editor", name: "@seyi" };
+  assert.equal((await run(mine.store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } })).isError, undefined);
+  assert.equal((await mine.props("bots/grok-bot/about.md")).belongs_to, "@kim");
+
+  const owner = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  owner.store.actor = { ...owner.store.actor, role: "owner", name: "@dev" };
+  assert.equal((await run(owner.store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } })).isError, undefined);
+  assert.equal((await owner.props("bots/grok-bot/about.md")).belongs_to, "@kim");
+});
+
+test("an editor still makes a card of its own, naming itself", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Kim Bot", whose: "@kim" } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.equal((await props("bots/kim-bot/about.md")).belongs_to, "@kim");
 });

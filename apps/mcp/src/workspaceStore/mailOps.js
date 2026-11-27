@@ -16,7 +16,7 @@
  *   the note has a mail block (`mailReads.js`, read receipts).
  * - `ws.mail.reads {path}` → `{served, found, reads?}`: who has read the note's mail and when, for its receipts.
  * - `ws.mail.bind {grantId, bot, name}` → `{served, ok} | {served, error}` and `ws.mail.bound {grantId}` →
- *   `{served, bound}`: which bot a connection is here (`mailBots.js`). The gateway binds only its own session's
+ *   `{served, bots}`: which bots a connection is here, several where an app gives its bots one connector (`mailBots.js`). The gateway binds only its own session's
  *   connection, as an owner or editor, once it found the card (`tools/notes/botBind.js`); no note is named.
  *
  * All are judged as a read is (`judgeFor`): a reader who may not see the note gets `found: false`, the same as a
@@ -94,7 +94,7 @@ export async function serveMail(store, op, fields, judge, { now = Date.now, wait
   if (store.rows.home() !== HOMES.OBJECT || !store.sql) return { served: false };
   if (op === MAIL_OPS.BIND || op === MAIL_OPS.BOUND) {
     const bots = (store.mailBots ??= mailBots(store.sql));
-    if (op === MAIL_OPS.BOUND) return { served: true, bound: bots.of(fields.grantId) };
+    if (op === MAIL_OPS.BOUND) return { served: true, bots: bots.of(fields.grantId) };
     return { served: true, ...bots.bind(fields.grantId, { bot: fields.bot, name: fields.name }) };
   }
   if (!text(fields.path, 1024)) throw new MailAskRefused("a mail ask names its note's path");

@@ -143,7 +143,8 @@ export function contextsFor(session) {
         current: entry.workspaceId === session.workspaceId,
         canWrite: reach.canWrite,
         grantWrites: reach.grantWrites,
-        tier: reach.tier,
+        tier: entry.askerOwn === true ? "private" : reach.tier,
+        ...(entry.askerOwn === true ? { askerOwn: true } : {}),
       };
     });
 }

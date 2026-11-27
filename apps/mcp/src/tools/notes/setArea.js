@@ -30,7 +30,7 @@ import { attachProjects } from "./attachProjects.js";
 import { toolBindBot } from "./botBind.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
-const { botCardPaths, parseWorksInEntry, worksInLine } = areaRoutines;
+const { botCardPaths, botShortName, parseWorksInEntry, worksInLine } = areaRoutines;
 
 const REACHES = new Set(["webhook", "mail"]);
 const MAX_RULES = 20;
@@ -240,8 +240,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (bot.reach !== undefined && !REACHES.has(bot.reach)) return toolError('invalid: bot.reach is "webhook" or "mail". Pick one, then try again.');
     const whose = bot.whose === undefined ? undefined : String(bot.whose).trim();
     if (whose !== undefined && whose !== "" && !/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(whose)) return toolError("invalid: bot.whose is the @handle of the person it belongs to. Pass it like @seyi.");
-    const card = [["holder", name], ["kind", "agent"], ["bot", kind]];
-    if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
+    const card = [["kind", "agent"], ["bot", kind]];
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
     // Its logo, stored in the workspace by the write itself: `avatar:` names it, as a page's photo: does (`uploadedImages.js`).
     let images;
@@ -265,10 +264,39 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     // still in the Areas folder's `bots/` or `people/` is changed where it is.
     const paths = botCardPaths(root, name);
     const found = await factProps(store, paths);
-    const cardAt = paths.slice(1).find((path) => found?.get(path)?.props) ?? paths[0];
+    const cardAt = paths.find((path) => found?.get(path)?.props) ?? paths[0];
+    // The words its card already says stay (Tex Quality, 2026-11-26: called "Tex Quality", its card's "Tex Quality ·
+    // Tex reply quality" was cut back to that); a new card says the name it was made with.
+    const said = found?.get(cardAt)?.props?.properties?.holder;
+    if (typeof said !== "string" || said.trim() === "") card.unshift(["holder", name]);
+    // Its kind likewise: left as the card says unless it is new or bot.kind was passed.
+    const saidKind = found?.get(cardAt)?.props?.properties?.bot;
+    if (bot.kind === undefined && typeof saidKind === "string" && saidKind.trim() !== "") card.splice(card.findIndex(([key]) => key === "bot"), 1);
+    /*
+      WHOSE BOT IT IS IS NOT ANOTHER EDITOR'S TO SAY (2026-11-27). `bind_bot` binds a card to the connection the card
+      names, and to nobody else's (`botBind.js`): what that connection writes is signed by the bot, and its reads say
+      the bot. So `belongs_to` on a card already here is the owner's line, or the line of the person it names, who may
+      clear it or hand the bot on. An editor who could rewrite it on somebody else's card would bind their bot, and a
+      card that names nobody is an owner's to bind, so claiming one is an owner's too. A card this call makes says
+      whom it was made for.
+    */
+    const already = found?.get(cardAt)?.props?.properties ?? null;
+    if (whose !== undefined && already !== null) {
+      const named = typeof already.belongs_to === "string" ? already.belongs_to.trim().toLowerCase() : "";
+      const me = typeof store.actor?.name === "string" ? store.actor.name.trim().toLowerCase() : "";
+      if (store.actor?.role !== "owner" && !(named !== "" && named === me)) {
+        return toolError(
+          named === ""
+            ? `refused: ${name}'s card is already here and names nobody, so only an owner of this workspace says whose bot it is. Ask an owner to set belongs_to.`
+            : `refused: ${name} is ${already.belongs_to}'s bot, so only they or an owner change that. Ask one of them, then try again.`,
+        );
+      }
+    }
+    if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     // A cards folder inside the Areas folder says `area: false`, so it is never drawn as an area; the one beside it needs none.
-    if (cardAt !== paths[0]) {
-      const cardsFolder = cardAt.slice(0, cardAt === paths[1] ? -`/${cardSlug(name)}/about.md`.length : -`/${cardSlug(name)}.md`.length);
+    const folderOf = (path) => path.split("/").slice(0, path.endsWith("/about.md") ? -2 : -1).join("/");
+    const cardsFolder = folderOf(cardAt);
+    if (cardsFolder !== folderOf(paths[0])) {
       const folderAbout = await openNote(store, scope, rules, overrides, `${cardsFolder}/about.md`);
       if (folderAbout.missing) await change(store, scope, rules, overrides, `${cardsFolder}/about.md`, [["area", "false"]], { create: true });
     }
@@ -277,11 +305,14 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const listing = await openNote(store, scope, rules, overrides, `${root}/about.md`);
     const agents = (await factProps(store, [`${root}/about.md`]))?.get(`${root}/about.md`)?.props?.properties?.agents;
     const have = Array.isArray(agents) ? agents.map(String) : typeof agents === "string" ? agents.split(",").map((item) => item.trim()).filter(Boolean) : [];
-    if (!have.some((agent) => agent.toLowerCase() === name.toLowerCase()) && !listing.error) {
-      const added = await change(store, scope, rules, overrides, `${root}/about.md`, [["agents", [...have, name]]], { create: true });
+    // Listed once, by its folder's name: `Tex Quality · Tex reply quality` is already there as Tex Quality.
+    const listed = botShortName(name) ?? name;
+    const known = (agent) => [name, listed].some((each) => agent.toLowerCase() === each.toLowerCase());
+    if (!have.some(known) && !listing.error) {
+      const added = await change(store, scope, rules, overrides, `${root}/about.md`, [["agents", [...have, listed]]], { create: true });
       if (added.error) problems.push(added.error);
     }
-    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""}${works === undefined ? "" : works.length === 0 ? ", working wherever an area names it" : `, working in ${works.join(", ")}`} (card ${cardAt})`);
+    done.push(`${typeof said === "string" && said.trim() !== "" ? said.trim() : name}: ${botLabel(bot.kind === undefined && typeof saidKind === "string" && saidKind.trim() !== "" ? saidKind.trim() : kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""}${works === undefined ? "" : works.length === 0 ? ", working wherever an area names it" : `, working in ${works.join(", ")}`} (card ${cardAt})`);
   }
 
   // A webhook, sealed by the control plane; never echoed.

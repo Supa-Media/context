@@ -66,7 +66,7 @@ async function turn(t: T, sender: string, participants: string[], extra: Record<
   return await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants, mint: true, ...extra });
 }
 
-type Row = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; homeOnly?: true; chatHome?: string };
+type Row = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; homeOnly?: true; chatHome?: string; askerOwn?: true };
 type Session = { defaultWorkspaceId: string; scopes: string[]; workspaces: Row[] };
 
 async function resolves(t: T, accessToken: string): Promise<Session | null> {
@@ -114,9 +114,10 @@ describe("what a chat reaches", () => {
     expect(answer).toMatchObject({ status: "ready", slug: "context-lc", reach: ["ember-co", "fjord-co"], minted: true, bound: false });
     const session = await resolves(w.t, answer.accessToken as string);
     expect(session?.defaultWorkspaceId).toBe(String(w.pinned));
-    expect(slugsOf(session)).toEqual(["context-lc", "ember-co", "fjord-co"]);
+    // Ada asked, so Ada's own personal workspace is read too (`textGroupAskerReach.test.ts`), held as a member's.
+    expect(slugsOf(session)).toEqual(["context-lc", "ada", "ember-co", "fjord-co"]);
     expect(session?.workspaces[0]).toMatchObject({ homeOnly: true, role: "editor" });
-    expect(await grantRow(w.t)).toMatchObject({ workspaceId: w.pinned, texGroup: { homeOnly: true, reach: [w.alpha, w.beta] } });
+    expect(await grantRow(w.t)).toMatchObject({ workspaceId: w.pinned, texGroup: { homeOnly: true, reach: [w.ada.personal, w.alpha, w.beta] } });
     // Team tier with no granted names: the grant never holds the private tier, whoever tagged.
     expect(session?.scopes).not.toContain(SCOPE_PRIVATE);
     for (const row of session!.workspaces.slice(1)) expect(row.grantedNames).toBeUndefined();
@@ -181,7 +182,8 @@ describe("what a chat reaches", () => {
     expect(answer).toMatchObject({ status: "ready", reach: ["ember-co", "fjord-co"] });
     const session = await resolves(w.t, answer.accessToken as string);
     const ids = session!.workspaces.map((row) => row.workspaceId);
-    expect(ids).not.toContain(String(w.ada.personal));
+    // Ada's own is read on Ada's own ask, as a member's and marked so; Bo's never, though Bo is here.
+    expect(session!.workspaces.find((row) => row.workspaceId === String(w.ada.personal))).toMatchObject({ role: "member", askerOwn: true });
     expect(ids).not.toContain(String(w.bo.personal));
     // The pin appears once, as the home row, with the chat's names only, never as a team workspace.
     expect(ids.filter((id) => id === String(w.pinned))).toHaveLength(1);
@@ -230,12 +232,12 @@ describe("what a forged grant or call cannot reach", () => {
     const secret = await createWorkspace(w.t, stranger, "secret-room", { kind: "shared" });
     await w.t.run(async (ctx) => {
       const grant = (await ctx.db.query("oauthGrants").collect()).find((entry) => entry.texGroup !== undefined)!;
-      await ctx.db.patch(grant._id, { texGroup: { ...grant.texGroup!, reach: [w.ada.personal, w.pinned, secret, w.alpha] } });
+      await ctx.db.patch(grant._id, { texGroup: { ...grant.texGroup!, reach: [w.bo.personal, w.pinned, secret, w.alpha] } });
     });
     const session = await resolves(w.t, answer.accessToken as string);
     expect(slugsOf(session)).toEqual(["context-lc", "ember-co"]);
     expect(JSON.stringify(session)).not.toContain(String(secret));
-    expect(JSON.stringify(session)).not.toContain(String(w.ada.personal));
+    expect(JSON.stringify(session)).not.toContain(String(w.bo.personal));
   });
 
   test("a call that names a workspace outside the grant's rows is refused", async () => {

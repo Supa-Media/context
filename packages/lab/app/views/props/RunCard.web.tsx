@@ -10,7 +10,7 @@ import { sandbox, useSandbox } from "../../engine/sandbox";
 import { usePlay } from "../../engine/sandboxPlay";
 import { callsHeading, summaryOf, type RunStep, type StepCall } from "../../engine/stepRun";
 import { panelRow, playedStepRun, stepRunOf, type StepRunState } from "../../engine/stepRunNow";
-import { lab, MODELS, set } from "../../engine/state";
+import { G, lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
 import { ProdDetails } from "../canvas/ProdDetails.web";
@@ -52,8 +52,11 @@ export function StatusBadge({ run }: { run: StepRunState }) {
   return run.state === "ran" ? <span className="st ok">Ran</span> : run.state === "running" ? <span className="st run">Running</span> : <span className="st none">Didn't run</span>;
 }
 
-/** The one-line facts under a step's name: what ran it and, for the run card, how long it took. */
-export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "set"; run: StepRunState; draft: string }) {
+/**
+ * The one line of facts under a step's goal: its model (a coloured dot and its name, with effort) and the steps it is
+ * wired from or to; on Run details, how long it took, its tokens and cost, and whether it ran.
+ */
+export function StatusRow({ n, card, run }: { n: LabNode; card: "run" | "set"; run: StepRunState }) {
   const m = MODELS[n.model] || MODELS.code;
   const steps = run.state === "ran" ? run.steps : [];
   const last = steps[steps.length - 1];
@@ -62,11 +65,23 @@ export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "
   const tokIn = steps.reduce((a, s) => a + (s.tokIn ?? 0), 0);
   const tokOut = steps.reduce((a, s) => a + (s.tokOut ?? 0), 0);
   const cost = sum(steps.map((s) => s.cost));
+  const g = G();
+  const from = g.edges.filter((e) => e.to === n.id).map((e) => node(e.from)?.label).filter(Boolean);
+  const to = g.edges.filter((e) => e.from === n.id).map((e) => node(e.to)?.label).filter(Boolean);
+  const wired = (w: string, xs: Array<string | undefined>) => (xs.length === 1 ? `${w} ${xs[0]}` : xs.length ? `${w} ${xs.length} steps` : "");
   return (
     <div className="runhead">
       <div className="runmeta">
-        <span>{model}</span>
-        {card === "set" ? <span>{`settings in draft ${draft}`}</span> : null}
+        <span>
+          <i className="mdot" style={{ background: `var(${m.c})` }} />
+          {model}
+        </span>
+        {card === "set" ? (
+          <>
+            {from.length ? <span>{wired("from", from)}</span> : null}
+            {to.length ? <span>{wired("to", to)}</span> : null}
+          </>
+        ) : null}
         {card === "run" && run.state === "running" ? <span>{fmtReal(run.elapsed)}</span> : null}
         {card === "run" && run.state === "ran" ? (
           <>
@@ -76,6 +91,7 @@ export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "
             {steps.some((s) => s.bg) ? <span>in the background</span> : null}
           </>
         ) : null}
+        {card === "run" ? <StatusBadge run={run} /> : null}
       </div>
     </div>
   );

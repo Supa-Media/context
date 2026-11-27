@@ -34,7 +34,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const LIST = "packages/tex/wording.json";
-export const FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src"];
+// apps/mcp/src/tools joined 2026-11-27 (Dev2, 2026-11-26: "remember our rule for hardcoded lines"): the gates' hold
+// lines were Tex's words written in the gateway's tools, out of this count's sight.
+export const FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src", "apps/mcp/src/tools"];
+/** The folders a list from before it named its own (`folders`) counted. */
+const FIRST_FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src"];
 const SOURCE = /\.(?:m?js|cjs|ts)$/;
 /** Not Tex's words: tests, generated files, type declarations, and the capability list (decided 2026-11-08). */
 const SKIP_FILE = /(?:\.test\.|\.testing\.|\/test\/|\/bench\/|generated|\.d\.c?ts$|gateway\/agent\/capabilities\.js$)/;
@@ -240,9 +244,16 @@ export function raises(base, head) {
   return found;
 }
 
-/** Null when the rise is allowed, else what is missing. */
-export function verdict(base, head, body = "") {
-  const found = raises(base, head);
+/** The list's files under these folders only. */
+const within = (list, folders) => Object.fromEntries(Object.entries(list).filter(([path]) => folders.some((folder) => path.startsWith(`${folder}/`))));
+
+/**
+ * Null when the rise is allowed, else what is missing. `covered` is the folders the base list counted: a folder this
+ * pull request starts counting brings its wording into the list as it stands, which is the count growing its reach,
+ * not wording added, so only the folders both lists count are compared.
+ */
+export function verdict(base, head, body = "", covered = null) {
+  const found = raises(base, covered === null ? head : within(head, covered));
   if (found.length === 0) return null;
   const reason = RAISED.exec(body ?? "")?.[1] ?? "";
   if (reason.length >= MIN_REASON) return null;
@@ -258,10 +269,17 @@ function readList(text) {
   return parsed.files ?? {};
 }
 
+/** The folders a list counted, as it says (`folders`), or the first four for a list from before it said. */
+function foldersOf(text) {
+  const parsed = JSON.parse(text);
+  return Array.isArray(parsed.folders) ? parsed.folders : FIRST_FOLDERS;
+}
+
 function writeList(found) {
   const body = {
     why: "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
     total: total(found),
+    folders: FOLDERS,
     files: found,
   };
   writeFileSync(join(ROOT, LIST), `${JSON.stringify(body, null, 2)}\n`);
@@ -301,6 +319,9 @@ function selfTest() {
   assert(verdict({ a: 2 }, { a: 3 }) !== null, "a raise against base fails");
   assert(verdict({ a: 2 }, { b: 2 }) === null, "a move into a new file passes");
   assert(verdict({ a: 2 }, { a: 2, b: 1 }) !== null, "a new file that raises the total fails");
+  assert(verdict({ "x/a.js": 2 }, { "x/a.js": 2, "y/b.js": 9 }, "", ["x"]) === null, "a folder newly counted is not a raise");
+  assert(verdict({ "x/a.js": 2 }, { "x/a.js": 3, "y/b.js": 9 }, "", ["x"]) !== null, "a raise in a folder counted before still fails");
+  assert(verdict({ "x/a.js": 2 }, { "x/a.js": 2, "x/c.js": 1, "y/b.js": 9 }, "", ["x"]) !== null, "a new file in a counted folder still fails");
   assert(verdict({ a: 2 }, { a: 3 }, "Tex wording raised on the owner's call: Dev2 in the thread, 2026-11-26: keep the outage line") === null, "the owner's line passes");
   assert(verdict({ a: 2 }, { a: 3 }, "Tex wording raised on the owner's call: ok") !== null, "a short reason does not");
   console.log("tex-wording-check self-test ok");
@@ -323,7 +344,7 @@ function main() {
     let baseText = null;
     try { baseText = execFileSync("git", ["show", `${base}:${LIST}`], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch {}
     if (baseText !== null) {
-      const said = verdict(readList(baseText), list, process.env.TEX_PR_BODY ?? "");
+      const said = verdict(readList(baseText), list, process.env.TEX_PR_BODY ?? "", foldersOf(baseText));
       if (said) problems.push(said);
     }
   }

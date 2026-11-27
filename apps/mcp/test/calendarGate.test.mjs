@@ -154,7 +154,8 @@ export async function runCalendarGateChecks(check) {
       changes().length === beforeGuest &&
         shown.includes("Move on your Google Calendar:") &&
         shown.includes("Google will let Blessing Aodu know.") &&
-        shown.includes("👍") &&
+        // Tex's own words are the ask, the change whole under them (2026-11-27, `textedApprovals.js` `withCopies`).
+        shown.startsWith("I'd move it to 9 and let Blessing know.\n\n") &&
         !/yourself/i.test(String(proposed.body?.answer ?? "")),
     );
     const yes = await ask(env, TOKEN_TEXTS, "yes");
@@ -223,7 +224,7 @@ export async function runCalendarGateChecks(check) {
         read.includes("Add to your Google Calendar:") &&
         read.includes("Invite: seyi@example.invalid") &&
         read.includes("With a Google Meet link") &&
-        read.includes("👍"),
+        read.startsWith("I'd book it with a Meet and invite Seyi.\n\n"),
     );
     model.install([{ text: "Booked, Meet link https://meet.google.com/abc-defg-hij" }]);
     const thumbs = await ask(env, TOKEN_TEXTS, "\u{1F44D}");

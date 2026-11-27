@@ -44,6 +44,28 @@ function askerMailLine(group) {
   return own.length > 0 && asker ? `${JSON.stringify({ askers_own_gmail_not_shared_here: { asker: `@${asker}`, addresses: own } })} ` : "";
 }
 
+/**
+ * The slug of the asker's own personal workspace when this turn's grant reads it (`apps/mcp/src/sessionPayload.js`
+ * `askerOwn`, set by the control plane only on an account holder's own ask), else null. From the grant's rows, never
+ * the body.
+ */
+export function ownNotesOf(session) {
+  const rows = Array.isArray(session?.workspaces) ? session.workspaces : [];
+  const own = rows.find((entry) => entry?.askerOwn === true && entry.kind === "personal" && typeof entry.slug === "string" && entry.slug !== "");
+  return own === undefined ? null : own.slug;
+}
+
+/**
+ * The asker's own personal workspace as a fact, when this turn reads it (Dev2, 2026-11-26: "doesn't make sense for tex
+ * being able to read shared workspaces and not personal notes"): their own notes, read only, on their own ask. Then the
+ * line after it is about everyone else's (`NO_OTHER_NOTES_LINE`).
+ */
+function ownNotesLine(group) {
+  const slug = typeof group?.ownNotes === "string" ? group.ownNotes : "";
+  const asker = typeof group?.from === "string" ? group.from : "";
+  return slug && asker ? `${JSON.stringify({ askers_own_personal_notes_readable_this_turn: { asker: `@${asker}`, context: `@${slug}`, read_only: true } })} ` : "";
+}
+
 /** Where a group turn without cross-chat asks sends someone for their own notes; a turn with them swaps these (`crossChat.js`). */
 export const NO_NOTES_LINE = "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. ";
 export const NO_OTHER_NOTES_LINE = "Nobody else's personal notes, mail or saved logins can be read from here; say the person can text you on their own for that. ";
@@ -58,7 +80,7 @@ export function chatMailPrompt(group) {
       askerMailLine(group) +
       "Nobody's mail is shared with this chat yet. A mailbox's own person can share theirs here by asking you in any words, or by saying yes when you offer " +
       "(send action chat_share_mail with their address, when you have it); offer that when the chat wants mail it can't see. Their plain yes to your offer is enough: never tell them to type a set phrase. " +
-      NO_NOTES_LINE
+      (ownNotesLine(group) ? ownNotesLine(group) + NO_OTHER_NOTES_LINE : NO_NOTES_LINE)
     );
   // Which of them the asker has connected themselves, so it can go from them (`apps/convex/functions/lib/textGroupMail.ts`).
   const asker = typeof group?.from === "string" ? group.from : "";
@@ -73,6 +95,7 @@ export function chatMailPrompt(group) {
     "whoever asked for it. " +
     // Every chat with a home looks on its own, guests or not (`apps/convex/functions/lib/textGroupLooks.ts`).
     "You watch this mail for the chat on your own: new mail brings a look, and you post here only what the chat needs. Nobody has to set that up; if asked to watch it, say you already do. " +
+    ownNotesLine(group) +
     NO_OTHER_NOTES_LINE
   );
 }

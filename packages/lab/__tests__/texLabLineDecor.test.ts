@@ -130,7 +130,7 @@ describe("the line, drawn", () => {
     press(li.querySelector(".card")!);
     expect(lab.sel).toEqual({ t: "node", id: "lineIn" });
     expect(q("#lineName")?.textContent).toBe("Photon line in");
-    expect(q("#props .ph .st.ok")?.textContent).toBe("Ran");
+    expect(q("#props .runmeta .st.ok")?.textContent).toBe("Ran");
     expect(q("#props .runmeta")?.textContent).toContain("0.8 s");
     // No settings, no focus: the line is not a step of Tex.
     expect(q("#cardSet")).toBeNull();

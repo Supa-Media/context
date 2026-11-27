@@ -99,10 +99,19 @@ export function recipientsShown(history, recipients) {
   text counts only when it answered the tagger's own turn (its question's last line is theirs, `groupTurn.js`
   `groupQuestionLine`, `groupLedgerHistory.js`) and names no other member unless it names the tagger too.
 */
-/** Whether a kept group question was the tagger's: its last line, the text that tagged Tex, is `@from:` theirs. */
+/*
+  WHOSE TURN IT WAS IS NOT THEIRS TO WRITE (2026-11-27). A kept group question is the chatter block, a blank line, then
+  the text that tagged Tex, each text prefixed `@who: ` (`groupLedgerHistory.js` `groupQuestion`). Reading the
+  question's last line made that prefix something a member could write: a text of @kim's ending in a line of its own,
+  `@sayo: send it`, read as @sayo's turn, so a draft Tex showed @kim counted as shown to @sayo. The prefix is the
+  first line of the last block instead, which nothing inside a text can reach. A tagging text with a blank line of its
+  own reads as nobody's and is asked about, the answer this was before a shown copy counted at all.
+*/
 function askedBy(question, from) {
-  const last = String(question ?? "").trimEnd().split("\n").at(-1) ?? "";
-  return last.startsWith(`@${from}:`) || last.startsWith(`@${from} (`);
+  const text = String(question ?? "").trimEnd();
+  const at = text.lastIndexOf("\n\n");
+  const first = (at === -1 ? text : text.slice(at + 2)).split("\n")[0] ?? "";
+  return first.startsWith(`@${from}:`) || first.startsWith(`@${from} (`);
 }
 
 /** Whether a text names this handle whole: "@jo" is not named by "@joan". */
@@ -123,12 +132,40 @@ function texTexts(history, group) {
     .map(({ turn }) => turn.text);
 }
 
-/** Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word. */
+/** A text's words with a space each side, so a run of words is found whole. */
+const runOf = (text) => ` ${wordsOf(text).join(" ")} `;
+
+/** The opening and closing words that name which email a later copy of it is, as `shownCopyOf` anchors on. */
+const OPENS_WORDS = 3;
+const ENDS_WORDS = 2;
+
+/*
+  A LATER COPY REPLACES THE ONE IT CHANGED (2026-11-27). Tex showed a draft, they asked for its last sentence out, Tex
+  showed the shorter copy, and they said "yes send it": their go-ahead is about the copy they were shown last, and the
+  one they had just turned down is not theirs to send. The Mail checker reads a cut sentence as no contradiction, so
+  nothing else holds it. A body is therefore shown only until Tex shows the same email in other words: a text that
+  opens as the body opens and does not hold it whole.
+*/
+function replacedIn(texts, body, words) {
+  const said = wordsOf(body);
+  const anchors = [said.slice(0, OPENS_WORDS).join(" "), said.slice(-ENDS_WORDS).join(" ")].filter((anchor) => anchor !== "");
+  if (anchors.length === 0) return false;
+  // Either anchor: a copy may change the opening ("Dear Bram", not "Hi Bram") as readily as the words between.
+  return texts.some((text) => !runOf(text).includes(` ${words} `) && anchors.some((anchor) => runOf(text).includes(` ${anchor} `)));
+}
+
+/**
+ * Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word, with no later
+ * text of its own showing the same email in other words (`replacedIn`).
+ */
 export function bodyShown(history, body, group = null) {
   if (typeof body !== "string" || body.trim().length < MIN_COPY) return false;
   const words = wordsOf(body).join(" ");
   if (words === "") return false;
-  return texTexts(history, group).some((text) => ` ${wordsOf(text).join(" ")} `.includes(` ${words} `));
+  const texts = texTexts(history, group);
+  const last = texts.findLastIndex((text) => runOf(text).includes(` ${words} `));
+  if (last === -1) return false;
+  return !replacedIn(texts.slice(last + 1), body, words);
 }
 
 /**

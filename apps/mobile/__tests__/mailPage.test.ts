@@ -326,7 +326,8 @@ describe("the page", () => {
     expect(one("mail-row-face-areas/finance/mail/grok-bot.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
     expect(cardReads).toEqual(["bots/grok-bot/about.md"]);
     expect(pictureReads).toEqual(["bots/grok-bot/about.md upload-0123456789abcdef.png"]);
-    // Drawn again (the page reopened), the logo is there on the first frame: no card read, no picture read, no robot.
+    // Drawn again (the page reopened), the logo is there on the first frame: no picture read, no robot. The card is
+    // read again behind it, so a logo changed since is drawn (Dev, 2026-11-26).
     act(() => root.unmount());
     const again = createRoot(container);
     roots.push(() => act(() => again.unmount()));
@@ -335,11 +336,47 @@ describe("the page", () => {
     });
     expect(one("mail-row-face-bots/grok-bot/mail/seyi.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
     expect(all("owner-face-waiting")).toHaveLength(0);
-    expect(cardReads).toHaveLength(1);
+    expect(pictureReads).toHaveLength(1);
+    for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(cardReads).toHaveLength(2);
     expect(pictureReads).toHaveLength(1);
   });
 
-  test("a bot the Areas page already drew needs no card read in Agent Mail", async () => {
+  test("a bot whose card names a new logo is drawn with it the next time the page opens", async () => {
+    // Dev, 2026-11-26: Tex Quality's card named its brown logo, and Agent Mail kept drawing the teal one it read first.
+    windowOf(1440);
+    resetBotPictures();
+    noteAvatar("ws-test|bots/grok-bot/about.md", "upload-0123456789abcdef.png");
+    const pictureReads: string[] = [];
+    const io = {
+      read: async (path: string) => ({
+        text: path === "bots/grok-bot/about.md" ? "---\nholder: Grok Bot\nbot: grok\navatar: upload-fedcba9876543210.webp\n---\n" : mockNoteText[path] ?? "# Empty\n",
+        etag: "e",
+        readOnly: false,
+      }),
+      write: async () => ({}),
+      picture: async (note: string, leaf: string) => {
+        pictureReads.push(leaf);
+        return "data:image/png;base64,AAAA";
+      },
+      pictureKey: (leaf: string) => `ws-test|${leaf}`,
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
+    await act(async () => {
+      root.render(createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture: { load: async () => ({ notes: ROWS, complete: true }), io } }));
+    });
+    for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(pictureReads).toContain("upload-fedcba9876543210.webp");
+  });
+
+  test("a bot the Areas page already drew is drawn at once in Agent Mail", async () => {
     windowOf(1440);
     resetBotPictures();
     noteAvatar("ws-test|bots/grok-bot/about.md", "upload-0123456789abcdef.png");
@@ -347,7 +384,8 @@ describe("the page", () => {
     const io = {
       read: async (path: string) => {
         if (path.endsWith("about.md")) cardReads.push(path);
-        return { text: mockNoteText[path] ?? "# Empty\n", etag: "e", readOnly: false };
+        const text = path === "bots/grok-bot/about.md" ? "---\nholder: Grok Bot\nbot: grok\navatar: upload-0123456789abcdef.png\n---\n" : mockNoteText[path] ?? "# Empty\n";
+        return { text, etag: "e", readOnly: false };
       },
       write: async () => ({}),
       picture: async () => "data:image/png;base64,AAAA",
@@ -365,8 +403,21 @@ describe("the page", () => {
       root.render(createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture: { load: async () => ({ notes: ROWS, complete: true }), io } }));
     });
     for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
-    expect(cardReads).toEqual([]);
+    expect(cardReads).toEqual(["bots/grok-bot/about.md"]);
     expect(one("mail-row-face-bots/grok-bot/mail/seyi.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+  });
+
+  test("a bot's own line names the bot alone, never the app it wrote from", async () => {
+    // Dev, 2026-11-26: "Tex Quality  @seyi's Cursor": the bot is who wrote it.
+    mockNoteText["bots/grok-bot/mail/seyi.md"] = "# Mail with Grok Bot\n\n```mail\n- 2026-11-25T19:10:00.000Z @seyi to everyone: New logo?\n- 2026-11-25T19:12:00.000Z grok-bot (Cursor · @seyi) to everyone [used 1%]: Logo updated.\n```\n";
+    windowOf(1440);
+    await mountPage(false);
+    await press(one("mail-row-bots/grok-bot/mail/seyi.md"));
+    for (let i = 0; i < 3; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    const thread = strip(one("mail-thread").textContent);
+    expect(thread).toContain("Logo updated.");
+    expect(thread).not.toContain("Cursor");
+    delete mockNoteText["bots/grok-bot/mail/seyi.md"];
   });
 
   test("on a phone the list is the page, and a conversation takes the whole screen with a way back", async () => {

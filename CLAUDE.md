@@ -209,6 +209,14 @@ note setting wins, moving onto tree rows per
 its *plumbing* freely; changing its *semantics* is a decision for
 `docs/decisions/`.
 
+**The right rail: full pages above the rule, side panels below** (Dev,
+2026-11-26, a standing rule). An app above the rail's divider opens a full page
+where the note is (search, the map, Agent Mail); one below it opens in the side
+panel (Calendar, Tex, the vault, an area's bot). Which is which is one list,
+`apps/mobile/features/console/aside/railApps.ts`, held by
+`__tests__/railApps.test.ts`
+([rail-pages-and-panels](./docs/decisions/app-and-console/rail-pages-and-panels.md)).
+
 **Tex has one graph**, `packages/tex/src/texConfig.json`: every node and
 every wire Tex runs; nodes are code, wires are config (decided by the owner,
 2026-11-14; [config-graph](./docs/decisions/texting-assistant/config-graph.md)).

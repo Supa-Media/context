@@ -11,7 +11,7 @@
  */
 import { normalizePath } from "../notes/paths.js";
 import { objectReader } from "../store/objectLookup.js";
-import { boundBotOf } from "./boundBot.js";
+import { botFor, boundBotsOf } from "./boundBot.js";
 
 const MAIL_FENCE = /^ {0,3}```mail\s*$/m;
 const id = (value) => (typeof value === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(value) ? value : "-");
@@ -47,8 +47,9 @@ export function countAiMailRead(name, args, store, result) {
     if (!readsMail) return;
     const actor = store?.actor ?? {};
     // A bound bot's login reads as the bot (`tools/notes/botBind.js`, `./boundBot.js`), never as the app it connects through.
-    const fields = boundBotOf(store).then((bound) => {
-      const named = bound?.name ?? actor.clientName;
+    // A connection bound as several bots reads as the one whose folder the note is in, or its only one.
+    const fields = boundBotsOf(store).then((bots) => {
+      const named = botFor(bots, { path }).bot?.name ?? actor.clientName;
       const clientName = typeof named === "string" && named !== "" ? named.slice(0, 120) : null;
       return { path, by: "ai", reader: `ai:${id(actor.userId)}:${id(actor.clientId)}`, name: handle(actor.name), clientName };
     });

@@ -48,9 +48,8 @@ export async function runGoogleChatGateChecks(check) {
       asked.status === 200 &&
         sends().length === 0 &&
         pending().length === 1 &&
-        (asked.body?.answer ?? "").includes(
-          `Here's the Google Chat message I'd send:\n\nFrom: seyi@work.example\nTo: sayo@example.com\n\n${DM.text}\n\nGive it a 👍 and I'll send it.`,
-        ),
+        // Tex's own words, then the message whole (2026-11-27, `textedApprovals.js` `withCopies`).
+        (asked.body?.answer ?? "") === `I drafted a Chat to Sayo.\n\nFrom: seyi@work.example\nTo: sayo@example.com\n\n${DM.text}`,
     );
     check("the place is asked about first, spending nothing", chat.calls.length === 1 && chat.calls[0].check === true);
 

@@ -5,11 +5,6 @@
  */
 
 import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
-import { EMAIL_TOOL } from "../../../../apps/mcp/src/tools/email.js";
-import { CALENDAR_TOOL } from "../../../../apps/mcp/src/tools/calendarWrite.js";
-import { GOOGLE_CHAT_TOOL } from "../../../../apps/mcp/src/tools/googleChat.js";
-import { REPORT_TOOL } from "../../../../apps/mcp/src/tools/reportProblem.js";
-import { FORWARD_RULE_TOOL } from "../../../../apps/mcp/src/tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
 import { folded } from "./folded.js";
 import { canonicalToolName } from "../../../../apps/mcp/src/tools/advertised.js";
@@ -29,17 +24,6 @@ const NEXT_AFTER_CREATE = "Want me to set up its folders and move your notes abo
 function afterYes(tool) {
   return canonicalToolName(tool) === "create_workspace" ? [NEXT_AFTER_CREATE] : [];
 }
-
-/**
- * How every ask asks (Dev2, 2026-10-21: "instead of asking users to say yes,
- * ask them to react like with a thumbs up", and later that day: "a thumbs up
- * should always be seen as an approval, the text should end with something
- * simple like 'give it a 👍 and i'll send'"). A 👍 or ❤️ that stays ten
- * seconds on the ask, or on any text of the reply that carried it, is the yes
- * (`packages/tex/worker/thumbs.ts`, `thumbsUpIsYes`); a typed yes still works. In
- * a group only the asker's counts.
- */
-export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|k|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y|sounds good|looks good|perfect|lgtm|\u{1F44C})\s*[.!]*\s*$/iu;
@@ -110,41 +94,39 @@ export function approvalVerdict(text) {
   return null;
 }
 
-/**
- * The line a texted answer ends with when the turn held something for the
- * person. Said the way a person would ask (Dev, 2026-10-18: "“Text YES to
- * send” seems very robotic"), and ending the way Dev2 asked on 2026-10-21:
- * "Give it a 👍 and I'll send it." A typed yes still works.
- */
-export function askLine(asked, { who = null } = {}) {
-  // In a group chat the ask names its tagger, whose account it goes from and whose yes alone makes it (`tools/offerFor.js`).
-  const yes = who ? `@${who}, give it a 👍` : SAY_YES;
-  const only = who ? ` Only @${who} can OK it; anyone can ask me for changes first.` : "";
-  const theirs = (thing) => (who ? `${thing} from @${who}'s email` : thing);
-  // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
-  const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
-  if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make${who ? ` on @${who}'s calendar` : ""}:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll make the change.${only}`;
-  }
-  if (asked.length === 1 && asked[0].tool === GOOGLE_CHAT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the Google Chat message I'd send:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
-  }
-  if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
-  }
-  if (asked.length === 1 && asked[0].tool === FORWARD_RULE_TOOL && typeof asked[0].detail === "string") {
-    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll start.${only}`;
-  }
-  // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
-  if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
-    return `Before I pay, I need ${who ? `@${who}'s` : "your"} OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${yes} and I'll fill it in.${only}`;
-  }
-  if (emails.length > 0 && emails.length === asked.length) {
-    const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `${theirs(emails.length === 1 ? "Here's the email I'd send" : "Here are the emails I'd send")}:\n\n${copies}\n\n${yes} and I'll send ${emails.length === 1 ? "it" : "them"}.${only}`;
-  }
-  const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need ${who ? `@${who}'s` : "your"} OK: ${what}. ${yes} and I'll go ahead.${only}`;
+/*
+  TEX ASKS IN ITS OWN WORDS (Dev2, 2026-11-26: "remember our rule for hardcoded lines"). A held call hands Tex the
+  facts and the exact copy (`apps/mcp/src/tools/heldFacts.js`), and Tex's answer is the ask. The gateway no longer
+  writes a card under it; it checks the one thing the person's OK rests on: every held copy is in the text, whole.
+  A copy Tex left out or reworded is added below its words as the copy itself, data and no wording, so the person
+  always reads exactly what a 👍 makes. The text that goes is kept on the records (`shown_text`), and a tapback is a
+  yes only on that text (`onArmedAsk`), as the card's words used to be compared.
+*/
+
+/** Letters and digits only, one space apart: how two copies of one text are compared. */
+const plain = (value) => folded(String(value ?? ""));
+
+/** Whether `text` holds `copy` whole, word for word, ignoring punctuation, case and line breaks. */
+export function holdsCopy(text, copy) {
+  const want = plain(copy);
+  return want === "" || ` ${plain(text)} `.includes(` ${want} `);
+}
+
+/** What a held record shows the person: its copy, or for a call with none (a handle claim), the gateway's summary of it. */
+const copyOf = (record) => clean(String(typeof record.detail === "string" && record.detail.trim() !== "" ? record.detail : (record.summary ?? ""))).trim();
+
+/** Tex's words with every held copy it did not show whole added below, as the copies themselves; "" for nothing. */
+export function withCopies(told, asked) {
+  const words = String(told ?? "").trim();
+  const missing = asked.map(copyOf).filter((copy) => copy !== "" && !holdsCopy(words, copy));
+  return [words, ...missing].filter(Boolean).join("\n\n");
+}
+
+/** The text an ask went out as: Tex's words kept on its records, or, for one armed before they were kept, its copies. */
+export function shownAsk(records) {
+  const kept = records.map((record) => record?.shown_text).find((text) => typeof text === "string" && text !== "");
+  if (kept !== undefined) return kept;
+  return records.map((record) => (typeof record?.detail === "string" ? record.detail : String(record?.summary ?? ""))).join("\n\n");
 }
 
 /** Fewer words than this quoted cannot tell one ask from another. */
@@ -175,10 +157,11 @@ async function onArmedAsk(store, session, quotedWords, { who, chat, event }) {
   const words = folded(quotedWords);
   if (words.length < MIN_QUOTED) return false;
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true, chat })).map(({ record }) => record);
-  const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
-    const shown = folded(askLine(order, { who }));
-    return shown === words || shown.startsWith(words);
-  });
+  // The text the ask went out as, or the quote cut short; or words holding every armed copy whole (an ask armed
+  // before its text was kept, whose card showed the copy): either way they 👍'd exactly what a yes makes.
+  const shown = folded(shownAsk(armed));
+  const copies = armed.every((record) => typeof record.detail === "string" && record.detail.trim() !== "") && armed.every((record) => holdsCopy(quotedWords, record.detail));
+  const matched = armed.length > 0 && (shown === words || shown.startsWith(words) || copies);
   // Without its words: enough to tell a tapback on nothing armed from one on other words (2026-10-22).
   console.log(JSON.stringify({ event, armed: armed.length, matched, length: words.length }));
   return matched;
@@ -204,7 +187,7 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../../../../apps/mcp/src/tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked, told = "", { who = null, stale = null, chat = null } = {}) {
+export async function textedAsk(store, session, asked, told = "", { stale = null, chat = null } = {}) {
   /*
     In a group, Tex's question may be put to anyone in it, in anyone's turn, a
     chat routine's or a check-in's too, so it stops every ask armed in the chat
@@ -226,16 +209,18 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
     return { ask: null, verbatim: [] };
   }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
-  const ask = askLine(asked, { who });
+  // Tex's own words are the ask, with any held copy it did not show whole added as the copy itself (`withCopies`).
+  // A retelling of a held email in its words comes out first, so the person reads one copy, the one a yes sends (`heldEcho.js`).
+  const ask = withCopies(withoutHeldEcho(told, asked), asked);
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
-  if (ask.length <= TEXTED_ASK_CAP) {
+  if (ask !== "" && ask.length <= TEXTED_ASK_CAP) {
     // Raised unarmed (`../../../../apps/mcp/src/tools/approvals.js`): armed only now that the ask
     // goes out whole, so an ask that is dropped instead leaves nothing a yes
     // can reach, even if withdrawing it below fails.
     try {
-      await armForText(store, { userId: session.actorUserId, ids, chat });
-      return { ask, verbatim: [ask] };
+      await armForText(store, { userId: session.actorUserId, ids, chat, shown: ask });
+      return { ask, verbatim: [ask], whole: true };
     } catch {
       await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
       asked.length = 0;
@@ -276,8 +261,10 @@ async function dropStale(store, session, ids) {
  * reads one copy, the one a YES sends, and so is any talk of the yes being
  * waited on somewhere else: the ask is right below.
  */
-export function answerWithAsk(told, ask, asked) {
+export function answerWithAsk(told, ask, asked, whole = false) {
   if (ask === null) return told;
+  // Tex's own words with the copies are the ask, sent as they are (`textedAsk`).
+  if (whole) return ask;
   const said = withoutWaitTalk(withoutHeldEcho(told, asked));
   // The model's one line about what it held ("Adding it for Sunday, Nov 1") says what the ask
   // says, as a second text (Dev2, 2026-10-22: "should be merged into 1"); more than that is kept.

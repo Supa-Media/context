@@ -128,6 +128,8 @@ export const joinMailbox = internalMutation({
     if (!target) return refused;
     // A group chat's home in the pin is the one place in the pin it may hold a mailbox: its folder, never the pin.
     if (target.homeOnly === true && !(typeof target.chatHome === "string" && args.path.startsWith(`${target.chatHome}/`))) return refused;
+    // A group asker's own personal workspace is read only to the chat (`lib/textGroupReach.ts` `askerOwnPersonal`): no mailbox there.
+    if (target.askerOwn === true) return refused;
     const existing = await ctx.db
       .query("noteMailboxes")
       .withIndex("by_workspace_path_name", (q) =>
@@ -218,6 +220,7 @@ export const jobMailboxes = internalQuery({
     const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return [];
     if (target.homeOnly === true && !(typeof target.chatHome === "string" && args.path.startsWith(`${target.chatHome}/`))) return [];
+    if (target.askerOwn === true) return [];
     const rows = await ctx.db
       .query("noteMailboxes")
       .withIndex("by_workspace_path_name", (q) => q.eq("workspaceId", target.workspaceId).eq("path", args.path))

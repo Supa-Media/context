@@ -110,6 +110,22 @@ describe("The bots folder", () => {
     expect(all("bot-panel-cap-Weekly cap for Scorecard")).toHaveLength(1);
   });
 
+  test("a bot whose card says more words than its name on the agents list is drawn with its logo", async () => {
+    // Dev, 2026-11-26: "Tex Quality · Tex reply quality" was drawn as a person's head in the bots list.
+    windowOf(1440);
+    const notes: ListNote[] = [
+      { path: "areas/about.md", properties: { agents: ["Tex Quality"] } },
+      { path: "bots/tex-quality/about.md", properties: { holder: "Tex Quality · Tex reply quality", kind: "agent", bot: "grok", belongs_to: "@seyi", avatar: "upload-55ce2aa2414a28d4.webp" } },
+    ];
+    const reads: string[] = [];
+    const base = host([], { notes, bodies: {}, files: [] });
+    const page = { ...base, source: { ...base.source, readPicture: async (note: string, leaf: string) => (reads.push(`${note} ${leaf}`), "data:image/png;base64,AAAA") } };
+    await mount(page, { ...BOTS, entries: [entry("folder", "bots/tex-quality")] });
+    await settle();
+    expect(reads).toContain("bots/tex-quality/about.md upload-55ce2aa2414a28d4.webp");
+    expect(one("areas-bot-Tex Quality · Tex reply quality").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+  });
+
   test("someone else's bot shows its caps but has no field to change them, and its mail stays beside its old card", async () => {
     windowOf(1440);
     await mount(host([], { notes: NOTES, bodies: BODIES, files: [] }), BOTS);

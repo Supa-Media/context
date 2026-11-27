@@ -69,12 +69,15 @@ test("a malformed read is refused, never kept", { skip }, () => {
 
 test("a workspace keeps which bot each connection is, one row per connection", { skip }, () => {
   const bots = mailBots(sqlOf(), { now: () => 1000 });
-  assert.equal(bots.of("g1"), null);
+  assert.deepEqual(bots.of("g1"), []);
   assert.deepEqual(bots.bind("g1", { bot: "grok-bot", name: "Grok Bot" }), { ok: true });
-  assert.deepEqual(bots.of("g1"), { bot: "grok-bot", name: "Grok Bot" });
+  assert.deepEqual(bots.of("g1"), [{ bot: "grok-bot", name: "Grok Bot" }]);
+  // A second bot on the same connection is added, never in place of the first (Grok Bot, 2026-11-26).
   assert.deepEqual(bots.bind("g1", { bot: "pipeline", name: "Pipeline" }), { ok: true });
-  assert.deepEqual(bots.of("g1"), { bot: "pipeline", name: "Pipeline" });
-  assert.equal(bots.of("g2"), null);
+  assert.deepEqual(bots.of("g1"), [{ bot: "grok-bot", name: "Grok Bot" }, { bot: "pipeline", name: "Pipeline" }]);
+  assert.deepEqual(bots.bind("g1", { bot: "grok-bot", name: "Grok" }), { ok: true });
+  assert.deepEqual(bots.of("g1"), [{ bot: "grok-bot", name: "Grok" }, { bot: "pipeline", name: "Pipeline" }]);
+  assert.deepEqual(bots.of("g2"), []);
   assert.ok(bots.bind("g2", { bot: "Not A Slug", name: "x" }).error);
   assert.ok(bots.bind("g2", { bot: "ok", name: "" }).error);
 });
@@ -82,9 +85,9 @@ test("a workspace keeps which bot each connection is, one row per connection", {
 test("the object binds and answers a connection's bot, with no note named", { skip }, async () => {
   const store = { sql: sqlOf(), rows: { home: () => HOMES.OBJECT }, objects: { get: () => null } };
   const judge = { sees: () => false };
-  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bound: null });
+  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bots: [] });
   assert.deepEqual(await serveMail(store, MAIL_OPS.BIND, { grantId: "g1", bot: "grok-bot", name: "Grok Bot" }, judge), { served: true, ok: true });
-  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
+  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bots: [{ bot: "grok-bot", name: "Grok Bot" }] });
   // A workspace whose notes are not here keeps no bots.
   assert.deepEqual(await serveMail({ ...store, rows: { home: () => "bucket" } }, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: false });
 });
@@ -117,7 +120,7 @@ test("an AI read of a note with mail is that client's receipt, for the person wh
 test("a bound bot's login reads as the bot, not as the app it connects through", async () => {
   // Dev, 2026-11-26: "things still showing as read by cursor".
   const { store, kept, deferred } = storeOf();
-  store.objectReading.client.mail.bound = async ({ grantId }) => ({ served: true, bound: grantId === "g1" ? { bot: "grok-bot", name: "Grok Bot" } : null });
+  store.objectReading.client.mail.bound = async ({ grantId }) => ({ served: true, bots: grantId === "g1" ? [{ bot: "grok-bot", name: "Grok Bot" }] : [] });
   store.actor.grantId = "g1";
   countAiMailRead("read_note", { path: "bots/grok/mail/seyi.md" }, store, answer("# Mail\n\n```mail\n- 2026-11-26T00:00:00.000Z @seyi to everyone: yo\n```\n"));
   await Promise.all(deferred);
@@ -165,9 +168,22 @@ test("a connection binds its bot through the object's own dispatch, with no scop
   const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: (request) => serveWorkspaceStore(store, request) }) } };
   const ws = workspaceClient(env, "ws_bots");
   await ws.setHome(HOMES.OBJECT);
-  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bound: null });
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bots: [] });
   assert.deepEqual(await ws.mail.bind({ grantId: "g1", bot: "grok-bot", name: "Grok Bot" }), { served: true, ok: true });
-  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bots: [{ bot: "grok-bot", name: "Grok Bot" }] });
   // With the reader's details too, as the gateway sends them (`mail/boundBot.js`).
-  assert.deepEqual(await ws.mail.bound({ grantId: "g1", scope: "team", groups: [], audience: "member", userId: "u1" }), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1", scope: "team", groups: [], audience: "member", userId: "u1" }), { served: true, bots: [{ bot: "grok-bot", name: "Grok Bot" }] });
+});
+
+// The first table kept one bot per connection; its rows are carried into the one that keeps several, once.
+test("a connection bound before it could be several bots keeps its bot", { skip }, () => {
+  const sql = sqlOf();
+  sql.exec("CREATE TABLE ws_mail_bots (grant_id TEXT PRIMARY KEY, bot TEXT NOT NULL, name TEXT NOT NULL, at INTEGER NOT NULL)");
+  sql.exec("INSERT INTO ws_mail_bots (grant_id, bot, name, at) VALUES (?, ?, ?, ?)", "g1", "reviewer", "Reviewer", 5);
+  const bots = mailBots(sql, { now: () => 1000 });
+  assert.deepEqual(bots.of("g1"), [{ bot: "reviewer", name: "Reviewer" }]);
+  assert.deepEqual(bots.bind("g1", { bot: "grok-bot", name: "Grok Bot" }), { ok: true });
+  assert.deepEqual(bots.of("g1"), [{ bot: "reviewer", name: "Reviewer" }, { bot: "grok-bot", name: "Grok Bot" }]);
+  // A second start carries nothing twice.
+  assert.deepEqual(mailBots(sql).of("g1").length, 2);
 });
