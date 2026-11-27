@@ -159,7 +159,7 @@ function areaRoutineNext(routine, text, afterMs) {
   }
   const several = routineTimes(text);
   if (several !== null && (routine.cadence.unit === "minute" || routine.cadence.unit === "hour" || routine.cadence.unit === "once")) {
-    return { at: null, problems: [`Several times in at: only apply to a routine that runs daily, weekly or monthly; "${routine.folder}" already runs through the day.`], settings: null };
+    return { at: null, problems: [`Several times in at: only apply to a routine that runs daily, weekly or monthly; "${routine.folder}" already runs through the day. Move the note to routines/daily/ to run it at those times.`], settings: null };
   }
   const { settings, problems } = routineSettings(several === null ? (typeof text === "string" ? text : "") : several.text, routine.cadence);
   if (several !== null) problems.push(...several.problems);

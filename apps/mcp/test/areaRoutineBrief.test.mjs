@@ -108,6 +108,22 @@ test("fetching a routine note brings its run brief after the note; another note 
   assert.doesNotMatch(said(await callTool("read_note", { path: "areas/finance/about.md" }, store, "team")), /# Run brief/);
 });
 
+test("a routine fetched where the tree names no Areas folder still brings its brief, from the folder it is in", async () => {
+  const { store } = await world();
+  const served = store.treeFacts;
+  store.treeFacts = async (request) => (request.ask === "jobs" ? { served: false } : served(request));
+  const out = said(await callTool("read_note", { path: "areas/finance/routines/daily/check.md" }, store, "team"));
+  assert.match(out, /# Run brief/);
+  assert.match(out, /The areas folder is `areas\/`; this area is `areas\/finance\/`\./);
+});
+
+test("several times under a folder that already runs through the day says where the note goes instead", () => {
+  const routine = areaRoutineOf("areas/finance/routines/every-2-hours/loop.md", "areas");
+  const next = areaRoutineNext(routine, "---\nat: 9am, 1pm\n---\n", Date.now());
+  assert.equal(next.at, null);
+  assert.match(next.problems[0], /Move the note to routines\/daily\//);
+});
+
 test("pulse writes the area's routines from its modes, keeps a routine already there, and pauses only what it wrote", async () => {
   const { store, text } = await world({ ...NOTES, "areas/finance/routines/daily/manager-loop.md": "---\nat: 7am\n---\nMy own loop.\n" });
   const run = (args) => toolSetArea(store, "team", RULES, new PrivacyOverrides(), args);
