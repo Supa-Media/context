@@ -88,6 +88,56 @@ reversed:* `names.test.ts` — `the retired 'brain' vocabulary can never be
 claimed` — and `settingsSections.test.ts` —
 `deleting a workspace and deleting an account are not the same search`.
 
+## LLM, agent and bot
+
+Three words for three layers, decided by the owner (2026-11-27). Each layer
+runs on the one before it: an agent runs on an LLM, and a bot runs one or more
+agents. Docs, copy and notes use the words this way.
+
+- **LLM**: the underlying model. Text in, text out. It has no tools, no memory
+  between calls and no schedule, and it does nothing until something prompts
+  it. Claude, GPT, Gemini, Grok and Llama are LLMs.
+- **Agent**: an LLM in a loop with tools. It completes a task end to end and
+  is usually specialized for one kind of work. Each task normally gets its own
+  chat or session. Some agents use a computer or a browser, and some hand work
+  to sub-agents. Claude Code, Codex, Cursor and ChatGPT are agents.
+- **Bot**: a multi-agent orchestrator built around **one standing chat** per
+  person or group. The bot's own code manages context (what each turn loads
+  from memory, notes and history), so the chat can run for months. It has
+  routines, heartbeats and loops, so it acts without being asked, and it
+  delegates to agents and checks their work. A bot is usually better at
+  computer use than an agent, because it keeps sign-ins, retries and state
+  across days. Its behavior comes from its design, not its model: swap the
+  LLM and it behaves the same, and a smarter LLM only makes it better.
+
+| | LLM | Agent | Bot |
+|---|---|---|---|
+| Uses tools | No | Yes | Yes, through its agents |
+| Finishes a task end to end | No | Yes | Yes |
+| Chats | One prompt at a time | One per task | One standing chat |
+| Memory between conversations | No | Limited | Yes, managed by the bot |
+| Routines, heartbeats, loops | No | Rarely | Yes |
+| Orchestrates other agents | No | Sometimes | Yes |
+| Computer use | No | Some | Usually, and more reliable |
+| Swap the model under it | Not applicable | Usually changes behavior | Behaves the same |
+
+**Tex is a bot that also works as an agent, and never an LLM.** It keeps one
+standing chat per person and per group chat, runs routines, heartbeats and
+dreams, loads its context from the person's workspace, and delegates big jobs
+to agents such as Claude Code and Codex. Its model is configuration
+([config-graph](./texting-assistant/config-graph.md)), so copy never says Tex
+*is* a model. Other bots in the same category: Muse, Instinct, Poke and
+OpenClaw.
+
+In a workspace, `bots/<bot>/` holds one card for each bot or agent that works
+there, and an area is usually held by a bot, because an area needs someone to
+check on it without being asked.
+
+*What a "simplification" costs:* calling every AI product an "agent" hides the
+part Context and Tex are built for, the standing chat and the context it
+manages, and invites the comparison with a bare model swap. *The check:* this
+section; it is vocabulary, so no test holds it.
+
 ## The workspace model (build this now, it's cheap)
 
 **A workspace is the unit that owns a context.** One workspace, one storage
