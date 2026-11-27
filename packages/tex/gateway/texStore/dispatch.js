@@ -9,6 +9,9 @@
  * the call carries the owner and the routine's path, and the texting Worker
  * finds the run itself.
  *
+ * An alarm for Tex in mail (`payload.mail`) goes to `TexRoutines.texMailDue` instead, with the owner alone: the Worker
+ * claims whatever runs wait for that person from the control plane.
+ *
  * Resolves `{next}`, or rejects when the routine could not be handed on; the
  * object keeps a rejected one and tries it again.
  */
@@ -23,6 +26,12 @@ export function routineDispatchFor(env) {
   const texting = env?.TEXTING;
   if (!texting) return unwiredDispatch;
   return async (routine) => {
+    // Mail to the person's own Tex (`apps/mcp/src/mail/deliver.js` `wakeTex`): the Worker claims and runs what waits.
+    if (typeof routine.payload?.mail === "string") {
+      if (typeof texting.texMailDue !== "function") throw new Error("no texting Worker is wired to run Tex in mail");
+      await texting.texMailDue({ owner: routine.payload.owner });
+      return { next: null };
+    }
     const answer = await texting.routineDue({ owner: routine.payload?.owner, id: routine.id });
     const next = answer?.next;
     return { next: Number.isSafeInteger(next) && next >= 0 ? next : null };

@@ -41,4 +41,26 @@ export const noteMailTables = {
     .index("by_machine", ["machineId"])
     // A job's own mailboxes, so a job part on a computer joins every note under its job's one name (`joinMailbox`).
     .index("by_job", ["jobId"]),
+
+  /**
+   * Tex in mail (`functions/noteMail.ts` `askTexMail`, `docs/decisions/note-mail.md`): a line sent to Tex on a note
+   * whose mail a person's own Tex joined from their texts, waiting for that person's Tex to read it and answer. The
+   * gateway asks with the sender's token; the texting Worker claims it for the owner and gets a texting session for the
+   * run (`functions/texMail.ts`). Names and ids only, never a word of the mail. Kept an hour after it ran, for the cap.
+   */
+  texMailRuns: defineTable({
+    /** The Tex mailbox the line was sent to. */
+    mailboxId: v.string(),
+    /** Whose Tex answers, and their personal workspace, which names their Tex store. */
+    userId: v.id("users"),
+    ownerWorkspaceId: v.id("workspaces"),
+    /** The note the mail is on. */
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    status: v.union(v.literal("due"), v.literal("claimed")),
+    createdAt: v.number(),
+  })
+    .index("by_owner_status", ["ownerWorkspaceId", "status"])
+    .index("by_mailbox", ["mailboxId"])
+    .index("by_user", ["userId"]),
 };

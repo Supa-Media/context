@@ -16,6 +16,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { addressable, contextsForGrant, resolveLiveGrant, resolveRunGrant } from "./lib/controlPlane/liveGrants";
 import { deviceStillLive } from "./texMachineDevices";
+import { TEXTS_CLIENT_ID } from "./textLinks";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
@@ -23,6 +24,19 @@ const JOB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_JOB_MAILBOXES = 20;
 /** The roster's own names on every job note (`packages/tex/gateway/agent/jobNote.js`): a job never joins as one. */
 const ROSTER_NAMES = new Set(["tex", "advisor"]);
+/** The name a person's own Tex has in mail (`unjoinedName` in `apps/mcp/src/tools/notes/mail.js`). */
+const TEX_NAME = "tex";
+/** The most Tex-in-mail runs one mailbox may ask for in an hour: two agents answering each other stop here. */
+export const MAX_TEX_MAIL_RUNS_PER_HOUR = 10;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * A person's own Tex's mailbox: joined as "tex" from their 1:1 texts (the texting grant, never a group chat's), by
+ * no job and no machine. Mail sent to it wakes their Tex (`askTexMail`).
+ */
+function isTexBox(row: Doc<"noteMailboxes">, grant: Doc<"oauthGrants"> | null): grant is Doc<"oauthGrants"> {
+  return row.name === TEX_NAME && row.jobId === undefined && row.machineId === undefined && grant !== null && grant.status === "active" && grant.clientId === TEXTS_CLIENT_ID;
+}
 
 const mailboxView = v.object({
   mailboxId: v.string(),
@@ -210,6 +224,8 @@ export const jobMailboxes = internalQuery({
       jobId: v.optional(v.string()),
       machineId: v.optional(v.id("texMachines")),
       machineWorkspaceId: v.optional(v.id("workspaces")),
+      /** A person's own Tex, joined from their texts: a line to it is answered by Tex in mail (`askTexMail`). */
+      texChat: v.optional(v.literal(true)),
       own: v.boolean(),
     }),
   ),
@@ -231,16 +247,19 @@ export const jobMailboxes = internalQuery({
       jobId?: string;
       machineId?: Id<"texMachines">;
       machineWorkspaceId?: Id<"workspaces">;
+      texChat?: true;
       own: boolean;
     }> = [];
     for (const row of rows) {
       if (out.length >= MAX_JOB_MAILBOXES) break;
-      if (row.jobId === undefined && row.machineId === undefined) continue;
+      if (row.jobId === undefined && row.machineId === undefined && row.name !== TEX_NAME) continue;
       const grant = await ctx.db.get(row.grantId);
       if (grant === null || grant.status !== "active") continue;
       // `own`: joined by the presenting grant, so the sender is that job's own Tex (the gateway lets only Tex's own turn interrupt it).
       const own = mayUse(live, row);
-      if (row.jobId !== undefined) out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own });
+      if (row.jobId === undefined && row.machineId === undefined) {
+        if (isTexBox(row, grant)) out.push({ mailboxId: row.mailboxId, name: row.name, texChat: true, own });
+      } else if (row.jobId !== undefined) out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own });
       else if (row.machineId !== undefined) {
         const machine = await ctx.db.get(row.machineId);
         if (machine === null || !(await deviceStillLive(ctx, machine))) continue;
@@ -248,5 +267,61 @@ export const jobMailboxes = internalQuery({
       }
     }
     return out;
+  },
+});
+
+/**
+ * Wake a person's own Tex for mail sent to it on a note (Dev, 2026-11-27: "Tex in mail should be the same flow as tex
+ * in comments, its own mini tex"; `docs/decisions/note-mail.md`). The gateway asks with the sender's token, right
+ * after the line is written: the sender must reach the note's workspace, and the mailbox must be a person's own Tex's
+ * on that same note (`isTexBox`). Tex's own grant never wakes itself. One run waits per mailbox at a time, so a burst
+ * of lines is read by one run, and at most `MAX_TEX_MAIL_RUNS_PER_HOUR` an hour.
+ *
+ * Answers the owner's personal workspace, whose Tex store the gateway wakes, or null for every refusal alike.
+ */
+export const askTexMail = internalMutation({
+  args: { hashedAccessToken: v.string(), workspaceId: v.string(), path: v.string(), mailboxId: v.string() },
+  returns: v.union(v.null(), v.object({ owner: v.id("workspaces") })),
+  handler: async (ctx, args) => {
+    if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return null;
+    const live = await mailGrant(ctx, args.hashedAccessToken);
+    if (live === null) return null;
+    const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
+    if (!target || target.askerOwn === true) return null;
+    if (target.homeOnly === true && !(typeof target.chatHome === "string" && args.path.startsWith(`${target.chatHome}/`))) return null;
+    const row = await ctx.db
+      .query("noteMailboxes")
+      .withIndex("by_mailboxId", (q) => q.eq("mailboxId", args.mailboxId))
+      .unique();
+    if (row === null || row.workspaceId !== target.workspaceId || row.path !== args.path) return null;
+    const grant = await ctx.db.get(row.grantId);
+    if (!isTexBox(row, grant) || mayUse(live, row)) return null;
+    const now = Date.now();
+    const runs = await ctx.db
+      .query("texMailRuns")
+      .withIndex("by_mailbox", (q) => q.eq("mailboxId", row.mailboxId))
+      .collect();
+    let recent = 0;
+    let waiting = false;
+    for (const run of runs) {
+      if (now - run.createdAt >= HOUR_MS) await ctx.db.delete(run._id); // ran, or never claimed: gone after an hour
+      else {
+        recent += 1;
+        if (run.status === "due") waiting = true;
+      }
+    }
+    if (!waiting) {
+      if (recent >= MAX_TEX_MAIL_RUNS_PER_HOUR) return null;
+      await ctx.db.insert("texMailRuns", {
+        mailboxId: row.mailboxId,
+        userId: grant.userId,
+        ownerWorkspaceId: grant.workspaceId,
+        workspaceId: row.workspaceId,
+        path: row.path,
+        status: "due",
+        createdAt: now,
+      });
+    }
+    return { owner: grant.workspaceId };
   },
 });

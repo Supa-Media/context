@@ -233,6 +233,7 @@ import type * as functions_texCommands from "../functions/texCommands.js";
 import type * as functions_texSettingsMigration from "../functions/texSettingsMigration.js";
 import type * as functions_spelling from "../functions/spelling.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
+import type * as functions_texMail from "../functions/texMail.js";
 import type * as functions_lib_gatewayRoutes_textsOpened from "../functions/lib/gatewayRoutes/textsOpened.js";
 import type * as functions_lib_textingRefresh from "../functions/lib/textingRefresh.js";
 import type * as functions_textingObjects from "../functions/textingObjects.js";
@@ -536,6 +537,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texSettingsMigration": typeof functions_texSettingsMigration;
   "functions/spelling": typeof functions_spelling;
   "functions/textLinks": typeof functions_textLinks;
+  "functions/texMail": typeof functions_texMail;
   "functions/lib/gatewayRoutes/textsOpened": typeof functions_lib_gatewayRoutes_textsOpened;
   "functions/lib/textingRefresh": typeof functions_lib_textingRefresh;
   "functions/textingObjects": typeof functions_textingObjects;

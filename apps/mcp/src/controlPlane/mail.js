@@ -41,5 +41,14 @@ export function createMailMethods({ post }) {
       const answer = await post("/gateway/mail/jobs", { accessToken, workspaceId, path });
       return answer?.mailboxes ?? [];
     },
+
+    /**
+     * Wake a person's own Tex for a line sent to its mailbox on this note (`functions/noteMail.ts` `askTexMail`): their
+     * personal workspace's id, whose Tex store the gateway wakes, or null for every refusal.
+     */
+    async askTexMail(accessToken, workspaceId, path, mailboxId) {
+      const answer = await post("/gateway/mail/tex", { accessToken, workspaceId, path, mailboxId });
+      return typeof answer?.owner === "string" ? answer.owner : null;
+    },
   };
 }

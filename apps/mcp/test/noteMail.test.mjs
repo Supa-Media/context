@@ -104,6 +104,7 @@ const TOKEN_LEAD = `cat_mail_lead___${"0".repeat(24)}`;
 const TOKEN_BUILDER = `cat_mail_builder${"0".repeat(24)}`;
 const TOKEN_READER = `cat_mail_reader_${"0".repeat(24)}`;
 const TOKEN_OUTSIDER = `cat_mail_outside${"0".repeat(24)}`;
+const TOKEN_TEX = `cat_mail_tex____${"0".repeat(24)}`;
 const PLAN = "1-projects/launch/plan.md";
 const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET };
 
@@ -157,6 +158,8 @@ before(async () => {
   await controlPlane.addGrant({ workspaceId: "ws_mail", role: "owner", userId: "user_seyi", accessToken: TOKEN_LEAD, scopes: write, clientId: "c_lead", clientName: "Claude" });
   await controlPlane.addGrant({ workspaceId: "ws_mail", role: "editor", userId: "user_sayo", accessToken: TOKEN_BUILDER, scopes: write, clientId: "c_builder", clientName: "Codex" });
   await controlPlane.addGrant({ workspaceId: "ws_mail", role: "member", userId: "user_lk", accessToken: TOKEN_READER, scopes: ["context:read"], clientId: "c_reader", clientName: "ChatGPT" });
+  // A person's own Tex, from their texts (`context_texts`): it sends without joining, as "tex".
+  await controlPlane.addGrant({ workspaceId: "ws_mail", role: "owner", userId: "user_seyi", accessToken: TOKEN_TEX, scopes: write, clientId: "context_texts", clientName: "Tex" });
   await controlPlane.addGrant({ workspaceId: "ws_else", role: "owner", userId: "user_out", accessToken: TOKEN_OUTSIDER, scopes: write, clientId: "c_out", clientName: "Cursor" });
 });
 
@@ -371,3 +374,23 @@ test("in a bot's or an area's mail an agent says what each answer used, and the 
   const plain = await call(TOKEN_LEAD, "write_note", { path: PLAN, mail: { text: "No usage needed here." } });
   assert.ok(!plain.isError, plain.text);
 });
+
+test("Tex sends without joining and keeps a mailbox, so an answer to it wakes Tex in mail (Dev, 2026-11-27)", async () => {
+  // Dev, 2026-11-27: "I dont think we have a flow where tex is notified whenever a message is sent to it".
+  const NOTE = "1-projects/launch/handoff.md";
+  const made = await call(TOKEN_LEAD, "write_note", { path: NOTE, content: "# Handoff\n" });
+  assert.ok(!made.isError, made.text);
+  const sent = await call(TOKEN_TEX, "write_note", { path: NOTE, mail: { text: "Here is the folder.", to: "everyone" } });
+  assert.ok(!sent.isError, sent.text);
+  assert.match(sent.text, /sent to everyone as tex/);
+  const box = [...controlPlaneStub.mailboxes.values()].find((row) => row.path === NOTE && row.name === "tex");
+  assert.ok(box, "Tex's mailbox is kept without a joined line");
+  assert.equal(mail.parseMail(bucket.get(NOTE).body).events.some((event) => event.kind === "joined"), false, "nothing written for it");
+  // Tex's own line woke nothing; an answer addressed to it, which needs no join to name it, does.
+  assert.equal(controlPlaneStub.texAsks.length, 0);
+  const answer = await call(TOKEN_BUILDER, "write_note", { path: NOTE, mail: { text: "Got it, what's the deadline?", to: "tex" } });
+  assert.ok(!answer.isError, answer.text);
+  assert.match(answer.text, /delivered at once to tex/);
+  assert.deepEqual(controlPlaneStub.texAsks.map(({ path, mailboxId, answered }) => [path, mailboxId, answered]), [[NOTE, box.mailboxId, "ws_mail"]]);
+});
+
