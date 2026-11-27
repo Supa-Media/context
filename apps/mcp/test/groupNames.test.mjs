@@ -266,7 +266,7 @@ test("name_guest takes the guest by the number Tex sees, however it is written, 
 
 test("guest names read newest first, one per guest with their other names, never a bad label", () => {
   assert.deepEqual(
-    guestNamesFrom([guestNameEntry("guest-6ce3", "Boba"), guestNameEntry("guest-6ce3", "Old"), guestNameEntry("guest-6ce3", "boba"), { kind: "name", guest: "+15555550123", name: "Num" }, { kind: "note", guest: "guest-1111", name: "X" }]),
+    guestNamesFrom([guestNameEntry("guest-6ce3", "Boba", { at: 3 }), guestNameEntry("guest-6ce3", "Old", { at: 2 }), guestNameEntry("guest-6ce3", "boba", { at: 1 }), { kind: "name", guest: "+15555550123", name: "Num" }, { kind: "note", guest: "guest-1111", name: "X" }]),
     [{ guest: "guest-6ce3", name: "Boba", aliases: ["Old"] }],
   );
 });
