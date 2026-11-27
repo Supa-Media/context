@@ -36,7 +36,7 @@ function watchedPost(url: string, headers: Record<string, string> = {}): { reque
 }
 
 describe("plain HTTP never reaches a route", () => {
-  for (const path of ["/linq", "/sendblue", "/whapi", "/new-line"]) {
+  for (const path of ["/linq", "/sendblue", "/whapi", "/new-line", "/notice"]) {
     it(`refuses a plain-HTTP POST to ${path} before reading a header, a secret or the body`, async () => {
       const { env, touched } = watchedEnv();
       const { request, bodyRead } = watchedPost(`http://context-agent.example.workers.dev${path}`, {

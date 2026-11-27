@@ -324,7 +324,7 @@ export function dayTitle(key: string, now: Date): string {
 }
 
 /** The chat's own sends (`packages/tex/gateway/agent/sentOnItsOwn.js` OWN_SOURCES) that never went out: their text and note are not drawn. */
-const OWN_SENDS = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
+const OWN_SENDS = new Set(["checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 function withoutUnsaid(entries: readonly LedgerEntry[]): readonly LedgerEntry[] {
   const own = (e: LedgerEntry) => e.kind === "text" && str(record(e.from)?.kind) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SENDS.has(str(e.source));
   const said = new Set<string>();

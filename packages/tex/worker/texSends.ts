@@ -11,7 +11,7 @@ import type { InboxStorage } from "./inbox";
 import type { Line } from "./line";
 
 /** The sources Tex sends on its own, each with a note in the gateway's ledger (the reply and progress lines are not). */
-export const OWN_SOURCES: ReadonlySet<TextSource> = new Set<TextSource>(["checkin", "routine", "ping", "update", "job", "new_line"]);
+export const OWN_SOURCES: ReadonlySet<TextSource> = new Set<TextSource>(["checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 
 /** A source the gateway or a caller named, when it is one of the sources Tex sends on its own; none otherwise. */
 export function ownSourceOf(value: unknown): TextSource | undefined {

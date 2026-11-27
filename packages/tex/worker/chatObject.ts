@@ -28,6 +28,7 @@ import { textRoutine } from "./routines";
 import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { tellNewLine } from "./newLine";
+import { parseNoticeRequest, tellNotice } from "./notice";
 import type { Line } from "./line";
 import { groupLineFor, groupLineSeam, type GroupLine } from "./groupLine";
 import { sendblueKeys } from "./sendblue";
@@ -153,6 +154,23 @@ export class SenderInbox implements DurableObject {
         ...this.remoteLines(),
       });
       return Response.json({ told });
+    }
+    if (path === "/notice") {
+      const raw = (await request.json().catch(() => null)) as { dryRun?: unknown } | null;
+      const body = parseNoticeRequest({ ...(raw ?? {}), send: raw?.dryRun === false });
+      if (body === null || typeof raw?.dryRun !== "boolean") return new Response(null, { status: 400 });
+      const told = await tellNotice(this.state.storage, body, {
+        fetch: this.out,
+        linqApiKey: this.env.LINQ_API_KEY,
+        sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
+        whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+        photon: this.env.PHOTON ?? null,
+        linkNotes: linkNotesOf(this.state.storage),
+        now: () => Date.now(),
+        textCounts: this.env.TEX_COUNTS,
+        ...this.remoteLines(),
+      });
+      return Response.json(told);
     }
     if (path === "/move") {
       // Staff moving this person to Tex's new number (`moveChats.ts`, node `moveChat`): only this Worker's cron posts here.
