@@ -15,6 +15,9 @@
  *   - or the note sits in a bot's own `bots/<bot>/mail/`, whose card (`bots/<bot>/about.md`) names the bot;
  *   - the line is not the bot's own reply.
  *
+ * A bot's answer in a routine's own note (`<area>/routines/…`) is counted too, and tells nobody: it marks that
+ * routine answered and adds what the bot used (`checkRoutine`).
+ *
  * And the bot's person lets it work here, with this area's share of its week not yet spent (`areaRoutines.js`); the
  * `[used N%]` its own lines say are counted on the way.
  *
@@ -102,10 +105,26 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
   const pending = new Map(); // noteId → whether only a fresh line may be told (its row landed, its bytes did not change)
   let scheduled = false;
 
+  /**
+   * A routine's own note, where a bot answers the routine it was sent ("read the note it names"): its lines mark that
+   * routine answered and count what the bot used, and tell nobody, since the routine went to that bot.
+   */
+  function checkRoutine(noteId, path) {
+    const area = routines?.areaOfRoutine?.(path) ?? null;
+    if (area === null) return;
+    const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
+    const holder = botOfArea(about?.props);
+    if (holder === null || about?.sealed) return;
+    routines.recordMail(noteId, area, holder, path);
+  }
+
   function check(noteId, onlyFresh) {
     const row = rows.byNoteId(noteId);
     const area = areaOfMailNote(row?.path);
-    if (area === null) return;
+    if (area === null) {
+      if (typeof row?.path === "string" && row.path.includes("/routines/")) checkRoutine(noteId, row.path);
+      return;
+    }
     const object = objects.get(`notes/${noteId}.md`);
     if (!object?.body) return;
     const text = new TextDecoder().decode(object.body);
