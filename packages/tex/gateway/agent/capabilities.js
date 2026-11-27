@@ -41,8 +41,11 @@ export const CAPABILITIES = Object.freeze([
     name: "Who is in a chat",
     actions: ["send.name_guest", "send.who_can_open"],
     texts: "a 1:1 text is just them; in a group chat you can say who is there",
-    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else by their phone number (everyone in the chat already sees them; Tex is never shown a guest label when it has the number), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest, by their number) and the list, the chat's lines, the chat's history and who tagged it show that name beside the number",
-    cant: [{ where: "group", what: "see the account of someone whose number here isn't on Context", workaround: { kind: "words", text: "they sign in to the Context app with the number they use in this chat, or text you once on their own from it; either puts it on their account" } }],
+    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else by their phone number (everyone in the chat already sees them; Tex is never shown a guest label when it has the number), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest, by their number) and the list, the chat's lines, the chat's history and who tagged it show that name beside the number; a member who turned on Names from my contacts in the Context app on their phone fills in guests with no name yet from that phone's contacts (only the names leave the phone; a name said here or a correction wins)",
+    cant: [
+      { where: "group", what: "see the account of someone whose number here isn't on Context", workaround: { kind: "words", text: "they sign in to the Context app with the number they use in this chat, or text you once on their own from it; either puts it on their account" } },
+      { where: "everywhere", what: "read anyone's phone contacts to learn guests' names", workaround: { kind: "app_path", text: "Context app on their phone → Tex → Settings → Names from my contacts" } },
+    ],
   },
   {
     name: "Who someone is, for a form",

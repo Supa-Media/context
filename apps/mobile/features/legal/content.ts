@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 29, 2026",
+  updated: "November 27, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -11,6 +11,7 @@ export const privacyContent: LegalPageContent = {
       title: "Information we collect",
       body: [
         "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
+        "If you turn on \"Names from my contacts\" in Tex's settings on your phone, the Context.lc app looks up, on your phone, the numbers of people in your Tex group chats who have no Context.lc account and no name yet, and sends us only the names it finds for those numbers, which are kept in that chat for everyone in it. Your contacts are never uploaded. It is off until you turn it on, and you can turn it off at any time.",
         "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI, to be turned into text, and the transcript and your typed notes are sent to Anthropic to write a summary. The transcript and its summary are saved in your workspace like any other note. See \"Meeting transcripts and summaries\" below.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
         "When you connect Google, Context.lc receives your Google account identity and, at the moment it is asked for, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve.",

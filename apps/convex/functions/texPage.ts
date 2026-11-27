@@ -213,6 +213,29 @@ export const pageFor = internalQuery({
   },
 });
 
+/** At most this many chats go to one person's app for contact names (`guestsFor`). */
+const MAX_GUEST_CHATS = 50;
+
+/**
+ * The Tex group chats a person is in, newest first, so the Context app on their phone can name the chats' guests
+ * from its contacts (Dev2, 2026-11-27). Only the keys: who is in each chat, by number, is kept in the chat's own
+ * ledger, which the gateway reads (`apps/mcp/src/http/texPage/contacts.js`); a number is never kept here.
+ */
+export const guestsFor = internalQuery({
+  args: { hashedAccessToken: v.string() },
+  returns: v.union(v.object({ status: v.literal("refused") }), v.object({ status: v.literal("ok"), chats: v.array(v.object({ key: v.string() })) })),
+  handler: async (ctx, args) => {
+    const userId = await consolePerson(ctx, args.hashedAccessToken);
+    if (userId === null) return { status: "refused" as const };
+    const chats = (await ctx.db.query("textGroups").take(CHAT_SCAN))
+      .filter((chat) => (chat.homeUsers ?? []).includes(userId))
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, MAX_GUEST_CHATS)
+      .map((chat) => ({ key: chat.groupKey }));
+    return { status: "ok" as const, chats };
+  },
+});
+
 /**
  * The Tex page's data for one person: the console's (`pageFor`) and, for a person who develops on Tex, the MCP's
  * `tex_dev` probing (`texLabDrafts.forGateway`), which reads only that person's own chats the same way.

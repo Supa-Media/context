@@ -138,8 +138,10 @@ export function laterNames() {
 /**
  * The chat's guest names: the ledger's, and for a guest it has none for, the about note's, which are kept in the
  * ledger then (behind the turn, `by: "about"`), so the judge and every later turn read them from the one copy.
+ * Who is here by number is kept beside them, behind the turn too (`keepGuestNumbers`).
  */
 export async function guestNamesWithAbout(kept, about, group, ledger) {
+  void keepGuestNumbers(ledger, group);
   const [names, note] = await Promise.all([Promise.resolve(kept).catch(() => []), Promise.resolve(about).catch(() => null)]);
   const known = new Set(names.map((entry) => entry.guest));
   const added = namesInAbout(note, group?.guests).filter((entry) => !known.has(entry.guest));
@@ -150,6 +152,54 @@ export async function guestNamesWithAbout(kept, about, group, ledger) {
       .catch(() => {});
   }
   return [...names, ...added];
+}
+
+/**
+ * Each guest's number, kept in the chat's own ledger as a `numbers` entry `{guests: [{guest, phone}]}` whenever who is
+ * here changes, for a member's app to look the unnamed ones up in that phone's contacts (Dev2, 2026-11-27;
+ * `apps/mcp/src/http/texPage/contacts.js`). The chat's people already see each other's numbers; the control plane
+ * never keeps one (`textGroups.test.ts` "the number itself is never stored").
+ */
+export function guestNumbersEntry(guests, { at = Date.now() } = {}) {
+  const kept = guests.slice(0, MAX_NAMES);
+  return { v: 1, id: `nums${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`, at, kind: "numbers", guests: kept, text: kept.map(({ guest, phone }) => `${guest} is ${phone}`).join("; ") };
+}
+
+const PHONE = /^\+[1-9]\d{6,14}$/;
+
+/** The guests here with their numbers, by label, from the turn's numbers (`groupNames.js` `numbersOf`), sorted. */
+function guestNumbersOf(group) {
+  const seen = new Map();
+  for (const { who, phone } of Array.isArray(group?.numbers) ? group.numbers : []) if (GUEST.test(who ?? "") && PHONE.test(phone ?? "") && !seen.has(who)) seen.set(who, phone);
+  return [...seen].sort(([a], [b]) => (a < b ? -1 : 1)).map(([guest, phone]) => ({ guest, phone }));
+}
+
+/** The newest `numbers` entry's guests, or null when there is none or it can't be read. */
+export async function readGuestNumbers(ledger, chat) {
+  if (ledger === null || ledger === undefined || typeof ledger.read !== "function") return null;
+  try {
+    const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["numbers"], limit: 1 });
+    const entry = (read?.entries ?? [])[0];
+    if (entry?.kind !== "numbers" || !Array.isArray(entry.guests)) return null;
+    return entry.guests.filter((guest) => GUEST.test(guest?.guest ?? "") && PHONE.test(guest?.phone ?? "")).map(({ guest, phone }) => ({ guest, phone }));
+  } catch {
+    return null;
+  }
+}
+
+/** Keep who is here by number when it changed since the newest kept, behind the turn; never throws. */
+export async function keepGuestNumbers(ledger, group) {
+  const guests = guestNumbersOf(group);
+  if (guests.length === 0 || typeof ledger?.append !== "function" || typeof group?.key !== "string") return false;
+  try {
+    const kept = await readGuestNumbers(ledger, group.key);
+    if (kept !== null && JSON.stringify(kept) === JSON.stringify(guests)) return false;
+    await ledger.append(group.key, [guestNumbersEntry(guests)]);
+    return true;
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_guest_numbers_unkept", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return false;
+  }
 }
 
 /** The judge's facts: each guest here by label and name, one line. */
