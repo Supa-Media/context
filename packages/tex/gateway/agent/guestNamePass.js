@@ -41,16 +41,16 @@ const NODE = "guestNames";
  */
 const SELF_WORDS = /\b(i'?m|i am|it'?s|its|this is|call me|my name|name'?s|here)\b/i;
 
-/** The guests whose newest kept name someone else gave: their own word can still replace it. */
+/** The guests named only by someone else so far: their own word can still name them (`guestNamesFrom`). */
 export function openGuests(entries) {
-  const seen = new Set();
-  const open = new Set();
-  for (const entry of Array.isArray(entries) ? [...entries].sort((a, b) => (b?.at ?? 0) - (a?.at ?? 0)) : []) {
-    if (entry?.kind !== "name" || typeof entry.guest !== "string" || !GUEST.test(entry.guest) || seen.has(entry.guest)) continue;
-    seen.add(entry.guest);
-    if (entry.by !== entry.guest) open.add(entry.guest);
+  const named = new Set();
+  const own = new Set();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.kind !== "name" || typeof entry.guest !== "string" || !GUEST.test(entry.guest)) continue;
+    named.add(entry.guest);
+    if (entry.by === entry.guest) own.add(entry.guest);
   }
-  return open;
+  return new Set([...named].filter((guest) => !own.has(guest)));
 }
 
 /**
@@ -143,11 +143,16 @@ export function readNames(answer) {
  * someone else gave (`open`): what a guest says about themselves wins over it (Dev2, 2026-11-27, after asking two other
  * assistants how they keep names), and only their own line can change it.
  */
-export function checkedNames(found, lines, kept, others = [], open = new Set()) {
+export function checkedNames(found, lines, kept, others = [], open = new Set(), aliases = new Map()) {
   const byId = new Map(lines.map((entry) => [idOf(entry), entry]));
   const unnamed = new Set(lines.map(labelOf).filter((label) => label !== null && !kept.has(label)));
-  const taken = new Set([...kept.values(), ...others].map((name) => cleanName(String(name)).toLowerCase()).filter(Boolean));
   const out = [];
+  const key = (name) => cleanName(String(name)).toLowerCase();
+  // Each guest's names, the other names they go by included (`guestNamesFrom`): no one else is given one, and a guest
+  // may take one of their own back.
+  const namesOf = new Map([...kept].map(([guest, name]) => [guest, new Set([name, ...(aliases.get(guest) ?? [])].map(key))]));
+  const othersTaken = new Set(others.map(key).filter(Boolean));
+  const takenFor = (guest, name) => othersTaken.has(name) || [...namesOf].some(([other, names]) => other !== guest && names.has(name)) || out.some((n) => n.name.toLowerCase() === name);
   for (const { guest, name: said, line } of found) {
     const name = cleanName(said);
     const entry = byId.get(line);
@@ -158,9 +163,7 @@ export function checkedNames(found, lines, kept, others = [], open = new Set()) 
     const under = typeof entry.replyTo === "string" && labelOf(byId.get(entry.replyTo)) === guest;
     const byLabel = typeof entry.text === "string" && entry.text.includes(guest);
     if (!own && !under && !byLabel) continue;
-    const key = name.toLowerCase();
-    if (taken.has(key) || out.some((n) => n.guest === guest)) continue;
-    taken.add(key);
+    if (takenFor(guest, name.toLowerCase()) || out.some((n) => n.guest === guest)) continue;
     out.push({ guest, name, by: labelOf(entry) ?? (typeof entry.from?.name === "string" ? entry.from.name : "") });
   }
   return out;
@@ -175,13 +178,16 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   let lines;
   let kept;
   let open;
+  let aliases;
   try {
     const [read, names] = await Promise.all([
       ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: LINES_READ }),
       ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["name"], limit: MAX_NAMES_READ }),
     ]);
     lines = withLabels((read?.entries ?? []).filter((entry) => typeof entry?.text === "string" && entry.text !== "").sort((a, b) => a.at - b.at), hashes);
-    kept = new Map(guestNamesFrom(names?.entries ?? []).map(({ guest, name }) => [guest, name]));
+    const named = guestNamesFrom(names?.entries ?? []);
+    kept = new Map(named.map(({ guest, name }) => [guest, name]));
+    aliases = new Map(named.map(({ guest, aliases: also }) => [guest, also ?? []]));
     open = openGuests(names?.entries ?? []);
   } catch {
     return { outcome: "unread" };
@@ -207,7 +213,7 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   } catch {
     return { outcome: "model_failed" };
   }
-  const names = checkedNames(found, lines, kept, others, open);
+  const names = checkedNames(found, lines, kept, others, open, aliases);
   if (names.length > 0) {
     try {
       await ledger.append(chat, names.map(({ guest, name, by }) => guestNameEntry(guest, name, { by: by === "" ? "chat" : by })));
