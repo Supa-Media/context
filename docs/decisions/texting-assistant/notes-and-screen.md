@@ -11,6 +11,12 @@ they text it from the app, and be askable from inside a note's comments without 
   old, reads the open note through the turn's own dispatcher (the person's own access), and is told it in the per-text
   turn note. A texted (iMessage) turn never is. Nothing is shown in the app.
 - Off unless a Lab draft wires `screen`: config, not code.
+- The read is its own node, **On screen** (`graph/nodes/screen.js`, wired `fd -> screen`), since 2026-11-27: it was a
+  hidden step gated on the console's client, but the app chat's turns run through the chat's queue as the texting
+  client (chat `app:<userId>`), so no app turn ever read the screen and nothing showed it skipped (Dev: "do you see the
+  file I have open??" with `files.csv` open). `isAppTurn` takes both, and only the person's own app chat; the node's
+  output says what kind of thing was open and why none, never a path or a word. `apps/mcp/test/screen.test.mjs` fails
+  if the node, its wire or the gate goes.
 - A sheet (`.csv`) is a note here too, open or in a tab (2026-11-24, Dev: "fill this spreadsheet" with an empty sheet
   open made a new file, because the app and the gateway dropped every path that was not `.md`). The turn note names it
   "Open sheet" and says "this sheet" means it, changed in place by `write_note` `rows`. Pictures and PDFs stay out.

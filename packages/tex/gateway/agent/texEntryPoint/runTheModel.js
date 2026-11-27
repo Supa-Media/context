@@ -6,8 +6,7 @@ import { shapeNote } from "../shapeGate.js";
 import { contextsFor } from "../../../../../apps/mcp/src/context/identity.js";
 import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
-import { screenForTurn, screenNote, screenOn } from "../screen.js";
-import { CONSOLE_CLIENT_ID } from "./clients.js";
+import { screenNote } from "../screen.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { CARDS_PART, cardsPrompt } from "../memberCards.js";
 import { styleFacts } from "../chatStyle.js";
@@ -269,10 +268,9 @@ export async function runTheModel(t, via) {
   const waitStart = eligible && acts && t.routeRead ? Date.now() : null;
   const routed = eligible && acts && t.routeRead ? await tex.wait("route", t.routeRead) : null;
   const waitedMs = waitStart === null ? null : Date.now() - waitStart;
-  // What the Context app had open when they texted it from its chat (`screen.js`): a 1:1 app turn, when the front door's ctx lists `screen`.
-  const screen = screenOn(env) && chatTurn && job === null && group === null && !runner && session.actorClientId === CONSOLE_CLIENT_ID && typeof session.actorUserId === "string"
-    ? await tex.step("screen", () => screenForTurn({ env, actorUserId: session.actorUserId, contexts: contextsFor(session), dispatch, ownId: session.workspaceId, now: Date.now() }).catch(() => null), null)
-    : null;
+  // What the Context app had open when they texted it from its chat, read by the On screen node beside the door (`nodes/screen.js`): words on the turn, never the wire.
+  if (via.screen) await tex.wait("screen", via.screen);
+  const screen = via.screen ? t.screen ?? null : null;
   // The member cards of the people here, read by the Member cards node beside the door (`memberCards.js`); its words are on the turn, never the wire.
   if (via.memberCards) await tex.wait("member_cards", via.memberCards);
   const cards = via.memberCards ? cardsPrompt(t.memberCards) : "";

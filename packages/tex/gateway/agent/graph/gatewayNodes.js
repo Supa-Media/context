@@ -82,6 +82,7 @@ import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
 import { memberCardsNode } from "./nodes/memberCards.js";
 import { chatStyleNode } from "./nodes/chatStyle.js";
+import { screenNode } from "./nodes/screen.js";
 import { groupCardNode } from "./nodes/groupCard.js";
 import { friendCheckNode } from "./nodes/friendCheck.js";
 import { roomCheckNode } from "./nodes/roomCheck.js";
@@ -220,6 +221,8 @@ export const GATEWAY_NODES = {
   get memberCards() { return memberCardsNode; },
   // How this chat's people text, counted for the front door's facts (`nodes/chatStyle.js`); on the shelf until a Lab draft wires fd -> chatStyle.
   get chatStyle() { return chatStyleNode; },
+  // What the person has open in the app when they text Tex from its chat (`nodes/screen.js`); a Lab draft wires fd -> screen.
+  get screen() { return screenNode; },
   get friendCheck() { return friendCheckNode; },
   // What someone in a group can't open never goes to the group unasked (`nodes/roomCheck.js`); on the shelf until a Lab draft wires answerCheck -> roomCheck and finish -> roomCheck.
   get roomCheck() { return roomCheckNode; },
