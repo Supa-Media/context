@@ -11,6 +11,7 @@ export type LabOp =
   | { op: "convo"; field: string; value: unknown }
   | { op: "convo_tool"; tool: string; on: boolean | null }
   | { op: "model"; key: string; value: Record<string, unknown> | null }
+  | { op: "group"; id: string; value: Record<string, unknown> | null }
   | { op: "put"; graph: LabGraphJson };
 export const MODES: string[];
 export const NODE_FIELDS: Set<string>;
@@ -22,4 +23,5 @@ export function applyOps<G extends LabGraphJson>(graph: G, ops: LabOp[]): { grap
 export function diffGraphs(a: LabGraphJson, b: LabGraphJson): LabOp[];
 export function keysOf(op: LabOp): string[];
 export function overlaps(a: string, b: string): boolean;
+export function componentRefusal(graph: LabGraphJson, ids: string[], into?: string | null): string | null;
 export function conflicts(keys: string[], touched: string[]): string[];
