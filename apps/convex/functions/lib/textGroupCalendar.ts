@@ -228,25 +228,17 @@ export async function calendarSharesNamed(
 }
 
 /**
- * Whether someone with no account asked for this turn (Dev2, 2026-11-27: "by default we should share free and busy"):
- * a guest's ask stands on the sponsor's grant, in a home-only chat (`guestPhone`) or a grant left from guest mode
- * (`guestTagger`). Their turn reads a shared calendar as free and busy times only; members read it whole.
- */
-function guestAsked(grant: { texGroup?: Doc<"oauthGrants">["texGroup"] }): boolean {
-  const chat = grant.texGroup;
-  return chat !== undefined && (chat.guestPhone !== undefined || chat.guestTagger === true);
-}
-
-/**
- * The shared calendars a group chat's grant may read now, or null when this is no chat's grant, and whether they read
- * as free and busy only (a guest asked: `guestAsked`). Any workspace the grant
+ * The shared calendars a group chat's grant may read now, or null when this is no chat's grant, each marked `whole`
+ * only when its own person asked for this turn (Dev2, 2026-11-27: "guest and context members are not really
+ * different … they should be treated the same"). Everyone else's turn, a guest's, another member's and one nobody
+ * asked for, reads it as free and busy (`gatewayRoutes/personCalendar.ts` `freeBusyDay`). Any workspace the grant
  * covers asks for the same calendars: the share is the chat's, so the call's workspace never decides it (as
  * `chatMailClearance` does).
  */
 export async function chatCalendarClearance(
   ctx: QueryCtx,
   args: { hashedAccessToken: string; expectedWorkspaceId: string },
-): Promise<{ shares: LiveCalendarShare[]; freeBusy: boolean } | null> {
+): Promise<(LiveCalendarShare & { whole: boolean })[] | null> {
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   const chat = live?.grant.texGroup;
   if (live === null || chat === undefined) return null;
@@ -258,5 +250,6 @@ export async function chatCalendarClearance(
   if (group === null) return null;
   const shares = await liveCalendarShares(ctx, group);
   const asker = askerOf(live.grant);
-  return { shares: asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker)), freeBusy: guestAsked(live.grant) };
+  const rows = asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker));
+  return rows.map((row) => ({ ...row, whole: asker !== null && row.share.userId === asker }));
 }

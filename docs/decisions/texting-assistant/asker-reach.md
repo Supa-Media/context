@@ -67,14 +67,16 @@ show it" said by the third person about one of the other two.
   the same as one that does not exist, and it never names a personal workspace or the pin. This is the fact behind
   the rulebook's "Seyi or Sayo can pull it up"; saying it is Training's.
 
-## A guest reads a shared calendar as free and busy; stopping says what it found
+## A shared calendar reads as free and busy, whole only for its own person; stopping says what it found
 
 Decided by the owner, 2026-11-27, after a guest AI in a group asked whether a member was free on Saturday and was
 told the titles and times of his events ("by default we should share free and busy … Principle of least privilege:
-the guest only asked about availability"). A calendar shared with a chat reads whole on a turn someone with an account
-asked for, and as free and busy times only (busy blocks on the calendar's own wall clock, and a count of all-day
-events) on a turn a guest asked for (`guestPhone` or `guestTagger` on the grant). The control plane's calendar route
-replaces the rendered day, so no event's words reach a guest's turn at all.
+the guest only asked about availability"), and then: "guest and context members are not really different. only
+difference is that we have more context of one and not the other. they should be treated the same relatively". So a
+calendar shared with a chat reads whole only on a turn its own person asked for; every other turn (a guest's, another
+member's, a check-in or routine nobody asked for) reads it as free and busy times only: busy blocks on the
+calendar's own wall clock and a count of all-day events. The control plane's calendar route replaces the rendered day
+per calendar (`freeBusy`), so no event's words reach those turns at all.
 
 Stopping a share keeps its row with `endedAt`, read by nothing, so a second "stop sharing" says it was already
 stopped and when, rather than that it was never shared (Tex once contradicted itself that way in front of the room).
@@ -115,8 +117,9 @@ never feigned ignorance. A code floor comes only if Training keeps oversharing.
 - Reading the asker's calendar on any grant but their own ask's: a routine, a check-in or someone else's tag reads it
   (`textGroupCalendar.test.ts` "a turn nobody asked for reads none of the asker's own", "someone else's tag never reads
   it").
-- Reading a shared calendar whole on a guest's ask: a guest's AI is told titles, places and guests it only needed free
-  or busy for (`textGroupCalendar.test.ts` "a guest's ask reads when it is busy, never an event's words").
+- Reading a shared calendar whole on anyone's ask but its own person's: a guest's AI, or another member, is told
+  titles, places and guests it only needed free or busy for (`textGroupCalendar.test.ts` "a guest's ask and another
+  member's both read when it is busy").
 - Deleting a stopped share's row: a second stop answers "never shared" (`textGroupCalendar.test.ts` "a second stop
   says it was already stopped").
 - Handing every turn the list of everyone's workspaces instead of a lookup for a named one: the room learns which

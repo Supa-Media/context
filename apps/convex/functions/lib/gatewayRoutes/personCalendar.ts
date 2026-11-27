@@ -40,7 +40,7 @@ function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_calendar", ...fields }));
 }
 
-type Calendar = { connectionId: Id<"googleConnections">; address: string };
+type Calendar = { connectionId: Id<"googleConnections">; address: string; freeBusy?: true };
 
 type Day = { address: string; timezone: string; date: string; events: number; busy: { start: string; end: string }[]; allDay: number; text: string };
 
@@ -50,8 +50,8 @@ function wallClock(iso: string, timezone: string): string {
 }
 
 /**
- * A day read for a guest's ask in a group chat (Dev2, 2026-11-27: "by default we should share free and busy"): when it
- * is busy, on its own wall clock, and how many all-day events it has, as data. No title, place, guest or description:
+ * A day of a calendar shared with a group chat, read on a turn its own person did not ask for (Dev2, 2026-11-27: "by
+ * default we should share free and busy"): when it is busy, on its own wall clock, and how many all-day events it has, as data. No title, place, guest or description:
  * the rendered day (`text`) is replaced, so nothing of an event's words reaches the turn.
  */
 export function freeBusyDay(day: Day): Day {
@@ -110,8 +110,8 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
           now,
         });
         const readDays = read.days.map((day) => ({ address: calendar.address, timezone: read.timezone, ...day }));
-        // A guest's ask gets free and busy times only: no event's words leave here (`freeBusyDay`).
-        return claimed.freeBusy === true ? readDays.map(freeBusyDay) : readDays;
+        // Anyone but the calendar's own person gets free and busy times only: no event's words leave here (`freeBusyDay`).
+        return calendar.freeBusy === true ? readDays.map(freeBusyDay) : readDays;
       } catch (error) {
         unanswered.push(calendar.address);
         log({ outcome: "google_error", status: Number((error as { status?: unknown })?.status) || 0 });
