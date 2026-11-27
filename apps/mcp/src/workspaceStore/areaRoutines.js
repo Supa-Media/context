@@ -159,6 +159,8 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       if (event.kind !== "mail" || event.from.toLowerCase() !== name) continue;
       const at = Date.parse(event.at);
       if (!Number.isFinite(at)) continue;
+      // Its own line, wherever it answers, counts as it checking in (`botInbox.js` `seen`).
+      inbox.seen(name, at);
       if (typeof event.used === "number") {
         sql.exec(
           "INSERT OR IGNORE INTO ws_bot_usage (mark, bot, area, week, used, at) VALUES (?, ?, ?, ?, ?, ?)",

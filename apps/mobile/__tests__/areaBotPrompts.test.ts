@@ -148,7 +148,13 @@ describe("the setup prompt", () => {
     expect(one).toContain('manage area { context: "@supa", webhook: { bot: "Pipeline"');
     expect(one).toContain("header_from_shell");
     expect(one.indexOf("header_from_shell")).toBeLessThan(one.indexOf("setup_bot"));
-    expect(one).not.toContain("check: true");
+  });
+  // Dev, 2026-11-27: "fix these PLEASE" — a Grok bot's webhook wakes queued until Dev wrote in its chat, so a webhook
+  // bot checks in every 5 minutes as well, and its step says so before setup_bot.
+  test("a webhook bot also makes its 5-minute check-in, before setup_bot", () => {
+    const one = steps(prompt());
+    expect(one).toMatch(/4\. Also make a job in Grok[^\n]*every 5 minutes[^\n]*orient \{ context: "@supa", for: "Pipeline", check: true \}/);
+    expect(one.indexOf("check: true")).toBeLessThan(one.indexOf("setup_bot"));
   });
   test("a check-in bot makes its 5-minute job as its own step, before setup_bot", () => {
     const muse = steps(setupPrompt({ bot: "Muse", kind: "muse", whose: "@seyi", workspace: "@supa", areas: [] }));
@@ -174,12 +180,20 @@ describe("what a bot keeps in memory", () => {
     expect(muse).toContain("your 5-minute check-in is the one schedule you keep");
     expect(muse).not.toContain("webhook");
   });
-  test("a webhook bot keeps its relay, and no timer", () => {
+  test("a webhook bot keeps its relay and its 5-minute check-in", () => {
     const grok = botMemory({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa" });
     expect(grok).toContain("reaches your webhook");
     expect(grok).toContain("Your webhook routine only relays");
-    expect(grok).not.toContain("check: true");
-    expect(grok).not.toContain("one schedule you keep");
+    expect(grok).toContain('orient { context: "@supa", for: "Pipeline", check: true }');
+    expect(grok).toContain("Keep it even though you have a webhook");
+    expect(grok).toContain("your 5-minute check-in lists the ones waiting for you");
+    expect(grok).toContain("your 5-minute check-in is the one schedule you keep, beside your webhook's relay routine");
+  });
+  test("every bot answers every routine that waits, not only the newest", () => {
+    for (const kept of [muse, botMemory({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa" })]) {
+      expect(kept).toContain("do every one, oldest first");
+      expect(kept).toContain("never only the newest");
+    }
   });
   test("it names no area", () => {
     expect(muse).not.toMatch(/areas\//);

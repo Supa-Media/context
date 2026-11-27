@@ -9,7 +9,10 @@
  *   last call failed or didn't reach                 → Webhook failing  (crit)
  *   a routine sent >1 h ago this week, no answer yet → Not answering    (warn)
  *   never called                                     → Not tried yet    (grey)
- *   otherwise                                        → Answering        (ok)
+ *   a routine answered this week, or a check-in now  → Answering        (ok)
+ *   otherwise: calls land, nothing answered yet      → Reachable        (ok)
+ * A delivered call is not an answer (Dev, 2026-11-27: "fix these PLEASE"): a Grok bot's webhook took every routine
+ * while the bot answered none until its person wrote in its chat, and the card said Answering.
  * A bot with none whose card says `reach: mail`, or that has checked in:
  *   never checked in                                 → Not checking yet (grey, hollow)
  *   no check in 10 minutes                           → Stopped checking (crit)
@@ -27,7 +30,7 @@ import { clockAt, type RoutineStateNow } from "./areaRoutines";
 import { cardSlug } from "./seat";
 import type { HookRow } from "./PanelBotHook";
 
-export type HealthState = "not set up" | "webhook failing" | "not answering" | "not tried" | "answering" | "not checking" | "stopped checking" | "checking";
+export type HealthState = "not set up" | "webhook failing" | "not answering" | "not tried" | "reachable" | "answering" | "not checking" | "stopped checking" | "checking";
 export type HealthTone = "ok" | "warn" | "crit" | "quiet";
 
 export interface RunFacts {
@@ -90,7 +93,12 @@ export function botHealth(row: HookRow | null, runs: readonly RunFacts[], now: n
     return { state: "not answering", tone: "warn", word: "Not answering", why: `Its webhook takes calls, but ${missed === 1 ? "a routine has" : `${missed} routines have`} no answer.`, routines, bad: true, via: "webhook" };
   }
   if (row.lastCallAt === null) return { state: "not tried", tone: "quiet", word: "Not tried yet", why: "Webhook saved. Nothing has called it yet.", routines, bad: false, via: "webhook" };
-  return { state: "answering", tone: "ok", word: "Answering", why: `Last call answered (${row.lastCallStatus})${when}`, routines, bad: false, via: "webhook" };
+  // Answering is the bot's own answer, or its own check-in: its webhook taking a call says only that the call landed.
+  const lastAnswer = Math.max(...week.map((run) => run.answeredAt ?? 0));
+  if (answered > 0) return { state: "answering", tone: "ok", word: "Answering", why: `Last routine answered ${clockAt(lastAnswer, now)}`, routines, bad: false, via: "webhook" };
+  if (checkedAt !== null && now - checkedAt <= CHECK_STALE_MS) return { state: "answering", tone: "ok", word: "Answering", why: `Checks every 5 min · last check ${ago(checkedAt, now)}`, routines, bad: false, via: "webhook" };
+  const waiting = week.length > 0 ? " No answer yet." : " No routines this week.";
+  return { state: "reachable", tone: "ok", word: "Reachable", why: `Webhook took the last call (${row.lastCallStatus})${when}.${waiting}`, routines, bad: false, via: "webhook" };
 }
 
 /** What a page knows of every bot: its webhook row (null for none, undefined while asking) and its health. */

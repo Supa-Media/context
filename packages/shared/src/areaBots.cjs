@@ -97,17 +97,23 @@ function contextArg(workspace) {
 function mailText(where, name, reach, workspace) {
   return `People and other bots talk to you in ${where}mail/, one note per sender (${where}mail/<sender>.md). Join each one once as ${quoted(mailJoinName(name))} with write { action: "mail", path: "<that note>", args: { join: ${quoted(mailJoinName(name))} } }, pass the mailbox it gives you on every call, read with fetch { id: "<that note>", args: { mail: true } }, and answer in the same note with write { action: "mail", path: "<that note>", args: { text } }.${
     reach === "webhook"
-      ? ` New mail also reaches your webhook as a POST that names the note and who wrote, never the message. ${relayMemory()}`
-      : ` ${checkInLine(name, workspace)}`
+      ? ` New mail also reaches your webhook as a POST that names the note and who wrote, never the message. ${relayMemory()} ${checkInLine(name, workspace, reach)}`
+      : ` ${checkInLine(name, workspace, reach)}`
   }`;
 }
 
 /**
- * How a bot with no webhook hears of anything (Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer
- * loop?"): said in its memory whatever it holds, delegate or area owner, so the loop is in every prompt for it.
+ * How a bot hears of what waits for it (Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer loop?"): said
+ * in its memory whatever it holds, delegate or area owner, so the loop is in every prompt for it. A webhook bot keeps
+ * it too (Dev, 2026-11-27: "fix these PLEASE"): a Grok bot's webhook wakes queued until its person wrote in its chat,
+ * then arrived all at once, so the check-in is what reaches its main chat on time.
  */
-function checkInLine(name, workspace) {
-  return `Every 5 minutes, on a timer that survives your session restarting, call orient { ${contextArg(workspace)}for: ${quoted(name)}, check: true }: it answers in one line when nothing is new, or lists only what is, with each note's path. Open just those; don't orient in full each time. This check-in is the only way new mail and routines reach you.`;
+function checkInLine(name, workspace, reach = "mail") {
+  const only =
+    reach === "webhook"
+      ? "Keep it even though you have a webhook: a webhook call may not start a turn in this chat, and the check-in is what does."
+      : "This check-in is the only way new mail and routines reach you.";
+  return `Every 5 minutes, on a timer that survives your session restarting, call orient { ${contextArg(workspace)}for: ${quoted(name)}, check: true }: it answers in one line when nothing is new, or lists only what is, with each note's path. Open just those; don't orient in full each time. ${only}`;
 }
 
 /**
@@ -252,6 +258,10 @@ function setupPrompt({ bot, kind, whose, workspace, reach, endpoint }) {
     steps.push(relayStep());
     steps.push(
       `Give Context your webhook, so new mail and routines reach you. If your webhook checks a secret, call manage area { ${ctx}webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>", header_from_shell: "Authorization" } } and run the one-time curl command it answers with in your shell, with your secret's environment variable, so the secret goes straight to Context and never into this chat. If your webhook takes no secret, pass webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>" } instead.`,
+    );
+    // A webhook call may queue until the person writes in this chat (Grok, 2026-11-27), so it checks in as well.
+    steps.push(
+      `Also make a job in ${app} that runs every 5 minutes in this main chat, on a schedule that keeps going after this chat ends, whose only call is orient { ${ctx}for: ${quoted(name)}, check: true }. Your webhook may not start a turn here by itself; this check does. Most runs answer "Nothing new"; when one lists something, open only what it lists and answer each one.`,
     );
   } else {
     // A check-in bot hears of nothing else (Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer loop?").

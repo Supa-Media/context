@@ -27,6 +27,7 @@ import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 import { botCardOf } from "./botBind.js";
 import { botFor, boundBotsOf } from "../../mail/boundBot.js";
+import { makeMailNote } from "./mailNoteMade.js";
 
 /** A note in a bot's or an area's mail folder, where every agent line says what it used. */
 const MAIL_FOLDER_NOTE = /(^|\/)mail\/[^/]+$/;
@@ -132,7 +133,11 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   if (!Number.isFinite(wait) || wait < 0 || wait > MAX_ASK_WAIT_S) return toolError(`mail.wait is seconds to wait for the answer, at most ${MAX_ASK_WAIT_S}`);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const read = await toolReadNote(store, scope, rules, overrides, args.path);
+    let read = await toolReadNote(store, scope, rules, overrides, args.path);
+    // An area's or a bot's mail note nobody made yet is made by its first line (`mailNoteMade.js`).
+    if (read?.isError && attempt === 0 && /not found/i.test(read?.content?.[0]?.text ?? "") && (await makeMailNote(store, scope, rules, overrides, args.path)) === "made") {
+      read = await toolReadNote(store, scope, rules, overrides, args.path);
+    }
     if (read?.isError) return read;
     const parsed = parseRead(read);
     if (!parsed || !parsed.fields.etag || parsed.fields.kind === "drawing") return toolError("this note cannot carry mail: pick a plain Markdown note (not a drawing), or write one first");

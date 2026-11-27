@@ -428,3 +428,22 @@ test("a webhook is saved and tested with no area, and nothing else is", async ()
   assert.equal(owner.isError, true);
   assert.match(said(owner), /area is the area's folder/);
 });
+
+test("a bot made an area's owner or delegate gets its mail note there at once, and an existing one is kept (Dev, 2026-11-27)", async () => {
+  // Dev, 2026-11-27: "fix these PLEASE" — Capabilities' routine answers came back NOT_FOUND, since nothing had made
+  // areas/<area>/mail/capabilities.md.
+  const { store, text } = await world({ "areas/finance/about.md": FINANCE, "areas/ops/about.md": "---\nowner: \"@seyi\"\n---\n\n# Ops\n" });
+  const owned = await run(store, { area: "areas/finance", owner: "Capabilities" });
+  assert.equal(owned.isError, undefined, said(owned));
+  assert.match(said(owned), /areas\/finance\/mail\/capabilities\.md: made/);
+  assert.equal(await text("areas/finance/mail/capabilities.md"), "# Mail with Finance\n");
+  // A delegate too; a note already there is never rewritten.
+  await store.put("areas/ops/mail/beth.md", "# Mail with Ops\n\nkept\n");
+  const delegated = await run(store, { area: "areas/ops", delegate: "Beth" });
+  assert.equal(delegated.isError, undefined, said(delegated));
+  assert.doesNotMatch(said(delegated), /mail\/beth\.md: made/);
+  assert.equal(await text("areas/ops/mail/beth.md"), "# Mail with Ops\n\nkept\n");
+  // Tex and people get none.
+  await run(store, { area: "areas/ops", delegate: "Tex" });
+  assert.equal(await text("areas/ops/mail/tex.md"), null);
+});
