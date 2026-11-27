@@ -532,6 +532,7 @@ test/morningChat.test.mjs
 test/thumbsUpMerge.test.mjs
 test/groupHolders.test.mjs
 test/groupNames.test.mjs
+test/guestNamePass.test.mjs
 test/guestNamesInHistory.test.mjs
 test/replyJudge.test.mjs
 

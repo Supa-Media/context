@@ -14,6 +14,7 @@
  *  8. `groupModelTurn` returning on a quiet answer before `handOff` (2026-11-11) → "a job's start texts nothing: the ask gets a tapback and the job still runs".
  *  9. `cannotRun` back to `routineDone` for a report (2026-11-12) → "a report whose turn the chat can't run says there is news".
  * 10. `groupModelTurn` not handing `stickersAsk` (2026-11-26) → "the chat's turn is handed the stickers this chat kept, by id with what each shows".
+ * 11. `tell` in `jobRun.ts` attaching who asked only to an update with texts (2026-11-27) → "holds the result when somebody joined while it ran".
  */
 
 import { describe, expect, it } from "vitest";
@@ -294,5 +295,7 @@ describe("background jobs in a group chat", () => {
     await acceptJob(storage, groupRun(), NOW);
     await runJob(storage, { ...d, report: async (_inbox, update) => (reports.push(update), true) });
     expect(reports.at(-1)).toMatchObject({ state: "failed", end: { action: "job", status: "stopped", why: "someone_joined" } });
+    // An end with no words still carries who asked, so the chat's turn hears it (`jobTexts.ts` drops one without as report_unaddressed).
+    expect(reports.at(-1)?.asked).toEqual({ from: tagged.from, text: tagged.text });
   });
 });
