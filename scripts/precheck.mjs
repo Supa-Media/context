@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
  * The checks that fail a pull request before anything slow starts, run locally
- * before a push (CLAUDE.md). Fast repository guards, the app typecheck, and
- * the architecture check — the three that turned into fix loops after the
- * push (#3544 typecheck and architecture, #3538 and #3532 guards).
+ * before a push (CLAUDE.md). Fast repository guards, the app typecheck, the
+ * architecture check — the three that turned into fix loops after the push
+ * (#3544 typecheck and architecture, #3538 and #3532 guards) — and the gateway,
+ * mobile and Convex test files the branch's change reaches
+ * (scripts/precheck-tests.mjs), so a red suite shows before the push too.
  *
  * The guard steps are the `run:` steps of `.github/workflows/fast-guards.yml`
  * (which includes `scripts/tex-diagram-check.mjs`). The Node version line is
@@ -641,12 +643,15 @@ if (process.argv.includes("--self-test")) {
   }
   const started = Date.now();
   const stamp = (name) => (code) => ({ name, code, ms: Date.now() - started });
-  const [guards, typecheck, architecture] = await Promise.all([
+  // The tests group runs the gateway, mobile and Convex test files this branch reaches (scripts/precheck-tests.mjs).
+  // It starts beside the others, and its suites run one after another inside it.
+  const [guards, typecheck, architecture, tests] = await Promise.all([
     runGuards(env).then(stamp("fast guards")),
     runShell("typecheck", TYPECHECK, { ...env, NODE_OPTIONS: TYPECHECK_HEAP }).then(stamp("app typecheck")),
     runShell("architecture", architectureCommand(ref), env).then(stamp("architecture check")),
+    runShell("tests", "node scripts/precheck-tests.mjs", env).then(stamp("reached tests")),
   ]);
-  const groups = [guards, typecheck, architecture];
+  const groups = [guards, typecheck, architecture, tests];
   for (const group of groups) {
     console.log(`precheck: ${group.name} ${group.code === 0 ? "passed" : "failed"} in ${(group.ms / 1000).toFixed(1)}s`);
   }

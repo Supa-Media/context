@@ -320,6 +320,24 @@ not only that fetch, if `mobile-typecheck` stops running `pnpm typecheck` in
 `apps/mobile` with `--max-old-space-size=6144`, or if `ci.yml` stops passing
 `architecture-check: true`.
 
+_Decided 2026-11-27._ On 2026-11-26, 41 of the 60 slowest pull requests had red CI
+before their last commit, and most of those failures were in the gateway, mobile
+and Convex suites. So `pnpm precheck` also runs the test files a change reaches
+(`scripts/precheck-tests.mjs`), one suite after another beside the typecheck. The
+gateway's import graph is built once from `apps/mcp/test/unit.list`, read with the
+rules `scripts/import-reach.mjs` uses, and a test is reached when a changed file is
+in its import closure; the nearest tests run first. Mobile asks jest
+(`--findRelatedTests`) and Convex asks vitest (`list --changed`), but only when a
+changed file matches that suite's path list in `ci.yml`'s `change-filters`, and a
+suite whose app is absent from the checkout is skipped. The caps are 100 gateway,
+150 mobile and 60 Convex files, after the branch's own changed tests, which always
+run. The gateway cap comes from a measurement: 200 gateway unit files took 121 s on
+four cores, too long to run before every push. A change that reaches more than a cap
+usually touches a widely shared module, so the nearest tests run here and the rest are
+left to CI. CI still makes its own selection on the pull request and runs every suite
+whole on main; precheck never replaces it. The selection does not see a fixture read by computed path, which
+CI still catches.
+
 ## The Tex test set starts with the other checks
 
 _Decided 2026-11-17._ On about 30% of pull requests the replay check failed

@@ -191,6 +191,9 @@ jobs:
           node --test scripts/tex-effort-beta-probe.test.mjs
           # A Lab runner slot serves one run at a time: its live holders are never listed as gone.
           node --test scripts/lab-runner-lease-active.test.mjs
+          # The reach-based test selection precheck runs before a push (scripts/precheck-tests.mjs), proved on a
+          # throwaway repository: a break in a reached file fails, and an unrelated change runs nothing.
+          node --test scripts/precheck-tests.test.mjs
           node scripts/check-secrets-allowlist.mjs
           node scripts/check-no-identifiers.mjs --self-test
           node scripts/check-no-identifiers.mjs

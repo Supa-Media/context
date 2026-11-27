@@ -69,7 +69,7 @@ const unitOf = (file) => (/^(apps|packages)\//.test(file) ? file.split("/").slic
  * hundred. The editor imports five files of `@context/shared`; claiming the
  * whole package ran the editor's browser tests on every website change.
  */
-function appPackages(root) {
+export function appPackages(root) {
   const byName = new Map();
   for (const parent of ["apps", "packages"]) {
     if (!existsSync(join(root, parent))) continue;
@@ -87,6 +87,48 @@ function appPackages(root) {
 function packageName(specifier) {
   const parts = specifier.split("/");
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+/**
+ * The files one repository file imports, and the workspace packages it claims
+ * whole, one step deep. `reach` follows these edges; `precheck-tests` builds
+ * its import graph from the same edges, so both read imports one way.
+ *
+ * `files` are repository-relative candidates that exist (a specifier that
+ * resolves to nothing is dropped); `packages` are workspace package names with
+ * no entry to follow, which the caller must claim whole. A file that is not
+ * source (no JS or TS extension) imports nothing.
+ */
+export function importsOf(file, root, appsByName) {
+  const files = [];
+  const packages = [];
+  if (!SOURCE.test(file)) return { files, packages };
+  const source = readFileSync(join(root, file), "utf8");
+  for (const pattern of SPECIFIERS) {
+    for (const [statement, specifier] of source.matchAll(pattern)) {
+      // `import type … from` and `export type … from` are erased before the
+      // code runs, so what they name is not executed (#3038's two-line icon
+      // list change ran the editor's browser tests through one).
+      if (TYPE_ONLY.test(statement)) continue;
+      if (specifier.startsWith(".")) {
+        const base = relative(root, resolve(root, dirname(file), specifier)).replaceAll("\\", "/");
+        if (!base.startsWith("..")) files.push(...candidates(root, base));
+      } else if (specifier.startsWith("@context/") || specifier.startsWith("@supa-media/")) {
+        const name = packageName(specifier);
+        const target = appsByName.get(name);
+        if (!target) {
+          packages.push(name);
+          continue;
+        }
+        // A subpath with only a `.d.ts` resolves to nothing: types do not run.
+        const sub = specifier.slice(name.length + 1);
+        const base = sub ? `${target.dir}/${sub}` : target.main && !target.main.includes("/entry") ? `${target.dir}/${target.main}` : null;
+        if (base) files.push(...candidates(root, base.replace(/\.(js|ts|mjs)$/, "")));
+        else packages.push(name);
+      }
+    }
+  }
+  return { files, packages };
 }
 
 export function reach(entries, root = process.cwd()) {
@@ -111,32 +153,9 @@ export function reach(entries, root = process.cwd()) {
     files.add(file);
     const unit = unitOf(file);
     if (unit) units.add(unit);
-    if (!SOURCE.test(file)) continue;
-    const source = readFileSync(join(root, file), "utf8");
-    for (const pattern of SPECIFIERS) {
-      for (const [statement, specifier] of source.matchAll(pattern)) {
-        // `import type … from` and `export type … from` are erased before the
-        // code runs, so what they name is not executed (#3038's two-line icon
-        // list change ran the editor's browser tests through one).
-        if (TYPE_ONLY.test(statement)) continue;
-        if (specifier.startsWith(".")) {
-          const base = relative(root, resolve(root, dirname(file), specifier)).replaceAll("\\", "/");
-          if (!base.startsWith("..")) queue.push(...candidates(root, base));
-        } else if (specifier.startsWith("@context/") || specifier.startsWith("@supa-media/")) {
-          const name = packageName(specifier);
-          const target = appsByName.get(name);
-          if (!target) {
-            packages.add(name);
-            continue;
-          }
-          // A subpath with only a `.d.ts` resolves to nothing: types do not run.
-          const sub = specifier.slice(name.length + 1);
-          const base = sub ? `${target.dir}/${sub}` : target.main && !target.main.includes("/entry") ? `${target.dir}/${target.main}` : null;
-          if (base) queue.push(...candidates(root, base.replace(/\.(js|ts|mjs)$/, "")));
-          else packages.add(name);
-        }
-      }
-    }
+    const imports = importsOf(file, root, appsByName);
+    queue.push(...imports.files);
+    for (const name of imports.packages) packages.add(name);
   }
 
   const packagePaths = new Set();
