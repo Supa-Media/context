@@ -138,8 +138,10 @@ export function laterNames() {
 /**
  * The chat's guest names: the ledger's, and for a guest it has none for, the about note's, which are kept in the
  * ledger then (behind the turn, `by: "about"`), so the judge and every later turn read them from the one copy.
+ * Who is here by number is kept beside them, behind the turn too (`keepGuestNumbers`).
  */
 export async function guestNamesWithAbout(kept, about, group, ledger) {
+  void keepGuestNumbers(ledger, group);
   const [names, note] = await Promise.all([Promise.resolve(kept).catch(() => []), Promise.resolve(about).catch(() => null)]);
   const known = new Set(names.map((entry) => entry.guest));
   const added = namesInAbout(note, group?.guests).filter((entry) => !known.has(entry.guest));

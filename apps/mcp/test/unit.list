@@ -459,6 +459,7 @@ test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
+test/texContacts.test.mjs
 test/upstreamStatus.test.mjs
 test/texPageComputer.test.mjs
 test/texPageJobPlaces.test.mjs
