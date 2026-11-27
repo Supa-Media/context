@@ -55,5 +55,5 @@ export async function handleAreaRoutines(request, store, session) {
   }
   const state = typeof store?.objectBots?.state === "function" ? await store.objectBots.state() : null;
   if (state === null) return json({ served: false });
-  return json({ served: true, week: state.week, routines: state.routines, usage: state.usage, ...(body.run === undefined ? {} : { ran: ran ?? null }) });
+  return json({ served: true, week: state.week, routines: state.routines, usage: state.usage, checks: state.checks ?? [], inbox: state.inbox ?? [], ...(body.run === undefined ? {} : { ran: ran ?? null }) });
 }

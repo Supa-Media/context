@@ -12,9 +12,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@context/convex/_generated/api";
-import type { Id } from "@context/convex/_generated/dataModel";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { pointerType, radii, space } from "../../../../design/tokens";
@@ -30,6 +27,9 @@ import { AnyRefreshAll } from "./RefreshAll";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
 import type { OwnerSearch } from "../../owners";
+import { BotLookupsScope, HealthWord, botLookups, useBotHealth } from "./botHealth";
+import type { HookRow } from "./PanelBotHook";
+import type { RoutineStateNow } from "./areaRoutines";
 import { AddBotForm, usePeopleList } from "./PanelBotFields";
 
 export interface BotsPageProps {
@@ -58,6 +58,10 @@ export interface BotsPageProps {
   workspaceId?: string;
   /** The workspace's `@handle`, named in what Refresh asks. */
   workspace?: string;
+  /** The workspace's saved webhooks (`botHookList`), undefined while asking or where none can be read. */
+  hooks?: readonly HookRow[];
+  /** How its area routines ran, for each bot's health. */
+  routineState?: RoutineStateNow;
 }
 
 /** Each note's count and newest line, read once per path list. */
@@ -82,20 +86,13 @@ export function useThreads(paths: readonly string[], read: BotsPageProps["read"]
   return threads;
 }
 
-/** The page with the workspace's saved webhooks read, so a bot with one shows as reached by it. */
-function LiveBotsPage(props: BotsPageProps & { workspaceId: string }) {
-  const rows = useQuery(api.functions.botHooks.botHookList, { workspaceId: props.workspaceId as Id<"workspaces"> });
-  const hooked = useMemo(() => (rows === undefined ? undefined : new Set(rows.map((row) => row.bot))), [rows]);
-  return <BotsPageView {...props} {...(hooked === undefined ? {} : { hooked })} />;
-}
-
 export function BotsPage(props: BotsPageProps) {
-  return props.workspaceId === undefined || props.workspaceId === "" ? <BotsPageView {...props} /> : <LiveBotsPage {...props} workspaceId={props.workspaceId} />;
-}
-
-function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
-  const { hooked, only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot, workspaceId, workspace } = props;
+  const { hooks, routineState = null, only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot, workspaceId, workspace } = props;
   const styles = useThemedStyles(makeStyles);
+  // A bot with a saved webhook is reached by it, whatever its card says (`bots.ts` `withHooks`); every bot's health, for
+  // everyone who can see the page (Dev, 2026-11-27: "see the health of each bot at a glance, even if I dont own the bot").
+  const hooked = useMemo(() => (hooks === undefined ? undefined : new Set(hooks.map((row) => row.bot))), [hooks]);
+  const lookups = useMemo(() => (hooks === undefined ? undefined : botLookups(hooks, routineState, Date.now())), [hooks, routineState]);
   const bots = useMemo(() => withHooks(botsOf(root, notes, me), hooked), [root, notes, me, hooked]);
   const conversations = useMemo(() => conversationsOf(root, notes, bots, me), [root, notes, bots, me]);
   const threads = useThreads(
@@ -115,7 +112,7 @@ function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
   const panel =
     bot === undefined
       ? null
-      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), ...(workspaceId === undefined ? {} : { workspaceId }), ...(workspace === undefined ? {} : { workspace }), chooseMany, open, onClose: () => (only === undefined ? setSelected(null) : open(botsFolder(root))) };
+      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), ...(workspaceId === undefined ? {} : { workspaceId }), ...(workspace === undefined ? {} : { workspace }), ...(lookups === undefined ? {} : { lookups }), chooseMany, open, onClose: () => (only === undefined ? setSelected(null) : open(botsFolder(root))) };
   useEffect(() => slot.set(panel));
   const panelOpen = bot !== undefined && onPanel !== undefined && only === undefined;
   useEffect(() => {
@@ -138,6 +135,7 @@ function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
     groups.set(key, [...(groups.get(key) ?? []), each]);
   }
   return (
+    <BotLookupsScope lookups={lookups}>
     <View style={styles.page} testID="areas-bots-view">
       {canEdit && create !== undefined && me !== undefined && bots.length > 0 ? (
         <AnyRefreshAll bots={bots} notes={notes} me={me} create={create} {...(workspace === undefined ? {} : { workspace })} {...(workspaceId === undefined ? {} : { workspaceId })} />
@@ -153,7 +151,7 @@ function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
             {key === "mine" ? `Yours${me ? ` · ${me}` : ""}` : key === "nobody" ? "Nobody's yet" : `${key}'s · only ${key} can change them`}
           </Text>
           {list.map((each) => (
-            <BotRow key={each.name} bot={each} face={faceOf(each.name)} selected={each.name === selected} onPress={() => setSelected(each.name === selected ? null : each.name)} />
+            <BotRow key={each.name} compact={compact} bot={each} face={faceOf(each.name)} selected={each.name === selected} onPress={() => setSelected(each.name === selected ? null : each.name)} />
           ))}
         </View>
       ))}
@@ -184,6 +182,7 @@ function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
         </Pressable>
       )}
     </View>
+    </BotLookupsScope>
   );
 }
 
@@ -195,13 +194,14 @@ export function capWords(bot: Bot): string {
   return capped.length === 1 ? `${total}% of its week here` : `${total}% of its week over ${capped.length} areas`;
 }
 
-function BotRow({ bot, face, selected, onPress }: { bot: Bot; face: Face; selected: boolean; onPress: () => void }) {
+function BotRow({ bot, face, selected, compact, onPress }: { bot: Bot; face: Face; selected: boolean; compact: boolean; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
+  const health = useBotHealth(bot.name, bot.card.reach);
   const where = bot.areas.length === 0 ? "Holds no area yet" : bot.areas.map((area) => area.title).join(", ");
   return (
     <Pressable
       onPress={onPress}
-      accessibilityLabel={`${bot.name}, ${botLabel(bot.card.bot || "grok")}`}
+      accessibilityLabel={`${bot.name}, ${botLabel(bot.card.bot || "grok")}${health === undefined ? "" : `, ${health.word}`}`}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, (hovered || selected) && styles.rowOn]}
       testID={`areas-bot-${bot.name}`}
     >
@@ -211,12 +211,19 @@ function BotRow({ bot, face, selected, onPress }: { bot: Bot; face: Face; select
           {bot.name}
         </Text>
         <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
-          {`${botLabel(bot.card.bot || "grok")} · ${bot.card.reach === "webhook" ? "webhook" : "checks its mail"} · ${where}`}
+          {`${botLabel(bot.card.bot || "grok")} · ${where}`}
         </Text>
       </View>
-      <Text variant="treeMeta" style={styles.muted}>
-        {capWords(bot)}
-      </Text>
+      {/* Its health, for everyone who sees the list, its person or not (Dev, 2026-11-27); its caps under it, where
+          there is room (a phone leaves them to the bot's Works in tab). */}
+      <View style={styles.side}>
+        {health === undefined ? null : <HealthWord health={health} testID={`areas-bot-health-${bot.name}`} />}
+        {compact ? null : (
+          <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
+            {capWords(bot)}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -227,10 +234,11 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.muted },
     group: { gap: 2, marginTop: space.x2 },
     groupTitle: { color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4, fontSize: pointerType.meta, marginBottom: space.x1 },
-    row: { flexDirection: "row", alignItems: "center", gap: space.x3, minHeight: 48, paddingHorizontal: space.x2, marginHorizontal: -space.x2, borderRadius: radii.sm },
+    row: { flexDirection: "row", alignItems: "center", gap: space.x3, minHeight: 52, paddingVertical: 6, paddingHorizontal: space.x2, marginHorizontal: -space.x2, borderRadius: radii.sm },
     rowOn: { backgroundColor: colors.chipFill },
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     name: { fontWeight: "600" },
+    side: { alignItems: "flex-end", gap: 2, flexShrink: 0, maxWidth: "45%" },
     addRow: { minHeight: 40, marginTop: space.x1 },
     addWord: { color: colors.accent },
   });

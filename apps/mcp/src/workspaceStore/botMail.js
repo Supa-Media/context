@@ -142,11 +142,16 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     const bot = cardFolderBot(area, about?.props) ?? mailJoinName(holder);
     // What the bot said it used, and the routines it answered (`areaRoutines.js`).
     routines?.recordMail(noteId, area, holder);
+    // Its own newest line here answers what waited for it in this note (`botInbox.js`).
+    const answered = lines.filter((event) => event.from.toLowerCase() === bot).pop();
+    if (answered !== undefined) routines?.inbox?.clear(bot, { noteId, note: row.path }, Date.parse(answered.at));
     if (newest.from.toLowerCase() === bot) return;
     // An area whose share of the bot's week is spent is held: the mail stays in the note, and the bot finds it there
     // (`docs/decisions/app-and-console/area-routines.md`).
     const found = routines?.budget(area) ?? null;
     if (found !== null && routines.spent(found)) return;
+    // Kept for a bot that checks in, whether or not a webhook takes it; never the message.
+    routines?.inbox?.add({ bot, noteId, note: row.path, kind: "mail", area, from: newest.from, at: Date.parse(newest.at) });
     tell({ bot, area, note: row.path, from: newest.from });
   }
 

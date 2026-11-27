@@ -281,6 +281,15 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
       const judge = judgeFor(rows, fields, store.members ?? null);
       return Response.json({ served: true, ...store.areaRoutines.state((path) => judge.sees({ path })) });
     }
+    // A bot's check-in (`botInbox.js`): its time kept, and what waits for it in notes this reader may read.
+    if (op === "ws.bots.check") {
+      if (store.areaRoutines?.inbox === undefined || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+      const bot = typeof fields.bot === "string" ? fields.bot.trim().slice(0, 80) : "";
+      if (bot === "") return Response.json({ served: true, items: [] });
+      const judge = judgeFor(rows, fields, store.members ?? null);
+      const previousAt = store.areaRoutines.inbox.lastCheck(bot);
+      return Response.json({ served: true, previousAt, items: store.areaRoutines.inbox.check(bot, (path) => judge.sees({ path })) });
+    }
     // One routine sent now (`areaRoutines.js` `runNow`), only one this reader may read: an unseen path is "no routine".
     if (op === "ws.bots.run_now") {
       if (store.areaRoutines === undefined || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
