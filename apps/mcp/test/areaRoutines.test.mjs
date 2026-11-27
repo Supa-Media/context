@@ -366,20 +366,23 @@ test("a send keeps the webhook's reply, and one no webhook took is failed, not s
   assert.equal(w.routines.state().routines[0].answeredAt, Date.parse("2026-11-26T14:30:00.000Z"));
 });
 
-test("a bot's reply in someone else's mail in the area is not the routine's answer", { skip }, () => {
-  // Capabilities' reply to Grok Bot in MCP's mail once marked MCP's routine answered.
+test("only the routine's own bot answers it, in any of the area's mail notes", { skip }, () => {
+  // The 12 PM round, 2026-11-27: Beth and Capabilities answered in the note they were already writing in, not their own.
   const w = world();
   w.routines.run();
   w.at("2026-11-25T14:00:05.000Z");
   w.routines.run();
   w.at("2026-11-25T14:05:00.000Z");
-  w.save("m1", `${AREA}/mail/seyi.md`, withMail("", { from: "grok-bot", app: "Grok", text: "Replying to Seyi.", at: "2026-11-25T14:05:00.000Z" }));
+  // Another bot's line in the area's mail is not its bot's answer.
+  w.save("m2", MAIL, withMail("", { from: "pipeline", app: "Grok", text: "Not mine.", at: "2026-11-25T14:05:00.000Z" }));
   assert.equal(w.routines.state().routines[0].answeredAt, null);
-  // Another bot's line in the routine's answer note is not its bot's answer either.
-  w.save("m2", MAIL, withMail("", { from: "pipeline", app: "Grok", text: "Not mine.", at: "2026-11-25T14:06:00.000Z" }));
-  assert.equal(w.routines.state().routines[0].answeredAt, null);
-  // An hour on with nothing where it was asked: missed.
+  // An hour on with nothing from its bot: missed.
   assert.equal(w.routines.state(() => true, Date.parse("2026-11-25T15:00:06.000Z")).routines[0].missed, true);
+  w.at("2026-11-25T15:10:00.000Z");
+  w.save("m1", `${AREA}/mail/seyi.md`, withMail("", { from: "grok-bot", app: "Grok", text: "Run done.", at: "2026-11-25T15:10:00.000Z" }));
+  const [row] = w.routines.state().routines;
+  assert.equal(row.answeredAt, Date.parse("2026-11-25T15:10:00.000Z"));
+  assert.equal(row.missed, false);
 });
 
 test("a bot is sent one routine at a time: the next once it answers, or after twenty minutes", { skip }, () => {
