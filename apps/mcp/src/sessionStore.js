@@ -24,6 +24,8 @@ import { SCOPE_WRITE, TEX_SETUP_CLIENTS, hasScope } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { objectFirstAddGrantees, objectFirstSetAccess } from "./store/objectAccess.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
+import { sandboxGateOf } from "./labSandbox/policy.js";
+import { withTestChatApprovals } from "./labSandbox/approvalsOverlay.js";
 
 /**
  * Build the storage adapter for one session.
@@ -538,7 +540,8 @@ async function openSessionStore(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  return store;
+  // A Lab test chat's held asks stay in the test chat (`labSandbox/approvalsOverlay.js`).
+  return withTestChatApprovals(store, sandboxGateOf(env), session.workspaceId);
 }
 
 /**
