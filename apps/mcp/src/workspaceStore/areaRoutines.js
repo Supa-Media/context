@@ -125,8 +125,10 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
   /**
    * An area's mail note was saved: count the `[used N%]` its bot said on each line, once per line, and mark the
    * routines it answered. Called from the mail watch (`botMail.js`), which has already found the note's area.
+   * `routine` is set when the mail is in a routine's own note: a bot told "read the note it names" answers there
+   * (Dev, 2026-11-27: "i fear that these routines may not be working"), and that answers that routine alone.
    */
-  function recordMail(noteId, area, bot) {
+  function recordMail(noteId, area, bot, routine = null) {
     const text = textOf(noteId);
     if (text === null) return;
     const name = mailJoinName(bot);
@@ -146,7 +148,8 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
         );
       }
       // Its answer to a routine sent before it: the routine shows when it was answered.
-      sql.exec("UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_outcome = 'sent' AND last_at <= ? AND answered_at IS NULL", at, area, at);
+      if (routine === null) sql.exec("UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_outcome = 'sent' AND last_at <= ? AND answered_at IS NULL", at, area, at);
+      else sql.exec("UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_outcome = 'sent' AND last_at <= ? AND answered_at IS NULL", at, routine, at);
     }
   }
 
@@ -293,6 +296,10 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     budget,
     spent,
     recordMail,
+    /** The area a routine note at `path` belongs to, or null for a path that is no area's routine. */
+    areaOfRoutine(path) {
+      return all(sql.exec("SELECT area FROM ws_area_routines WHERE path = ?", path))[0]?.area ?? null;
+    },
     /**
      * What a reader is shown: each routine and each bot's week, judged path by path with `sees`. Paths, times,
      * outcomes and percentages only.
