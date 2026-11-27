@@ -129,9 +129,17 @@ to agents such as Claude Code and Codex. Its model is configuration
 *is* a model. Other bots in the same category: Muse, Instinct, Poke and
 OpenClaw.
 
+**Agents and bots both connect to the MCP, and use it differently** (decided
+by the owner, 2026-11-27). An agent does the deep work: it reads the notes a
+task needs, does the task and writes back what changed. A bot orchestrates: it
+is good at tracking, routing and following up, and bad at deep work itself, so
+it uses the workspace's network of bots and agents to send each piece of work
+to the domain expert for it, then checks the result.
+
 In a workspace, `bots/<bot>/` holds one card for each bot or agent that works
-there, and an area is usually held by a bot, because an area needs someone to
-check on it without being asked.
+there, which is how a bot finds the expert to route to, and an area is usually
+held by a bot, because an area needs someone to check on it without being
+asked.
 
 *What a "simplification" costs:* calling every AI product an "agent" hides the
 part Context and Tex are built for, the standing chat and the context it
