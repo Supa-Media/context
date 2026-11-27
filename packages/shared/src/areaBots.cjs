@@ -15,7 +15,7 @@
  */
 
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
-const { bindStep, relayMemory, relayStep } = require("./botRelay.cjs");
+const { bindStep, pictureStep, relayMemory, relayStep } = require("./botRelay.cjs");
 
 /** The kinds of bot a card can say it is. Grok is the first; others follow by adding a word. */
 const BOT_KINDS = Object.freeze(["grok"]);
@@ -112,12 +112,7 @@ function mailText(where, name, reach) {
  */
 function logoLine(card, workspace) {
   if (!card) return null;
-  const ctx = contextArg(workspace);
-  return (
-    `The first time, put your logo on your card, so people see the face you have in your own app. You can't see that picture yourself: use only the picture file your person attached for it in this chat, and if there is none, ask them for it and leave the card as it is. Never send a picture you found elsewhere, made yourself, or saw on another bot. Send the picture's bytes yourself, never a link: Context does not download an outside address without the person's own OK. ` +
-    `With a shell: write { ${ctx}action: "upload", path: ${quoted(card)}, args: { files: [{ name: "logo.png", sha256: "<its SHA-256>", bytes: <its size> }] } }, run the curl command it gives, then write { ${ctx}path: ${quoted(card)}, args: { edits: [{ old: "kind: agent", new: "kind: agent\\navatar: logo.png" }], images: [{ name: "logo.png", sha256: "<its SHA-256>" }] } }. ` +
-    `Without a shell, the same write with images: [{ name: "logo.png", data: "<its base64>" }]. Skip it once the card has an avatar: line.`
-  );
+  return `The first time (skip it once the card has an avatar: line): ${pictureStep(card, workspace)}`;
 }
 
 function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, card, actsFor }) {

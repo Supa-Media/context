@@ -53,25 +53,30 @@ function relayMemory() {
 }
 
 /**
- * The step that puts the bot's own picture on its card, every Refresh (Dev, 2026-11-27: "are we telling bots to update
- * their photos in the refresh?"). It said "if your name or logo changed", so a bot still showing the robot icon read
- * nothing to do and kept it. Now it always asks for the picture it uses in its own app, a dark-mode one too when it has
- * one. A bot can't see its own profile picture, and told to send it anyway four of @shyoh's bots sent one shared
- * orange picture (Dev, 2026-11-27), so it sends only the file its person attached in its chat, and otherwise asks for
- * it and leaves the card alone. The bytes come from the bot: Context downloads no outside address on its own.
+ * The step that puts the bot's current profile picture on its card, every Refresh and on its first session.
+ *
+ * Grok bots of one person share a workspace where whichever bot saves its profile picture last leaves it at
+ * `/workspace/profile-picture.png`, so four of @shyoh's bots uploaded one bot's orange picture (Dev, 2026-11-27: "they
+ * all need file locks"). Each takes a lock folder, saves its picture, copies it to a name of its own at once,
+ * releases the lock, and uploads only its own copy. Context also refuses a picture another bot's card already shows
+ * (`apps/mcp/src/notes/botPictureClash.js`). The bytes come from the bot: Context downloads no outside address.
  */
 function pictureStep(card, workspace) {
   const ctx = contextArg(workspace);
-  const where = typeof card === "string" && card !== "" ? quoted(card) : "your card (bots/<your mail name>/about.md)";
-  return (
-    "Put your own picture on your card: the picture people see for you in your own app, so your card never shows the default robot. " +
-    "You can't see that picture yourself, so use only the picture file your person attached for it in this chat. If they attached none, change nothing on your card and ask them to attach your picture here. " +
-    "Never send a picture you found somewhere else, made yourself, or saw on another bot: Context refuses a picture another bot's card already has. " +
-    `Send the bytes yourself, never a link: write { ${ctx}action: "upload", path: ${where}, args: { files: [{ name: "logo.png", sha256: "<its SHA-256>", bytes: <its size> }] } }, run the curl command it gives, ` +
-    `then write { ${ctx}path: ${where}, args: { edits: [{ old: "<the card's avatar: line, or kind: agent when it has none>", new: "<that line, with avatar: logo.png in place of the old avatar>" }], images: [{ name: "logo.png", sha256: "<its SHA-256>" }] } }. ` +
-    'Without a shell, the same write with images: [{ name: "logo.png", data: "<its base64>" }]. ' +
-    'If your person attached a version for dark mode too, send it the same way as logo-dark.png on an avatar-dark: line. Also send your name if it changed.'
-  );
+  const known = typeof card === "string" && card !== "";
+  const where = known ? quoted(card) : "your card (bots/<your mail name>/about.md)";
+  // Its mail name: the card's folder (`bots/beth/about.md`), or an older card's own name (`people/finance.md`).
+  const mailName = (known && (/([^/]+)\/about\.md$/i.exec(card)?.[1] ?? /([^/]+)\.md$/i.exec(card)?.[1])) || "<your-mail-name>";
+  const copy = `profile-picture-${mailName}.png`;
+  return [
+    "Put your current profile picture on your Context card as its logo. Don't change the picture itself.",
+    "  a. Take the lock: run `mkdir /workspace/.profile-picture.lock`. If it fails, another bot holds it, so wait a few seconds and retry. If the lock folder is more than 2 minutes old, delete it and retry.",
+    `  b. While you hold the lock, save a copy of your current profile picture (it always lands at \`/workspace/profile-picture.png\`), then copy it right away to \`/workspace/${copy}\`.`,
+    "  c. Release the lock: `rmdir /workspace/.profile-picture.lock`.",
+    `  d. Upload only your own copy as the logo on your Context card: write { ${ctx}action: "upload", path: ${where}, args: { files: [{ name: "${copy}", sha256: "<its SHA-256>", bytes: <its size> }] } }, run the curl command it gives from /workspace, ` +
+      `then write { ${ctx}path: ${where}, args: { edits: [{ old: "<the card's avatar: line, or kind: agent when it has none>", new: "<that line, with avatar: ${copy} in place of the old avatar>" }], images: [{ name: "${copy}", sha256: "<its SHA-256>" }] } }. Change only the avatar and keep every other field as it is.`,
+    "  e. Re-read your card to confirm the new logo is there. Never upload `/workspace/profile-picture.png` directly, and never use an old copy.",
+  ].join("\n");
 }
 
 /** The app's Refresh mail: the card's picture and name, and the setup above, again. `card` is the card's path. */
