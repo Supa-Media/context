@@ -104,7 +104,7 @@ export function parseRunBody(body) {
   if (pending !== null && !text(pending, MAX_PENDING)) return { error: `pending is too long. Send null or up to ${MAX_PENDING} characters, then try again.` };
   // A thread on a sheet's cell names its cell: a row of the file (from 0) and a column. Only a sheet has cells.
   if (cell !== undefined && cell !== null && (!isSheetCell(cell) || cell.row >= MAX_SHEET_ROWS || !isSheetPath(path))) {
-    return { error: "cell is not right" };
+    return { error: "cell: send { row, column }" };
   }
   return {
     workspace,

@@ -161,10 +161,10 @@ describe("the note-run route's cell", () => {
   });
 
   it("a cell is refused on a note, and a cell of the wrong shape anywhere", () => {
-    assert.match(parseRunBody(body({ path: "p/a.md" })).error, /cell is not right/);
-    assert.match(parseRunBody(body({ cell: { row: -1, column: "A" } })).error, /cell is not right/);
-    assert.match(parseRunBody(body({ cell: { row: 1, column: "" } })).error, /cell is not right/);
-    assert.match(parseRunBody(body({ cell: { row: "1", column: "A" } })).error, /cell is not right/);
+    assert.match(parseRunBody(body({ path: "p/a.md" })).error, /^cell: send/);
+    assert.match(parseRunBody(body({ cell: { row: -1, column: "A" } })).error, /^cell: send/);
+    assert.match(parseRunBody(body({ cell: { row: 1, column: "" } })).error, /^cell: send/);
+    assert.match(parseRunBody(body({ cell: { row: "1", column: "A" } })).error, /^cell: send/);
   });
 
   it("streams the sheet's changes after the answer, and hands the run its cell", async () => {
