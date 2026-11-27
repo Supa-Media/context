@@ -19,7 +19,7 @@ export const GITHUB_DATASETS = ["pull-requests", "deploys", "workflow-runs"] as 
 
 /** Each dataset's columns, as the gateway keeps them (`apps/mcp/src/data/connect/github.js`), drawn on board 02b. */
 export const GITHUB_COLUMNS: Readonly<Record<(typeof GITHUB_DATASETS)[number], readonly string[]>> = {
-  "pull-requests": ["repo", "number", "title", "author", "opened", "merged", "deployed", "lines_added", "lines_removed", "merge_commit"],
+  "pull-requests": ["repo", "number", "title", "author", "opened", "merged", "deployed", "lines_added", "lines_removed", "merge_commit", "follow_up"],
   deploys: ["repo", "sha", "environment", "started", "finished", "status"],
   "workflow-runs": ["repo", "workflow", "branch", "started", "finished", "conclusion", "sha"],
 };

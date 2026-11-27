@@ -120,6 +120,8 @@ jobs:
               echo "What changed is \`packages/tex/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/tex/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches and starts the sealed Test Set on main for this pull request; it merges when that passes."
               echo
               echo "No replay case: a Lab promotion changes settings the existing replay areas already measure."
+              echo
+              echo "Follows: none"
             } > "$RUNNER_TEMP/body.md"
             url=$(gh pr create --base main --head "tex-lab/promote-$id-$at" --title "Promote the Lab version \"$name\" to Tex's config" --body-file "$RUNNER_TEMP/body.md")
             echo "$id: $url"
@@ -173,6 +175,8 @@ jobs:
             echo "$result" | jq -r '"Written: \(.written | join(", "))\nRemoved: \(.removed | join(", "))"'
             echo
             echo "No replay case: test conversations are the cases themselves; Training conversations reach a step's prompt only through its examples module, whose replay its own pull request carries."
+            echo
+            echo "Follows: none"
           } > "$RUNNER_TEMP/sets-body.md"
           url=$(gh pr create --base main --head "tex-lab/sets-$stamp" --title "Promote $n test conversations from the Lab" --body-file "$RUNNER_TEMP/sets-body.md")
           echo "test conversations: $url"

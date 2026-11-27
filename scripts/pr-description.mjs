@@ -20,6 +20,7 @@
 import { execFileSync } from "node:child_process";
 
 import { mergeGroupPr } from "./merge-group.mjs";
+import { LINE as FOLLOWS_LINE } from "./pr-follows.mjs";
 import { SKIP_LINE } from "./tex-replay-required.mjs";
 
 export const WORKFLOWS = ["fast-guards.yml", "tex-replay-check.yml"];
@@ -34,9 +35,29 @@ export function skipLine(body) {
   return line ?? "";
 }
 
+/** The "Follows:" line, trimmed, or "" (`scripts/pr-follows.mjs`): only Fast repository guards reads it. */
+export function followsLine(body) {
+  return (
+    String(body ?? "")
+      .split(/\r?\n/)
+      .map((text) => text.trim())
+      .find((text) => text.toLowerCase().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").startsWith(FOLLOWS_LINE.toLowerCase())) ?? ""
+  );
+}
+
 /** True when a description edit changed the owner's skip line. */
 export function shouldRerun(before, after) {
   return skipLine(before) !== skipLine(after);
+}
+
+/**
+ * The workflows a description edit re-runs: both for the skip line, only the guards for the "Follows:" line
+ * (a re-run of the replay check could start the Test Set again, and it does not read that line).
+ */
+export function workflowsToRerun(before, after) {
+  if (shouldRerun(before, after)) return WORKFLOWS;
+  if (followsLine(before) !== followsLine(after)) return ["fast-guards.yml"];
+  return [];
 }
 
 /**
@@ -73,6 +94,10 @@ function selfTest() {
     ["the reason changed", shouldRerun(line, `${SKIP_LINE} a different reason`) === true],
     ["whitespace around the same line", shouldRerun(`  ${line}  `, line) === false],
     ["an empty body", shouldRerun("", "") === false],
+    ["a Follows line added re-runs only the guards", workflowsToRerun("Intro", "Intro\nFollows: none").join() === "fast-guards.yml"],
+    ["a Follows line changed re-runs only the guards", workflowsToRerun("Follows: none", "Follows: #3 (other)").join() === "fast-guards.yml"],
+    ["prose around the same Follows line re-runs nothing", workflowsToRerun("Follows: none", "More\nFollows: none").length === 0],
+    ["a skip line change re-runs both", workflowsToRerun("Follows: none", `Follows: none\n${line}`).length === WORKFLOWS.length],
     ["no pull request uses the event body", liveBody({ pr: "", eventBody: "event", run: () => "live" }) === "event"],
     ["a live read wins", liveBody({ pr: "1", eventBody: "event", run: () => "live\n" }) === "live"],
     ["a failed live read keeps the event body", liveBody({ pr: "1", eventBody: "event", run: () => { throw new Error("no"); } }) === "event"],
@@ -130,8 +155,8 @@ function sleep(seconds) {
 }
 
 /** Re-run the latest guards and replay check on this commit, once each has finished. */
-export function rerun(repo, sha, { ghRun = gh, sleepFor = sleep, waitMs = 12 * 60 * 1000 } = {}) {
-  for (const workflow of WORKFLOWS) {
+export function rerun(repo, sha, { ghRun = gh, sleepFor = sleep, waitMs = 12 * 60 * 1000, workflows = WORKFLOWS } = {}) {
+  for (const workflow of workflows) {
     const started = Date.now();
     let row = null;
     for (;;) {
@@ -193,8 +218,8 @@ function printBody() {
 if (process.argv[1]?.endsWith("pr-description.mjs")) {
   if (process.argv.includes("--self-test")) selfTest();
   else if (process.argv.includes("--print-body")) printBody();
-  else if (!shouldRerun(process.env.BEFORE, process.env.AFTER)) {
-    console.log("pr-description: the owner's skip line did not change; not re-running.");
+  else if (workflowsToRerun(process.env.BEFORE, process.env.AFTER).length === 0) {
+    console.log("pr-description: neither the owner's skip line nor the Follows line changed; not re-running.");
   } else {
     const repo = process.env.GITHUB_REPOSITORY;
     const sha = process.env.HEAD_SHA;
@@ -202,7 +227,8 @@ if (process.argv[1]?.endsWith("pr-description.mjs")) {
       console.error("pr-description: HEAD_SHA and GITHUB_REPOSITORY are required to re-run.");
       process.exit(1);
     }
-    console.log("pr-description: the owner's skip line changed; re-running the guards and the replay check.");
-    rerun(repo, sha);
+    const workflows = workflowsToRerun(process.env.BEFORE, process.env.AFTER);
+    console.log(`pr-description: the description's skip or Follows line changed; re-running ${workflows.join(" and ")}.`);
+    rerun(repo, sha, { workflows });
   }
 }

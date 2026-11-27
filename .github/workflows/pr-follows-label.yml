@@ -1,0 +1,51 @@
+# Labels each merged pull request with what it follows up (`follow-up:none`, `follow-up:<kind>`, or
+# `follow-up:unstated`), read from its "Follows:" line (scripts/pr-follows.mjs). The GitHub data source keeps the
+# label as the `follow_up` column of pull-requests.csv, so the follow-up fix rate is a metric in Context
+# (docs/decisions/observability/follow-up-rate.md, Dev2 2026-11-27). The source reads labels, never a body.
+#
+# On a push to main, after the merge: the line was already required by Fast repository guards, and a label set
+# here is the one the merged pull request keeps. It reads one description and writes one label; nothing else.
+
+name: Label what a pull request follows up
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-follows-label-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    name: Label the merged pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Set the follow-up label from the Follows line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null and .base.ref == "main")][0].number // empty')
+          if [ -z "$pr" ]; then echo "No merged pull request for $SHA; nothing to label."; exit 0; fi
+          PR_BODY=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          export PR_BODY
+          label=$(node scripts/pr-follows.mjs --label)
+          gh label create "$label" --repo "$GITHUB_REPOSITORY" --color ededed --description "What this pull request follows up (scripts/pr-follows.mjs)" 2>/dev/null || true
+          # The REST label calls, not `gh pr edit`, which also reads projects this token cannot see.
+          for old in $(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/labels" --jq '.[].name | select(startswith("follow-up:"))'); do
+            [ "$old" = "$label" ] || gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$pr/labels/$old" > /dev/null
+          done
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=$label" > /dev/null
+          echo "#$pr: $label"

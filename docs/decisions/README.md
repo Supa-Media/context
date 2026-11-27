@@ -31,6 +31,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [Every failed Tex tool call is kept with why it failed](./observability/tool-failures.md) (2026-11-10)
 - [A failed MCP call is a short code to its caller and a logged route](./observability/tool-failures.md#a-failed-mcp-call-is-a-short-code-to-its-caller-and-a-logged-route) (2026-11-20)
 - [AI costs are read from Cloudflare's count, by step and by who paid](./observability/console-ai-costs.md) (2026-11-14)
+- [The follow-up fix rate: every pull request says what it follows up](./observability/follow-up-rate.md) (2026-11-27)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)

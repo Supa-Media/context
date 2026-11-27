@@ -3,7 +3,8 @@
  * (`githubApp.js`). The source keeps them beside its `about.md`, in the data folder's `github/`:
  *
  * - `pull-requests.csv`: one row per pull request, keyed `<repo>#<number>`, with when it was opened, merged and
- *   deployed, the commit its merge made on the default branch, and the lines it added and removed. Kept 400 days. A run reads the ones updated in the last three
+ *   deployed, the commit its merge made on the default branch, the lines it added and removed, and the kind from its
+ *   `follow-up:<kind>` label (`follow_up`, for the follow-up fix rate; a label, never the body). Kept 400 days. A run reads the ones updated in the last three
  *   days, then carries the history back toward 90 days, a slice a run, by when they were opened.
  * - `deploys.csv`: one row per production deployment (an environment named production or prod), with its commit,
  *   when it started and finished, and how it ended. Kept 90 days.
@@ -54,8 +55,8 @@ export const GITHUB_SETS = Object.freeze([
     key: "id",
     date: "opened",
     keepDays: 400,
-    columns: Object.freeze([text("id"), text("repo"), number("number"), text("title"), text("author"), date("opened"), date("merged"), date("deployed"), number("lines_added"), number("lines_removed"), text("merge_commit")]),
-    added: Object.freeze(["merge_commit"]),
+    columns: Object.freeze([text("id"), text("repo"), number("number"), text("title"), text("author"), date("opened"), date("merged"), date("deployed"), number("lines_added"), number("lines_removed"), text("merge_commit"), text("follow_up")]),
+    added: Object.freeze(["merge_commit", "follow_up"]),
   }),
   Object.freeze({
     dataset: "deploys",
@@ -83,7 +84,17 @@ const iso = (value) => {
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clip = (value, length) => String(value ?? "").replace(/[\r\n]+/g, " ").slice(0, length);
 
-const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login } mergeCommit { oid }";
+const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login } mergeCommit { oid } labels(first: 20) { nodes { name } }";
+
+/** A label `follow-up:<kind>` names what the pull request follows up (the repository's own convention; Context's is `scripts/pr-follows.mjs`). */
+const FOLLOW_UP = "follow-up:";
+
+/** The kind from a pull request's first `follow-up:` label, or "" when it has none. A label is metadata: no body is read. */
+export function followUpOf(pr) {
+  const names = Array.isArray(pr?.labels?.nodes) ? pr.labels.nodes.map((node) => String(node?.name ?? "")) : [];
+  const label = names.find((name) => name.toLowerCase().startsWith(FOLLOW_UP));
+  return label === undefined ? "" : clip(label.slice(FOLLOW_UP.length).trim().toLowerCase(), 40);
+}
 
 export function pullRequestRow(repo, pr) {
   if (!pr || !Number.isInteger(pr.number)) return null;
@@ -102,6 +113,7 @@ export function pullRequestRow(repo, pr) {
     lines_removed: Number.isFinite(pr.deletions) ? String(pr.deletions) : "",
     // A merged pull request GitHub names no merge commit for says "none", so it is not read again for one.
     merge_commit: iso(pr.mergedAt) === "" ? "" : clip(pr.mergeCommit?.oid, 40) || "none",
+    follow_up: followUpOf(pr),
   };
 }
 
