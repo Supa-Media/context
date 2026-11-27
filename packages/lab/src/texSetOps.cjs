@@ -7,7 +7,8 @@
  * with the same edits, so a person in the Lab and an agent over the MCP can work on one conversation at once:
  *
  *   { op: "title",   value }                         the chat's title
- *   { op: "kind",    value: "one" | "group" }        a 1:1 text or a group chat
+ *   { op: "kind",    value: "one" | "group" | "app" } a 1:1 text, a group chat or the Context app's own chat (leaving
+ *                                                    "app" drops every message's screen: only the app has one)
  *   { op: "members", value: [names] }                who is in it (never Tex)
  *   { op: "set",     value: "training" | "dev" }     which set it is in (the whole conversation moves; the Test Set is
  *                                                    the eval service's, never written here)
@@ -37,11 +38,12 @@
  */
 "use strict";
 
-const { JOB_STATES, KINDS, TEX, TRIGGERS } = require("../../tex/src/texSets.cjs");
+const { CHAT_KINDS, JOB_STATES, KINDS, TEX, TRIGGERS } = require("../../tex/src/texSets.cjs");
+const { screenProblems } = require("./texScreen.cjs");
 
 /** The sets a conversation may be in here: the Test Set lives only in the eval service. */
 const OPEN_SETS = Object.freeze(["training", "dev"]);
-const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex", "pics", "via", "state"]);
+const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex", "pics", "via", "state", "screen"]);
 /** Pictures on one message: at most this many, each an https address (the Lab uploads to the control plane's files). */
 const MAX_PICS = 6;
 const PIC_TYPE = /^image\/(png|jpeg|gif|webp|heic|heif)$/;
@@ -66,6 +68,15 @@ function msgAt(c, id) {
   const i = c.msgs.findIndex((m) => m.id === id);
   if (i < 0) throw new OpError(`there is no message "${id}" in this chat`);
   return i;
+}
+
+/** A message's `screen` (what the app had open), checked: only an app chat's person's message has one. */
+function screenFor(c, m, value) {
+  if (c.kind !== "app") throw new OpError("only an app chat's messages have a screen: make the chat kind app first");
+  if (m.who === TEX || m.tex || m.via !== undefined) throw new OpError("a screen goes on a person's message");
+  const problems = screenProblems(value);
+  if (problems.length) throw new OpError(problems.join("; "));
+  return clone(value);
 }
 
 /** A new message id, not yet in the chat: m<n> after the highest. */
@@ -109,6 +120,7 @@ function makeTex(m) {
   delete m.labels;
   delete m.rec;
   delete m.star;
+  delete m.screen;
 }
 
 /**
@@ -152,8 +164,9 @@ function applyOne(c, op) {
       if (!c.title) throw new OpError("a chat needs a title");
       return;
     case "kind":
-      if (op.value !== "one" && op.value !== "group") throw new OpError('kind is "one" (a 1:1 text) or "group"');
+      if (!CHAT_KINDS.includes(op.value)) throw new OpError('kind is "one" (a 1:1 text), "group" or "app" (the Context app\'s own chat)');
       c.kind = op.value;
+      if (op.value !== "app") for (const m of c.msgs) delete m.screen;
       return;
     case "members": {
       if (!Array.isArray(op.value) || op.value.some((x) => typeof x !== "string" || !x.trim())) throw new OpError("members is a list of names");
@@ -175,6 +188,7 @@ function applyOne(c, op) {
       if (typeof m.who !== "string" || !m.who.trim()) throw new OpError("a message needs who said it");
       text(m.text ?? "", "a message's text");
       if (m.pics !== undefined) m.pics = pics(m.pics);
+      if (m.screen !== undefined) screenFor(c, m, m.screen);
       if (m.who === TEX || m.tex) makeTex(m);
       else if (m.via === undefined) joinMember(c, m.who); // a trigger row (check-in, routine) is never a member
       const at = op.after === undefined ? c.msgs.length : op.after === null ? 0 : msgAt(c, op.after) + 1;
@@ -210,7 +224,10 @@ function applyOne(c, op) {
         else if (!JOB_STATES.includes(op.value)) throw new OpError(`state is one of ${JOB_STATES.join(", ")}`);
         else m.state = op.value;
       } else if (op.field === "text") m.text = text(op.value, "text");
-      else if (op.field === "pics") {
+      else if (op.field === "screen") {
+        if (op.value === null) delete m.screen;
+        else m.screen = screenFor(c, m, op.value);
+      } else if (op.field === "pics") {
         if (op.value === null || (Array.isArray(op.value) && !op.value.length)) delete m.pics;
         else m.pics = pics(op.value);
       }
@@ -338,7 +355,7 @@ function describe(op, full = false) {
     case "title":
       return cut(`renamed the chat "${op.value}"`);
     case "kind":
-      return op.value === "one" ? "made it a 1:1 text" : "made it a group chat";
+      return op.value === "one" ? "made it a 1:1 text" : op.value === "app" ? "made it a chat in the app" : "made it a group chat";
     case "members":
       return cut(`set members to ${(op.value || []).join(", ")}`);
     case "set":
@@ -346,6 +363,7 @@ function describe(op, full = false) {
     case "add":
       return cut(`added ${op.msg?.id}: ${op.msg?.who}: ${op.msg?.text ?? ""}`);
     case "edit":
+      if (op.field === "screen") return op.value ? cut(`${op.msg}: on screen ${op.value.note?.path ?? `${op.value.tabs?.length ?? 0} tabs`}`) : `${op.msg}: nothing on screen`;
       if (op.field === "pics") return Array.isArray(op.value) && op.value.length ? `${op.msg}: ${op.value.length} picture${op.value.length === 1 ? "" : "s"}` : `${op.msg}: pictures removed`;
       return cut(`${op.msg} ${op.field} → ${show(op.value)}`);
     case "remove":

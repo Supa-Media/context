@@ -44,9 +44,10 @@ test("title trims the name and refuses an empty one or a non-text", () => {
   assert.throws(() => run(base(), [{ op: "title", value: 3 }]), /title is text/);
 });
 
-test("kind is one or group and nothing else", () => {
+test("kind is one, group or app and nothing else", () => {
   assert.equal(run(base(), [{ op: "kind", value: "group" }]).kind, "group");
   assert.equal(run(base(), [{ op: "kind", value: "one" }]).kind, "one");
+  assert.equal(run(base(), [{ op: "kind", value: "app" }]).kind, "app");
   assert.throws(() => run(base(), [{ op: "kind", value: "crowd" }]), /kind is "one"/);
 });
 
@@ -361,4 +362,24 @@ test("adding a trigger row (check-in, routine) never makes it a member", () => {
   const out = run(base(), [{ op: "add", msg: { who: "Check-in", via: "checkin", text: "Gmail: the boiler visit moved to Friday" } }]);
   assert.ok(!out.members.includes("Check-in"));
   assert.equal(out.msgs.at(-1).via, "checkin");
+});
+
+// Dev2, 2026-11-27: "1:1 group and in app tests". An app chat's person's messages carry what the app had open.
+const SCREEN = { note: { workspace: "@supa", path: "products/tex/plan.csv" }, selection: "Q3" };
+
+test("only an app chat's person's message carries a screen, checked as the app sends one", () => {
+  const app = run(base(), [{ op: "kind", value: "app" }, { op: "edit", msg: "m1", field: "screen", value: SCREEN }]);
+  assert.deepEqual(app.msgs[0].screen, SCREEN);
+  assert.equal(run(app, [{ op: "edit", msg: "m1", field: "screen", value: null }]).msgs[0].screen, undefined);
+  assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "screen", value: SCREEN }]), /only an app chat's messages have a screen/);
+  assert.throws(() => run(app, [{ op: "edit", msg: "m2", field: "screen", value: SCREEN }]), /a person's message/);
+  assert.throws(() => run(app, [{ op: "edit", msg: "m1", field: "screen", value: { note: { workspace: "@supa", path: "../secret.md" } } }]), /screen.note/);
+  assert.throws(() => run(app, [{ op: "add", msg: { who: "Jo", text: "fill it", screen: { tabs: [] } } }]), /screen.tabs/);
+  assert.deepEqual(run(app, [{ op: "add", msg: { who: "Jo", text: "fill it", screen: SCREEN } }]).msgs[3].screen, SCREEN);
+});
+
+test("leaving app drops every screen, and a person's row made Tex's drops its own", () => {
+  const app = run(base(), [{ op: "kind", value: "app" }, { op: "edit", msg: "m1", field: "screen", value: SCREEN }, { op: "edit", msg: "m3", field: "screen", value: SCREEN }]);
+  assert.ok(run(app, [{ op: "kind", value: "one" }]).msgs.every((m) => m.screen === undefined));
+  assert.equal(run(app, [{ op: "edit", msg: "m3", field: "who", value: "Tex" }]).msgs[2].screen, undefined);
 });

@@ -45,6 +45,7 @@ import { PINNED_CONTEXT_NAME } from "../fromGateway/orient_globalNote.js";
 import { sessionFromPayload, storeForSession } from "../fromGateway/session.js";
 import { callSandbox, SANDBOX_TTL_MS } from "./object.js";
 import { sandboxEnvOf } from "../fromGateway/labSandbox_policy.js";
+import { APP_PREFIX, appChatIdOf, appScreenChat } from "./appTestChat.js";
 import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
@@ -97,11 +98,11 @@ export async function phoneOf(who) {
 }
 
 /** The test chat's addresses: Tex's line, the chat's id (a 1:1's) or group id, and each person's number by name. */
-export async function addressOf(about, sandboxId) {
+export async function addressOf(about, sandboxId, payload = null) {
   const people = (about.people ?? []).map((p) => (typeof p.handle === "string" && p.handle !== "" ? p.handle : p.name)).filter((who) => typeof who === "string" && who !== "");
   const phones = new Map();
   for (const who of people) phones.set(who, await phoneOf(who));
-  return { line: LAB_LINE, chatId: `lab:${sandboxId}`, groupId: `lab:${sandboxId}`, phones };
+  return { line: LAB_LINE, chatId: appChatIdOf(about, payload) ?? `lab:${sandboxId}`, groupId: `lab:${sandboxId}`, phones };
 }
 
 /** A Durable Object's storage, in memory, with its alarm: what the chat object reads and writes. */
@@ -260,7 +261,7 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
  * Everything one test text's chat object runs on. `agent` and `texts` answer the gateway's routes; tests hand in fakes.
  * `inboxes` is the objects it reaches (`jobs.js` `sandboxInboxes`: its own jobs); without it, every other object refuses.
  */
-export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, inboxes = null, world = null }) {
+export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, appChat = null, inboxes = null, world = null }) {
   const control = controlPlaneSwitch({ about, chat, phones, gate, token, storage, world });
   const pictures = new Set((chat?.pictures ?? []).map(String));
   const download = pictureFetch((...a) => globalThis.fetch(...a));
@@ -306,6 +307,7 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
     AGENT_WORKER_SECRET: LAB_WORKER_SECRET,
     SENDER_INBOX: inboxes ?? objects,
     TEX_LINE: line,
+    ...(appChat !== null ? { APP_CHAT: appChat } : {}), // placed for that app chat (`texChat.js`), so it runs as its user
     IMAGES: images,
     LINQ_API_KEY: "",
   };
@@ -340,7 +342,7 @@ export function wordsNow(rows, row, skip = null) {
  * (`onOther`), as Photon's `targetFromMe` says. An edit names the text by the id the object took it under.
  */
 export function inboundOf({ about, row, rows, address, sentHandles, chat = null }) {
-  const from = address.phones.get(row.who) ?? address.phones.values().next().value ?? "+15555550101";
+  const from = about.kind === "app" && String(address.chatId).startsWith(APP_PREFIX) ? address.chatId : address.phones.get(row.who) ?? address.phones.values().next().value ?? "+15555550101"; // an app chat's are from itself (`appChatRoute.js`)
   const group = about.kind === "group";
   const participants = [...address.phones.values()];
   const people = participants.includes(from) ? participants : [...participants, from];
@@ -469,9 +471,11 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const rows = state.rows ?? [];
     const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
     const isWorld = about.source === WORLD_SOURCE;
-    const address = isWorld ? worldAddress(about, line.number) : { ...(await addressOf(about, sandboxId)), line: line.number };
+    const address = isWorld ? worldAddress(about, line.number) : { ...(await addressOf(about, sandboxId, payload)), line: line.number };
     // Anyone a group's text is written as has a number of their own there: a name nobody in the chat has is a guest's.
     if (about.kind === "group" && !isWorld && inbound === null && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
+    const appChat = address.chatId === appChatIdOf(about, payload) ? address.chatId : null; // an in-app test chat (`appTestChat.js`)
+    if (appChat !== null) sandboxEnv.TEX_CHAT = appScreenChat(appChat, row.screen ?? null, now);
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
     const grant = await worldGrant(storage); // a made-up chat's, minted by the preview's control plane
     const fresh = storage.data.size === 0;
@@ -511,7 +515,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       return routes(request);
     };
     const { SenderInbox, remoteLine, remoteGroupLine, setChatBound, INTRO_KEY } = await import("../../../tex/worker/gatewayChat.js");
-    const inboxName = about.kind === "group" ? `group:${address.groupId}` : address.phones.values().next().value ?? "lab";
+    const inboxName = about.kind === "group" ? `group:${address.groupId}` : appChat ?? address.phones.values().next().value ?? "lab";
     const chatLine = { line: (chatId) => remoteLine(kept.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(kept.rpc, inboxName, groupId) };
     const work = [];
     const objectState = (store, id) => ({ storage: store, id: { toString: () => id }, waitUntil: (p) => void work.push(Promise.resolve(p).catch(() => {})), blockConcurrencyWhile: (run) => run() });
@@ -528,7 +532,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       // A job an earlier text ran, as it ended there (`jobsKept`): "restart it" picks it back up (`jobs.js` `reviveJob`).
       revive: async (name) => state.meta?.jobsKept?.[name] ?? null,
     });
-    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace, world: !isWorld ? null : about.world?.local ? localControl({ about, chat, grant, storage }) : worldControl(env, grant, labToken) });
+    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, appChat, inboxes: registry.namespace, world: !isWorld ? null : about.world?.local ? localControl({ about, chat, grant, storage }) : worldControl(env, grant, labToken) });
     if (live !== null) {
       Object.assign(live.entry, {
         setup: { config: config ?? null, gateway: LAB_GATEWAY, controlPlane: LAB_CONTROL_PLANE, secret: LAB_WORKER_SECRET },
