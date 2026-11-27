@@ -12,7 +12,8 @@
 
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { botLabel, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { BOT_KINDS, botLabel, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { appOf } from "@context/shared/src/botApps.cjs";
 import { MCP_ENDPOINT } from "../../../placeholderData";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Menu } from "../../../../design/components/Menu";
@@ -63,9 +64,9 @@ export function usePeopleList(search: OwnerSearch | undefined, asking: boolean):
 }
 
 /**
- * "+ Add a Grok bot…", typed where it is drawn: whose bot it is, from the
- * workspace's people, and its name. Adding writes the name to the agents
- * list, the bot's card, and the area's owner line, in that order.
+ * "+ Add a bot…", typed where it is drawn: the app it runs in (`botApps.cjs`: Grok, Muse, Instinct), whose bot it is,
+ * from the workspace's people, and its name. Adding writes the name to the agents list, the bot's card, and the
+ * area's owner line, in that order. The card says its app, and is reached its app's way until someone changes it.
  */
 export function AddBotForm({
   people,
@@ -75,9 +76,10 @@ export function AddBotForm({
 }: {
   people: readonly string[];
   label: (owner: string) => string;
-  onAdd: (name: string, whose: string) => Promise<string | null>;
+  onAdd: (name: string, whose: string, app: string) => Promise<string | null>;
   onCancel: () => void;
 }) {
+  const [app, setApp] = useState<string>(BOT_KINDS[0] ?? "grok");
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [name, setName] = useState("");
@@ -91,14 +93,25 @@ export function AddBotForm({
     if ("problem" in named) return setProblem(named.problem);
     if (whose.trim() === "") return setProblem("Say whose bot it is.");
     setBusy(true);
-    const why = await onAdd(named.name, whose);
+    const why = await onAdd(named.name, whose, app);
     setBusy(false);
     setProblem(why);
   };
   const items: MenuItem<string>[] = people.map((person) => ({ id: person, label: label(person), checked: person === whose }));
   return (
     <View style={styles.form} testID="area-panel-add-bot">
-      <Text variant="treeMeta" style={styles.heading}>Add a Grok bot</Text>
+      <Text variant="treeMeta" style={styles.heading}>Add a bot</Text>
+      <View style={styles.row}>
+        <Text variant="tree" style={styles.key}>App</Text>
+        <View style={styles.apps} role="radiogroup" accessibilityLabel="The app it runs in">
+          {BOT_KINDS.map((kind) => (
+            <Pressable key={kind} role="radio" aria-checked={app === kind} onPress={() => setApp(kind)} style={[styles.app, app === kind && styles.appOn]} testID={`area-panel-add-bot-app-${kind}`}>
+              <Text variant="treeMeta" style={app === kind ? styles.primaryWord : styles.value}>{appOf(kind)?.label.replace(/ bot$/, "") ?? kind}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+      <Text variant="treeMeta" style={styles.muted} testID="area-panel-add-bot-why">{appOf(app)?.why ?? ""}</Text>
       <View style={styles.row}>
         <Text variant="tree" style={styles.key}>Whose</Text>
         <Pressable role="button" aria-haspopup="menu" accessibilityLabel="Whose bot" onPress={() => setMenu(true)} style={styles.pick} testID="area-panel-add-bot-whose">
@@ -221,6 +234,9 @@ const makeStyles = (colors: Colors) =>
     pick: { flexGrow: 1, flexShrink: 1, minWidth: 0, paddingVertical: 3, paddingHorizontal: 6, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     input: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontFamily: fonts.body, color: colors.text, paddingVertical: 3, paddingHorizontal: 6, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     problem: { color: colors.critText },
+    apps: { flexDirection: "row", flexWrap: "wrap", gap: space.x2, flexShrink: 1 },
+    app: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
+    appOn: { borderColor: colors.text, backgroundColor: colors.text },
     actions: { flexDirection: "row", gap: space.x2, alignItems: "center" },
     primary: { paddingVertical: 4, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.text },
     primaryWord: { color: colors.surface, fontWeight: "600" },

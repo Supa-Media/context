@@ -36,7 +36,7 @@ const NOTES: ListNote[] = [
   { path: "areas/about.md", properties: { agents: ["Pipeline", "Chief"] } },
   { path: "areas/finance/about.md", properties: { owner: "Pipeline", modes: ["Manager"] } },
   { path: "areas/engineering/about.md", properties: { owner: "@sayo", delegate: "Pipeline" } },
-  { path: "bots/pipeline/about.md", properties: { holder: "Pipeline", kind: "agent", bot: "grok", belongs_to: "@seyi" } },
+  { path: "bots/pipeline/about.md", properties: { holder: "Pipeline", kind: "agent", bot: "muse", belongs_to: "@seyi" } },
 ];
 
 async function show(reach: string | undefined, options: { me?: string; checkedAt?: number } = {}) {
@@ -73,6 +73,8 @@ describe("a bot's setup on its page", () => {
   test("a bot that checks in has no webhook step", async () => {
     await show(undefined);
     expect(one("bot-setup-way-check").getAttribute("aria-checked")).toBe("true");
+    // Its app's way, and why (`botApps.cjs`).
+    expect(strip(one("bot-setup-why").textContent)).toContain("Muse checks in every 5 minutes");
     const text = strip(one("bot-setup-prompt-text").textContent);
     expect(text).toContain('for: "Pipeline"');
     expect(text).not.toContain("header_from_shell");

@@ -214,3 +214,27 @@ Anyone who may read a bot's notes can check in under its name; a check-in is a
 liveness signal for the app, not an identity. Tests:
 `apps/mcp/test/botInbox.test.mjs` (dropping the clear in `botMail.js`, or
 putting a message's text into an item, fails a test each).
+
+## Each app has its way of reaching Context, and setup_bot hands its guide
+
+Decided by Dev, 2026-11-27: "there should be a preference per bot, like grokbot
+we know has webhooks so thats the most reliable, but for things like muse,
+instinct etc it might be a little tough, so we should store skills or guides in
+the connect_bot action?"
+
+- **The apps** are one list, `packages/shared/src/botApps.cjs`: Grok (webhook),
+  Muse and Instinct (checking in every 5 minutes), each with one line on why. A
+  card's `bot:` names its app; `BOT_KINDS` is that list.
+- **A card's `reach:` wins; with none, its app's way.** `reachOf(reach, bot)`
+  is what the app and `setup_bot` read, so a Grok card with no `reach:` is a
+  webhook bot and a Muse card with none checks in. An app not listed checks in.
+- **The guide comes back from `setup_bot`.** A webhook bot gets the relay
+  routine as before; a check-in bot gets the check-in job (`checkInSteps`): a
+  job every 5 minutes whose only call is `orient { for, check: true }`, opening
+  only what it lists, and telling its person if its app can't run a schedule.
+- **The app** asks which app when a bot is added, writes the app's way on the
+  card, and says the app's why beside the Webhook / Checks in choice.
+
+Tests: `apps/mcp/test/botLogins.test.mjs` (a card with no reach is set up its
+app's way), `apps/mobile/__tests__/areasBots.test.ts`,
+`areasBotsView.test.ts` (adding picks the app), `botSetup.test.ts`.

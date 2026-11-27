@@ -450,7 +450,7 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     vault: text(props.vault),
     bot: botKind(text(props.bot)),
     belongsTo: text(props.belongs_to),
-    reach: reachKind(text(props.reach)),
+    reach: reachKind(text(props.reach), text(props.bot)),
     avatar: text(props.avatar),
     avatarDark: text(props["avatar-dark"]),
     worksIn: list(props.works_in),

@@ -230,7 +230,7 @@ describe("the Areas side panel", () => {
             ? { ...note, properties: { owner: "Finance", modes: ["Manager"] } }
             : note,
       ),
-      { path: "areas/people/finance.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
+      { path: "areas/people/finance.md", properties: { kind: "agent", bot: "muse", belongs_to: "@seyi" } },
     ];
     const writes: Write[] = [];
     await mount(host(writes, { notes }), LISTING);
@@ -245,7 +245,7 @@ describe("the Areas side panel", () => {
     // The owner menu lists it with whose bot it is.
     await press(one("area-panel-owner"));
     await settle();
-    expect(strip(one("menu-item-Finance").textContent)).toContain("@seyi's Grok bot");
+    expect(strip(one("menu-item-Finance").textContent)).toContain("@seyi's Muse");
   });
 
   test("a bot is drawn with the logo its card names, and one without a logo gets Upload logo and is told to add its own", async () => {
