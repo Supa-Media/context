@@ -105,6 +105,10 @@ test("fetching a routine note brings its run brief after the note; another note 
   assert.match(out, /- For: the Manager mode here; Finance runs it\./);
   assert.match(out, /# Area: Finance[\s\S]*Now \(this month\): \$150\.50[\s\S]*## Budget\nFinance may spend 20% of its weekly usage here/);
   assert.ok(out.indexOf("Check the spend.") < out.indexOf("# Run brief"));
+  // One text part, the note then its brief: a client that shows only the first part still shows the brief.
+  const parts = (await callTool("read_note", { path: "areas/finance/routines/daily/check.md" }, store, "team", { fetchCap: true })).content;
+  assert.equal(parts.length, 1);
+  assert.match(parts[0].text, /Check the spend\.[\s\S]*# Run brief/);
   assert.doesNotMatch(said(await callTool("read_note", { path: "areas/finance/about.md" }, store, "team")), /# Run brief/);
 });
 
