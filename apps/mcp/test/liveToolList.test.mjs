@@ -108,7 +108,9 @@ test("the full list stays compact", () => {
   // insert, edits and replace (part reads and writes): the list stood at 16,637 with 76.
   // Raised to 17,600 on 2026-11-25 for set_area (`manage area`: an area's settings, metric, bots, delegate and
   // webhook in one call, asked for by the owner): the list stood at 17,376 with 78.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 17_600);
+  // Raised to 17,700 on 2026-11-27 for orient's `check` (a polling bot's cheap check-in, asked for by the owner): the
+  // list stood at 17,601 with 78.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 17_700);
 });
 
 /* -------------------------------------------------------------------------- */

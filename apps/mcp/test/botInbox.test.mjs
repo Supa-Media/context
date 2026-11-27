@@ -117,9 +117,8 @@ test("the bot's own answer clears what waited in that note, and its answer to a 
   w.save("k1", KIM, withMail("", { from: "@kim", text: "Anything new?", at: "2026-11-25T14:01:00.000Z" }));
   w.at("2026-11-25T14:05:00.000Z");
   w.save("k1", KIM, withMail(w.notes.get("k1").text, { from: "grok-bot", text: "Nothing yet.", at: "2026-11-25T14:05:00.000Z" }));
-  assert.deepEqual(w.routines.inbox.check("Grok Bot").map((item) => item.kind), ["routine"]);
-  // Its answer in its own mail note in the area answers the routine sent there.
-  w.save("o1", OWN, withMail("", { from: "grok-bot", text: "Scored every area.", at: "2026-11-25T14:06:00.000Z" }));
+  // A bot has one routine out at a time, so its next line in any of the area's mail notes answers it too
+  // (`areaRoutines.js` `recordMail`): Kim's mail and the routine are both cleared.
   assert.deepEqual(w.routines.inbox.check("Grok Bot"), []);
   // Kim writes again after the answer: new again.
   w.at("2026-11-25T14:10:00.000Z");
