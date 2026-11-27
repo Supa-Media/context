@@ -13,7 +13,7 @@ import type { SeenBody } from "../../tex/chat/appChatSeen";
 import { useMapSide } from "./mapSide";
 import { usePageSide } from "./pageSide";
 import { AsideStrip } from "./AsideStrip";
-import { changedSinceSeen, useAsideChoice } from "./asideChoice";
+import { changedSinceSeen, leaveArea, rememberBeforeArea, useAsideChoice } from "./asideChoice";
 import { useFrame } from "../../app/AppFrame";
 import type { CalendarEvent } from "../../meetings/protocol";
 import { asideTabFor, visibleAsideTabs, type AsideTab } from "./tabs";
@@ -155,11 +155,22 @@ export function AsidePanel({
     forward: it is the person's own press.
   */
   const areaShown = area !== null;
+  // Its going puts the panel back as it was before it came, rather than on Meetings (`leaveArea`).
   useEffect(() => {
-    if (!changedSinceSeen("areaShown", areaShown) || !areaShown) return;
+    if (!changedSinceSeen("areaShown", areaShown)) return;
+    if (!areaShown) {
+      const back = leaveArea({ tab: chosen, open: frame.state.asideOpen, folded: frame.state.asideFolded });
+      if (back.tab !== undefined) setChosen(back.tab);
+      if (back.shut) frame.toggleAside();
+      else if (back.fold) frame.setAsideFolded(true);
+      return;
+    }
+    rememberBeforeArea({ tab: chosen, open: frame.state.asideOpen, folded: frame.state.asideFolded });
     setChosen("area");
     if (!frame.state.asideOpen) frame.toggleAside();
     else if (frame.state.asideFolded) frame.setAsideFolded(false);
+    // `chosen` is read, not watched: the effect runs when the side comes or goes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [areaShown, setChosen, frame]);
   // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
   // panel is its rail alone. Drawn outside a frame it is whole.
