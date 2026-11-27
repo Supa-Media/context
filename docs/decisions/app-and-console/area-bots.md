@@ -203,10 +203,12 @@ keeps its notes there and knows what its modes ask of it.
   is drawn on a dark screen and `avatar:` everywhere else (Dev, 2026-11-27:
   Grok Bot's white mark vanished on light); `manage area` takes
   `bot.avatar_dark` the same way.
-  A bot can't see its own profile picture, so it sends only the file its
-  person attached in its chat and otherwise asks for it, and a write that puts
-  a picture on a bot card that another bot card already shows is refused
-  (Dev, 2026-11-27: four of @shyoh's bots sent one shared orange picture;
+  Grok bots of one person share a workspace where each saves its current
+  profile picture to one file, so the picture step has each take a lock
+  folder, copy the picture to a name of its own, release the lock and upload
+  only its copy; and a write that puts a picture on a bot card that another
+  bot card already shows is refused (Dev, 2026-11-27: four of @shyoh's bots
+  uploaded one orange picture; "they all need file locks";
   `notes/botPictureClash.js`, `setArea.test.mjs`). `setArea.test.mjs`, `mailPage.test.ts`
   and `areasBotsView.test.ts` fail if a theme draws the other's logo.
 

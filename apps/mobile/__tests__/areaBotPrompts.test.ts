@@ -117,13 +117,15 @@ test("a bot joins mail under a name mail accepts", () => {
 test("a bot with a card is told to put its own logo there, once", () => {
   const text = areaPrompt({ ...AREA, card: "areas/people/finance.md" });
   expect(text).toContain('path: "areas/people/finance.md"');
-  expect(text).toContain("avatar: logo.png");
+  expect(text).toContain("avatar: profile-picture-finance.png");
   // Its bytes, never a link: Context won't fetch an outside address without the person's own words (2026-11-25).
   expect(text).toContain('action: "upload"');
-  expect(text).toContain('data: "<its base64>"');
   expect(text).not.toMatch(/url: "/);
-  // It can't see its own picture, so it uses the one its person attached and never another bot's (Dev, 2026-11-27).
-  expect(text).toContain("use only the picture file your person attached for it in this chat");
+  // Bots sharing one workspace save their pictures to one file, so each takes a lock and uploads only its own copy
+  // (Dev, 2026-11-27: "they all need file locks").
+  expect(text).toContain("mkdir /workspace/.profile-picture.lock");
+  expect(text).toContain("/workspace/profile-picture-finance.png");
+  expect(text).toContain("Never upload `/workspace/profile-picture.png` directly");
   expect(areaPrompt(AREA)).not.toContain("avatar:");
   expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
 });
