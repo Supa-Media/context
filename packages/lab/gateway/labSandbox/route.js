@@ -58,13 +58,15 @@
  *    so `tex_dev` reads a test turn with Replay's own code, as it reads a real one.
  */
 
+import { dropLink, keepLink, linkedChat } from "./linkShare.js";
+import { listOf } from "./list.js";
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../fromGateway/agent_ledger.js";
 import { loggedSteps, oneRowPerText, realLedgerAt, realRow, realThreads, stickersFor } from "./realChat.js";
 import { saidTexts } from "../fromGateway/agent_sentOnItsOwn.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
-import { callSandbox, carryWith, jobOutWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
+import { callSandbox, carryWith, jobOutWith, sandboxStub, SEED_CHUNK } from "./object.js";
 import { serveJobOut } from "./jobBox.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
@@ -259,6 +261,8 @@ async function startChat(env, who, input, drafted, base, rows, history, threads 
   for (let at = SEED_CHUNK; at < Math.max(rows.length, history.length, threads.length); at += SEED_CHUNK) {
     await callSandbox(stub, "seed", { rows: rows.slice(at, at + SEED_CHUNK), history: history.slice(at, at + SEED_CHUNK), threads: threads.slice(at, at + SEED_CHUNK) });
   }
+  // A made-up chat's link, so another developer it is sent to can open it (`linkShare.js`); nothing else is linked.
+  await keepLink(env, sandboxId, who.userId, about);
   // Listed for the person, so the Lab can follow a test chat an AI opened on their grant, and the AI one the Lab opened.
   await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind, rows: rows.length, draft: about.versionId !== "main" }));
@@ -479,50 +483,6 @@ function testRow(state, msgId) {
 const indexStub = (env, userId) => sandboxStub(env, userId, "index0000000000");
 /** Who opened or last used a test chat: "Lab", or the AI client's name `tex_dev` passes. */
 const byOf = (by) => (typeof by === "string" && /^[\p{L}\p{N} ._()\-]{1,60}$/u.test(by) ? by : "Lab");
-/** How many test chats `list` answers, newest used first. */
-const LISTED = 20;
-
-/**
- * `list`: the person's test chats from the last day, newest used first, each with who opened it and who last used it
- * (the Lab, or an AI through `tex_dev` on the person's grant), the draft it runs, its size and the text running now, so
- * the Lab follows a test chat an AI is driving and the AI one the person is (Dev2, 2026-11-16: "if I go into a
- * session/draft an AI is updating / editing, we can co work, and when its playing something I can see it playing").
- */
-async function listOf(env, userId) {
-  const index = await callSandbox(indexStub(env, userId), "state", {}).catch(() => null);
-  const meta = index?.meta ?? {};
-  const since = Date.now() - SANDBOX_TTL_MS;
-  const opened = Object.entries(meta)
-    .filter(([key, value]) => key.startsWith("sb:") && value && typeof value === "object")
-    .map(([, value]) => ({ ...value, used: meta[`used:${value.sandboxId}`] ?? null }))
-    .filter((chat) => Math.max(chat.at ?? 0, chat.used?.at ?? 0) >= since)
-    .sort((a, b) => Math.max(b.at ?? 0, b.used?.at ?? 0) - Math.max(a.at ?? 0, a.used?.at ?? 0))
-    .slice(0, LISTED);
-  const chats = [];
-  for (const chat of opened) {
-    const state = await callSandbox(sandboxStub(env, userId, chat.sandboxId), "state", {}).catch(() => null);
-    if (!state?.meta?.chat) continue;
-    const seen = view(state);
-    const last = seen.rows.at(-1) ?? null;
-    chats.push({
-      sandboxId: chat.sandboxId,
-      source: chat.source,
-      kind: chat.kind,
-      chat: chat.chat,
-      versionId: state.meta.chat.versionId ?? "main",
-      ...(state.meta.chat.remote ? { code: `#${state.meta.chat.remote.pr}` } : {}),
-      openedBy: chat.by ?? "Lab",
-      openedAt: chat.at,
-      ...(chat.used ? { lastBy: chat.used.by ?? "Lab", lastAt: chat.used.at } : {}),
-      rows: seen.rows.length,
-      testRows: seen.rows.filter((row) => !row.prod).length,
-      running: seen.running,
-      ...(last ? { last: { who: last.who, text: String(last.text ?? "").slice(0, 120) } } : {}),
-    });
-  }
-  return { chats };
-}
-
 /** What a test chat is: where it started, whose chat, the draft its next texts run on, its people and size. */
 function aboutOf(state) {
   const about = state.meta.chat;
@@ -575,7 +535,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   const input = await request.json().catch(() => null);
   if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.op !== "string") return refused(400, "a call is { op, ... }");
   const controlPlane = createControlPlane(env);
-  const who = await controlPlane.labSandbox(token, "who").catch(() => null);
+  let who = await controlPlane.labSandbox(token, "who").catch(() => null);
   if (who === null) return refused(503, "the control plane did not answer");
   if (who.status === "refused" || typeof who.userId !== "string") return refused(403, "Only Tex developers use the Lab's test chats.");
 
@@ -591,7 +551,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   }
   // `code: "#N"`: the test chat runs on pull request N's own preview, its code and its data (`preview.js`).
   if (input.op === "open") return (await openOnPreview({ env, controlPlane, token, who, input, origin, helpers: routeHelpers() })) ?? (await open(env, controlPlane, token, who, input, origin));
-  if (input.op === "list") return json(await listOf(env, who.userId));
+  if (input.op === "list") return json(await listOf(env, who.userId, { view, indexStub }));
   if (input.op === "shared") return await sharedList(controlPlane, token);
   // The workspaces a made-up chat's people can have roles in here (`worldLocal.js`), for the Lab's setup.
   if (input.op === "worlds") {
@@ -608,11 +568,25 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
-  const stub = sandboxStub(env, who.userId, input.sandboxId);
+  let stub = sandboxStub(env, who.userId, input.sandboxId);
   // Asked first, making nothing: an id nobody opened gets no tables and no alarm (`object.js` `exists`).
   const kept = stub === null ? false : (await callSandbox(stub, "exists", {})).exists;
-  const state = kept ? await callSandbox(stub, "state", {}) : null;
+  let state = kept ? await callSandbox(stub, "state", {}) : null;
+  // Another developer's made-up chat, linked to the caller (`linkShare.js`): its object, the caller's own token.
+  let linked = false;
+  if (!state?.meta?.chat && stub !== null) {
+    const found = await linkedChat({ env, controlPlane, token, who, sandboxId: input.sandboxId });
+    if (found?.error) return refused(...found.error);
+    if (found) {
+      stub = found.stub;
+      state = found.state;
+      // Its object is named from its opener's id; the token stays the caller's own, so every read is at their access.
+      who = { ...who, userId: found.owner };
+      linked = true;
+    }
+  }
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
+  if (linked && input.op === "reset") return refused(403, "Only the person who opened this test chat can reset it.");
 
   // A test chat on a pull request's preview: every call is the preview's to answer (`preview.js`); Reset clears both.
   const forwarded = state.meta.chat.remote ? await forwardToPreview({ env, controlPlane, token, who, stub, state, input, helpers: routeHelpers() }) : null;
@@ -656,6 +630,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     }
     case "reset":
       await callSandbox(stub, "reset", {});
+      await dropLink(env, input.sandboxId);
       await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${input.sandboxId}`, value: null }).catch(() => {});
       await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: null }).catch(() => {});
       return json({ ok: true });
