@@ -38,6 +38,9 @@ export function actorFor(session) {
     // to. Both are already on the session `actorFor` is built from, and both
     // are ids and slugs — never a credential.
     role: session.role,
+    // A bot's helper: its name, its bot and its note (`sessionPayload.js`), so its mail, its caret and its activity say
+    // "Claude via Grok Bot" (`tools/notes/botHelpers.js`). Display and signing only; it decides no access.
+    ...(session.helper !== undefined && session.helper !== null ? { helper: session.helper } : {}),
     /**
      * The `@names` this grant reaches in this workspace (its groups, and the
      * person's own handles), for a vault key given to a group

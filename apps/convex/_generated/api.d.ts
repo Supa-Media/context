@@ -216,6 +216,7 @@ import type * as functions_storageMover from "../functions/storageMover.js";
 import type * as functions_feedback from "../functions/feedback.js";
 import type * as functions_blocks from "../functions/blocks.js";
 import type * as functions_botHookTickets from "../functions/botHookTickets.js";
+import type * as functions_botHelpers from "../functions/botHelpers.js";
 import type * as functions_botHooks from "../functions/botHooks.js";
 import type * as functions_reports from "../functions/reports.js";
 import type * as functions_messages from "../functions/messages.js";
@@ -520,6 +521,7 @@ declare const fullApi: ApiFromModules<{
   "functions/feedback": typeof functions_feedback;
   "functions/blocks": typeof functions_blocks;
   "functions/botHookTickets": typeof functions_botHookTickets;
+  "functions/botHelpers": typeof functions_botHelpers;
   "functions/botHooks": typeof functions_botHooks;
   "functions/reports": typeof functions_reports;
   "functions/messages": typeof functions_messages;

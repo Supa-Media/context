@@ -28,6 +28,23 @@ const TEXTS_CLIENT = "context_texts";
 const CHAT_HOME_PATTERN = /^tex\/groups\/[a-z]+(?:-[a-z]+){1,4}$/;
 /** A group chat's key (`textGroups.groupKey`): the sha256, in hex, that names the chat's Tex object (`store/texRouting.js`). */
 const CHAT_KEY_PATTERN = /^[0-9a-f]{64}$/;
+const MAIL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const HELPER_ID_PATTERN = /^hlp_[0-9a-f]{16}$/;
+const HELPER_NOTE_PATTERN = /^(?:[^\s]{1,200}\/)?bots\/[a-z0-9][a-z0-9-]{0,39}\/helpers\/[^\s/]{1,200}\.md$/;
+
+/** `{ helper }` from a session's helper field, `{}` when it has none; throws `fail()` on a malformed one. */
+function helperField(helper, fail) {
+  if (helper === undefined || helper === null) return {};
+  if (typeof helper !== "object" || Array.isArray(helper)) throw fail();
+  const { helperId, workspaceId, bot, botName, name, mail, note } = helper;
+  const shown = (value, max) => typeof value === "string" && value.trim() !== "" && value.length <= max && !/[\r\n]/.test(value);
+  if (typeof helperId !== "string" || !HELPER_ID_PATTERN.test(helperId)) throw fail();
+  if (typeof workspaceId !== "string" || workspaceId === "") throw fail();
+  if (typeof bot !== "string" || !MAIL_NAME_PATTERN.test(bot) || typeof mail !== "string" || !MAIL_NAME_PATTERN.test(mail)) throw fail();
+  if (!shown(botName, 60) || !shown(name, 40) || typeof note !== "string" || !HELPER_NOTE_PATTERN.test(note)) throw fail();
+  return { helper: Object.freeze({ helperId, workspaceId, bot, botName: botName.trim(), name: name.trim(), mail, note }) };
+}
+
 /**
  * Reject a session payload that is not the documented shape.
  *
@@ -108,6 +125,9 @@ export function normalizeSession(raw) {
     // The account whose own tag this turn is (`session.ts` `texTaggerId`): only beside a chat, never on its own.
     ...(texChatId !== null && typeof raw.texTaggerId === "string" && raw.texTaggerId !== "" ? { texTaggerId: raw.texTaggerId } : {}),
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
+    // A bot's helper's token (`apps/convex/.../helperGrants.ts`): names and paths only, and only whole. It acts as the
+    // bot's grant; this says who to sign and show it as ("Claude via Grok Bot"). A malformed one is refused.
+    ...helperField(raw.helper, fail),
     // Optional for the reason `clientName` is: it decides nothing, it only
     // chooses which tool news `orient` shows. A control plane older than the
     // field omits it, and the news is then left out rather than guessed.

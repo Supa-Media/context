@@ -14,6 +14,7 @@
  * See `docs/decisions/app-and-console/area-bots.md`.
  */
 
+const { helperStep } = require("./botHelpers.cjs");
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
 const { pictureStep, relayMemory, relayStep } = require("./botRelay.cjs");
 const { BOT_APPS, reachOf } = require("./botApps.cjs");
@@ -195,6 +196,9 @@ function delegatePrompt({ bot, kind, whose, workspace, card, reach }) {
   lines.push(routinesText("<area>/", reachKind(reach, kind)));
   lines.push("");
   lines.push(mailOnlyText(reachKind(reach, kind)));
+  lines.push("");
+  // A helper the bot starts for deep work is its visible sub-agent, never a bare session (`botHelpers.cjs`).
+  lines.push(helperStep(workspace));
   lines.push("");
   lines.push(`Ask an area's owner${person ? ` (or ${person})` : ""} before anything its approval rules name.`);
   return lines.join("\n");

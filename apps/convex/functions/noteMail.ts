@@ -15,6 +15,7 @@ import { internalMutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { addressable, contextsForGrant, resolveLiveGrant, resolveRunGrant } from "./lib/controlPlane/liveGrants";
+import { resolveHelperGrant } from "./lib/controlPlane/helperGrants";
 import { deviceStillLive } from "./texMachineDevices";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 
@@ -69,6 +70,9 @@ function view(row: Doc<"noteMailboxes">) {
 async function mailGrant(ctx: QueryCtx, hashedAccessToken: string) {
   const live = await resolveLiveGrant(ctx, hashedAccessToken);
   if (live !== null) return { ...live, onlyJob: null as string | null };
+  // A bot's helper uses mail as its bot's grant does (`helperGrants.ts`); the gateway signs its lines as the helper.
+  const helper = await resolveHelperGrant(ctx, hashedAccessToken);
+  if (helper !== null) return { ...helper, onlyJob: null as string | null };
   const run = await resolveRunGrant(ctx, hashedAccessToken);
   if (run === null || run.run.jobId === undefined) return null;
   return { ...run, onlyJob: run.run.jobId as string | null };

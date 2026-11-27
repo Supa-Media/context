@@ -23,6 +23,16 @@ export function createBotMailMethods({ post }) {
       return parsed && typeof parsed === "object" ? parsed : { error: "the control plane gave no answer" };
     },
 
+    /**
+     * A bot's helpers (`tools/notes/botHelpers.js`; `apps/convex/functions/botHelpers.ts`): `start` with the bot's own
+     * token for a one-time ticket, `claim` with only the ticket (from `http/botHelperClaim.js`) for the helper's token,
+     * `end` with the helper's token or its bot's. Each answers `{error}` in words a person can act on.
+     */
+    async botHelper(action, body) {
+      const parsed = await post(`/gateway/bots/helper/${action}`, body, { timeoutMs: BOT_MAIL_TIMEOUT_MS });
+      return parsed && typeof parsed === "object" ? parsed : { error: "the control plane gave no answer" };
+    },
+
     /** A bot spending its one-time webhook command (`http/botHookUpload.js`): the ticket and the header's value, no person's token. */
     async botHookTicket(ticket, value) {
       const parsed = await post("/gateway/bots/hook-ticket", { ticket, value }, { timeoutMs: BOT_MAIL_TIMEOUT_MS });

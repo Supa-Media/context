@@ -18,6 +18,7 @@
 
 /** The one prompt every bot's webhook routine runs, word for word. */
 const { checkInSteps } = require("./botApps.cjs");
+const { helperStep } = require("./botHelpers.cjs");
 
 const RELAY_PROMPT =
   "Read the payload. Mail and routines are passed on the same way: if its type is \"mail\" (a message) or \"routine\" (due work), read the note it names through Context, reading only, and wake the main chat with the exact text, sender, time, note path and the payload's job line, so the main chat answers the mail or does the routine's job now. " +
@@ -136,6 +137,8 @@ function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace,
       `Start every session with orient { ${ctx}for: ${quoted(holder)} }.`,
   );
   steps.push(pictureStep(card, workspace));
+  // How it starts Claude Code or any agent from now on: as its helper, shown as its sub-agent (`botHelpers.cjs`).
+  steps.push(`Save this to your memory too: ${helperStep(workspace)}`);
   steps.push("Then tell your person in one line which of these you finished, and what you still need from them.");
   return ["Now finish your setup, in order:", ...steps.map((step, at) => `${at + 1}. ${step}`)].join("\n");
 }

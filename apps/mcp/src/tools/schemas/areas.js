@@ -10,7 +10,8 @@ export function areaToolDefinitions() {
         "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
         "setup_bot, from a bot's own main chat, is its whole setup in one call: it binds and answers with every step left; bind_bot only binds; " +
         "pulse: true writes the area's routines from templates (improve your metric, then one per mode), pulse: false pauses them; " +
-        "attach and detach say which projects serve the area. area is needed for everything but setup_bot and bind_bot.",
+        "attach and detach say which projects serve the area; start_helper, from a bot, starts a helper (Claude Code or any agent) as its visible sub-agent, and end_helper ends one. " +
+        "area is needed for everything but setup_bot, bind_bot, start_helper and end_helper.",
       inputSchema: {
         type: "object",
         properties: {
@@ -80,6 +81,30 @@ export function areaToolDefinitions() {
             type: "string",
             description:
               "Your own bot name, said from your main chat: your whole Context setup in one call. It binds this connection as that bot (as bind_bot does), mails you the check, and answers with every step left, filled in for you: answer the check, what to remember, your webhook routine and your picture. Do them in order. Needs no area; pass nothing else with it.",
+          },
+          start_helper: {
+            type: "object",
+            description:
+              "From a bot's own connection, before it starts Claude Code (claude -p) or any agent for deep work: makes that helper's note in your bots folder and answers with a one-time shell command that saves the helper's own Context connection to a file, the command line to start it, and its standard brief. The helper shows as \"<name> via <your name>\" and reports to you in its note. Needs no area.",
+            properties: {
+              task: { type: "string", description: "One line: what the helper is for." },
+              name: { type: "string", description: 'What the helper is called, like "Claude" (the default).' },
+              hours: { type: "number", description: "How long it may run, at most 24 (8 by default)." },
+              as: { type: "string", description: "Your mail name, when this connection is several bots." },
+            },
+            required: ["task"],
+            additionalProperties: false,
+          },
+          end_helper: {
+            type: "object",
+            description:
+              "Ends a helper: from the helper itself with { summary } when its job is done (its note says done and you are mailed the summary), or from its bot with { note, summary } to stop one. Its connection closes at once. Needs no area.",
+            properties: {
+              summary: { type: "string", description: "What was done, with links." },
+              note: { type: "string", description: "From the bot: the helper's note, bots/<you>/helpers/<its note>.md." },
+            },
+            required: ["summary"],
+            additionalProperties: false,
           },
           create: { type: "boolean", description: "Make the area's about.md when it is not there yet." },
           attach: {

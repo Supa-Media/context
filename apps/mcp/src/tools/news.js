@@ -42,6 +42,14 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-27",
     text:
+      'manage action area takes start_helper: { task, name? }, from a bot, needing no area: before it starts Claude Code (claude -p) or any agent ' +
+      "for deep work. It makes the helper's note in the bot's folder and answers with a one-time shell command that saves the helper's own Context " +
+      'connection to a file, the command line and the standard brief; the helper shows as "<name> via <bot>". end_helper: { summary } ends one ' +
+      "(from its bot, with note: the helper's note).",
+  },
+  {
+    date: "2026-11-27",
+    text:
       "manage action area takes pulse: true, which writes the area's routines from templates (improve your metric, then one per mode) and " +
       "keeps any already there, or pulse: false, which pauses the ones a template wrote. Fetching a routine note now returns its run brief after it. " +
       'It also takes setup_bot: "<your bot name>", needing no area: a bot\'s whole setup in one call from its own main chat. It binds the connection ' +
@@ -523,19 +531,13 @@ export const TOOL_NEWS = Object.freeze([
     newTool: true,
     text: "suggest_destination asks which of the workspaces you reach a piece of content belongs in.",
   },
-  {
-    date: "2026-09-27",
-    text:
-      "write_note `comment: { action: add|reply|resolve|reopen, quote, thread, text }` comments on a note " +
-      "without rewriting it; read_note lists open threads.",
-  },
 ]);
 
 /**
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "7a7b774f";
+export const TOOL_SHAPE = "f1e4178a";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

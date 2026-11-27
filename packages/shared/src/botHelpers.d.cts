@@ -1,0 +1,11 @@
+export function helperShownName(name: string | null | undefined, botName: string | null | undefined): string;
+export function shortBotName(name: string | null | undefined): string | null;
+export function helperMailName(bot: string, name: string, suffix: string): string;
+export function helperNotePath(folder: string, task: string, day: string, n: number): string;
+export function helperNote(fields: { name: string; botName: string; bot: string; mail: string; helperId: string; task: string; started: string; ends: string }): string;
+export function helperStep(workspace?: string | null): string;
+export function helperBrief(fields: { name: string; botName: string; bot: string; mail: string; note: string; task: string; workspace?: string | null }): string;
+export const HELPER_WORDS: Readonly<{ unreachable: string; unreadable: string; noFrontMatter: string; kept: string; notMailed: string }>;
+export function startHelperAnswer(fields: { shown: string; mail: string; helperId: string; ends: string; note: string; ticket: string; url: string; brief: string }): string;
+export function endHelperAnswer(fields: { who: string; gone: boolean; note: string; status: string; marked: string | null; own: boolean; mailed: string | null }): string;
+export function doneLine(summary: string): string;

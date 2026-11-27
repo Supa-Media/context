@@ -28,6 +28,7 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
 import { toolBindBot, toolSetupBot } from "./botBind.js";
+import { helperRefusal, toolEndHelper, toolStartHelper } from "./botHelpers.js";
 import { areaPulse } from "./areaPulse.js";
 import { makeMailNote } from "./mailNoteMade.js";
 
@@ -155,6 +156,12 @@ function worksInOf(value, root) {
 export async function toolSetArea(store, scope, rules, overrides, args) {
   // A bot binding its own login needs no area (`botBind.js`); with an area, the rest is done first.
   // A bot's whole setup in one call, from its own main chat (`botBind.js` `toolSetupBot`); it takes no area.
+  // A bot's helper acts as its bot's grant, but never binds, sets a webhook or starts a helper (`botHelpers.js`).
+  const refused = helperRefusal(store, args);
+  if (refused) return refused;
+  // A bot starting or ending a helper for deep work (`botHelpers.js`); it takes no area.
+  if (args?.start_helper !== undefined) return await toolStartHelper(store, scope, rules, overrides, args.start_helper);
+  if (args?.end_helper !== undefined) return await toolEndHelper(store, scope, rules, overrides, args.end_helper);
   if (args?.setup_bot !== undefined) return await toolSetupBot(store, scope, rules, overrides, args.setup_bot);
   if (args?.bind_bot !== undefined && (args.area === undefined || args.area === null || args.area === "")) return await toolBindBot(store, scope, rules, overrides, args.bind_bot);
   // A webhook is the bot's, not an area's, so saving or testing one alone needs no area (Dev, 2026-11-27: the setup
@@ -430,7 +437,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   }
 
   if (done.length === 0 && problems.length === 0) {
-    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, setup_bot, pulse, attach or detach");
+    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, setup_bot, start_helper, end_helper, pulse, attach or detach");
   }
   return toolText([...done.map((line) => `- ${line}`), ...problems.map((line) => `- not done: ${line}`)].join("\n"));
 }

@@ -14,6 +14,9 @@ import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import { botFor, boundBotsOf } from "../mail/boundBot.js";
 import { factJobs, factProps } from "../tree/facts.js";
 import { presenceActor } from "./presence.js";
+import botHelpers from "../../../../packages/shared/src/botHelpers.cjs";
+
+const { helperShownName } = botHelpers;
 
 const { botCardPaths, botShortName, parseWorksIn } = areaRoutines;
 
@@ -51,6 +54,9 @@ async function botWorkingIn(store, bots, path) {
 
 /** `{ bot, name }` this call shows as, `name` its short name; null where it shows as its app. */
 export async function activityBot(store, { path = null, mailbox = null } = {}) {
+  // A bot's helper shows as itself, "Claude via Grok Bot", wherever it is (`tools/notes/botHelpers.js`).
+  const helper = store?.actor?.helper;
+  if (helper) return { bot: helper.mail, name: helperShownName(helper.name, helper.botName), helper: true };
   const bots = await boundBotsOf(store).catch(() => []);
   if (bots.length === 0) return null;
   const named = await mailboxName(store, mailbox).catch(() => null);

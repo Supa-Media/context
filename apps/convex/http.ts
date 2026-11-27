@@ -153,6 +153,7 @@ import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
 import { calendarChannelRoute, calendarPushHandler, pubsubPushHandler, pubsubPushRoute } from "./functions/lib/googlePush/routes";
 import { sheetRowsHandler, sheetSourceRoute } from "./functions/lib/sheetSourceRoute";
 import { TEX_MACHINE_GATEWAY_ROUTES } from "./functions/lib/gatewayRoutes/texMachines";
+import { BOT_HELPER_GATEWAY_ROUTES } from "./functions/lib/gatewayRoutes/botHelpers";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
@@ -961,5 +962,6 @@ http.route({ path: "/agent-texts/housekeeping/result", method: "POST", handler: 
 
 /* A person's own computer, paired for Tex (`docs/decisions/texting-assistant/machines.md`). Each path is built by the gateway factory. */
 for (const [path, handler] of TEX_MACHINE_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) });
+for (const [path, handler] of BOT_HELPER_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // a bot's helpers
 
 export default http;
