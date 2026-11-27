@@ -306,6 +306,7 @@ export const gatewayMailJoin = gatewayRoute(noteMail.gatewayMailJoinHandler);
 export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
 export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
 export const gatewayMailJobs = gatewayRoute(noteMail.gatewayMailJobsHandler);
+export const gatewayMailTex = gatewayRoute(noteMail.gatewayMailTexHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -769,6 +770,7 @@ http.route({ path: "/gateway/mail/join", method: "POST", handler: gatewayMailJoi
 http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet });
 http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
 http.route({ path: "/gateway/mail/jobs", method: "POST", handler: gatewayMailJobs });
+http.route({ path: "/gateway/mail/tex", method: "POST", handler: gatewayMailTex });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });
@@ -950,6 +952,8 @@ http.route({ path: "/agent-texts/dreams/due", method: "POST", handler: agentWork
 http.route({ path: "/agent-texts/dreams/result", method: "POST", handler: agentWorkerRoute(dreams.agentDreamsResultHandler) });
 /* Tex's check-ins (`functions/heartbeats.ts`): the same shape as dreams, plus the person's own phones to text. */
 http.route({ path: "/agent-texts/heartbeats/due", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsDueHandler) });
+// Tex in mail: a person's waiting runs, each with a texting session of theirs (`functions/texMail.ts`).
+http.route({ path: "/agent-texts/mail-runs/due", method: "POST", handler: agentWorkerRoute(noteMail.agentTexMailDueHandler) });
 http.route({ path: "/agent-texts/heartbeats/result", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsResultHandler) });
 /* Tex's housekeeping (`functions/housekeeping.ts`): the same shape as dreams; it texts nobody. */
 http.route({ path: "/agent-texts/housekeeping/due", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingDueHandler) });

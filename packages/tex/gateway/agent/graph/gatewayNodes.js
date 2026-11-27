@@ -22,6 +22,7 @@ import aboutExpire from "./nodes/aboutExpire.js";
 import aboutCheck from "./nodes/aboutCheck.js";
 import connect from "./nodes/connect.js";
 import noteRun from "./nodes/noteRun.js";
+import mailRun from "./nodes/mailRun.js";
 import egress from "./nodes/egress.js";
 import housekeep from "./nodes/housekeep.js";
 import nightly from "./nodes/nightly.js";
@@ -172,6 +173,8 @@ export const GATEWAY_NODES = {
   get connect() { return connect; },
   // Tex in a note: a headless answer to a question asked from a note's comment thread, read-only (Dev2, 2026-11-20: `nodes/noteRun.js`, `../../noteRun.js`).
   get noteRun() { return noteRun; },
+  // Tex in mail: the same mini Tex, for the lines sent to a person's own Tex on a note's mail (Dev, 2026-11-27: `nodes/mailRun.js`, `../../mailRunRoute.js`).
+  get mailRun() { return mailRun; },
   get doorStep() { return doorStepNode; },
   get bypass() { return bypassNode; },
   get answerCheck() { return answerCheckNode; },
