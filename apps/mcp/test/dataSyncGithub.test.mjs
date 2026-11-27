@@ -27,6 +27,8 @@
  *    every branch: ..." and "a non-404 failure of the deploy read ..." fail, and "an owner installs GitHub: ..." fails.
  * 10. The deploy read taking its span from every kept run of the repository, as the default-branch read once did:
  *    "each workflow-runs read keeps its own window: ..." fails.
+ * 12. `withinReach` returning `repos` unfiltered: "a person who reaches one repository of an installation ..." fails,
+ *    and "a binding kept before its reach was named ..." fails.
  */
 
 import { test } from "node:test";
@@ -34,9 +36,10 @@ import assert from "node:assert/strict";
 
 import { SYNC_EVERY_MS } from "../src/data/sync/object.js";
 import { READ_ONLY, installState, readInstallState } from "../src/data/connect/githubApp.js";
+import { sealConnection } from "../src/data/connect/seal.js";
 import { fillDeployed, pullRequestRow } from "../src/data/connect/github.js";
 import { skip, NOW, SECRET, world, send, dataObject, roleOf } from "./dataSyncWorld.mjs";
-import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, CODE, ABOUT, CI_RUN, DEPLOY_RUN, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed, firstRun } from "./dataSyncGithubWorld.mjs";
+import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, INSTALLATION, CODE, ABOUT, CI_RUN, DEPLOY_RUN, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed, firstRun } from "./dataSyncGithubWorld.mjs";
 
 const sha = (n) => String(n).padStart(4, "0").repeat(10);
 /** A merged pull request row whose squash merge made commit `sha(number)`. */
@@ -366,4 +369,52 @@ test("an uninstalled App stops the source at the next hour", { skip }, async () 
   const source = dataObject(w, "pAlice").storage.map.get("sources")[ids.about];
   assert.equal(source.stopped, true);
   assert.match(source.last.said, /no longer lets Context read/);
+});
+
+test("a person who reaches one repository of an installation binds it, and a run reads only that one", { skip }, async () => {
+  const w = await world();
+  const { ids, seen, state } = await installed(w, { repos: ["acme/public", "acme/secret"], reach: ["acme/public"] });
+  const last = await firstRun(w, state);
+  assert.equal(last.outcome, "ok", JSON.stringify(last));
+  const listed = await send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_repos" });
+  assert.equal(listed.status, 200, JSON.stringify(listed.body));
+  assert.deepEqual(listed.body.repos.map((repo) => repo.name), ["acme/public"]);
+  assert.equal((await send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_repos", set: ["acme/secret"] })).status, 400, "the picker can't name the repository out of reach");
+  // The run read the reachable repository, and nothing that names the other one reached GitHub.
+  assert.ok(seen.some((call) => call.repo === "acme/public"), "the reachable repository was read");
+  for (const call of seen) assert.equal(JSON.stringify(call).includes("acme/secret"), false, `${call.path} named acme/secret`);
+  assert.equal(w.net.calls.some((url) => url.includes("acme/secret")), false, "a fetch URL named acme/secret");
+  assert.equal((await sheet(w.alice, ids.pulls)).rows.some((row) => row.repo === "acme/secret"), false);
+});
+
+test("an installation whose repositories the owner can reach none of is refused, and nothing is kept", { skip }, async () => {
+  const w = await world();
+  withGithubApp(w);
+  await withSource(w, w.alice);
+  const seen = github(w, { repos: ["acme/secret"], reach: [] });
+  const done = await finish(w, w.alice, stateOf(await start(w, w.alice)));
+  assert.equal(done.status, 400);
+  assert.match(done.body.message, /That GitHub installation has no repository you can read/);
+  assert.equal(seen.some((call) => call.path.endsWith("/access_tokens")), false, "no installation token was minted");
+  assert.equal(dataObject(w, "pAlice").storage.map.get("connections"), undefined);
+});
+
+test("a binding kept before its reach was named reads nothing: the run and the picker say to connect again", { skip }, async () => {
+  const w = await world();
+  const { ids, seen, state } = await installed(w);
+  assert.equal((await finish(w, w.alice, state)).status, 200);
+  // The binding as an older build kept it: the installation and its repositories, with no `reach`.
+  const object = dataObject(w, "pAlice");
+  const connections = object.storage.map.get("connections");
+  connections.github = { ...connections.github, sealed: await sealConnection({ installation: INSTALLATION, repos: null }, { secret: SECRET, workspaceId: "pAlice", app: "github" }) };
+  object.storage.map.set("connections", connections);
+  const before = seen.length;
+  const listed = await send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_repos" });
+  assert.notEqual(listed.status, 200, JSON.stringify(listed.body));
+  assert.match(JSON.stringify(listed.body), /GitHub needs connecting again so Context reads only the repositories you can/);
+  await object.instance.alarm();
+  const source = object.storage.map.get("sources")[ids.about];
+  assert.match(source.last.said, /GitHub needs connecting again/, JSON.stringify(source.last));
+  const after = seen.slice(before);
+  assert.equal(after.some((call) => call.path === "/graphql" || call.path.includes("/actions/")), false, "a repository was read");
 });

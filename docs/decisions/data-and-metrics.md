@@ -196,8 +196,12 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   signed the owner out on the way back (2026-11-25). An installation id from
   somebody else's link binds nothing. Pasting a key for GitHub is refused.
 - **What is kept**, sealed in the sync object like an app key: the
-  installation id and the repositories picked (none picked reads every one the
-  installation was given, at most 10). Never a token: each run mints an
+  installation id, the repositories the owner's own GitHub account can read in
+  that installation (kept at connect, since GitHub lists an installation for
+  one readable repository), and the repositories picked (none picked reads
+  every one of those, at most 10). Every run and the picker read only those
+  repositories; a binding with none kept reads nothing until connected again.
+  Never a token: each run mints an
   installation token from the App's key, narrowed to read-only Metadata, Pull
   requests, Deployments and Actions whatever the App is later given. An
   uninstalled App refuses the mint and the source stops.
