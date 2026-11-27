@@ -190,6 +190,7 @@ Every section title of [the texting assistant](../texting-assistant.md) and its 
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./benchmarks.md)
 - [A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)](./benchmarks.md)
 - [The repository's test is canonical; a Context copy only adds a test (2026-11-26)](./repo-tests-canonical.md)
+- [Tex's Connect notes step is off (2026-11-27)](./connect-notes-off.md)
 - [A failed round drafts its own next experiment, and a person runs it (2026-10-17)](./benchmarks.md)
 - [Every AI job's prompt is a note, and every job has a test (2026-10-17)](./job-prompts.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./golden-tasks.md)
