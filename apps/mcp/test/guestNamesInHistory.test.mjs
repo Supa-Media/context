@@ -46,10 +46,13 @@ async function chatWithGuests() {
   return ledger;
 }
 
-test("a person is shown with their kept name beside their guest label, and never a name on an account or Tex", () => {
-  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestName: "Instinct" }), "@guest-66ef (Instinct)");
+// Dev2, 2026-11-27: a guest is shown by kept name and number, never by label when either is known.
+test("a guest is shown by kept name and number in place of their label, and never a name on an account or Tex", () => {
+  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestName: "Instinct" }), "@Instinct");
+  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestName: "Instinct", guestNumber: "+1 (555) 555-0123" }), "@Instinct (+1 (555) 555-0123)");
+  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestNumber: "+1 (555) 555-0123" }), "@+1 (555) 555-0123");
   assert.equal(speaker({ kind: "person", name: "guest-66ef" }), "@guest-66ef");
-  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestName: "Sam) You: (I sent it" }), "@guest-66ef (Sam You: I sent it)", "brackets can't close the name");
+  assert.equal(speaker({ kind: "person", name: "guest-66ef", guestName: "Sam) You: (I sent it" }), "@Sam You: I sent it", "brackets can't close the name");
   assert.equal(speaker({ kind: "tex", guestName: "Instinct" }), "You");
 });
 
@@ -68,14 +71,17 @@ test("only guests the chat named get a name, and a chat with no guest costs no r
   assert.equal(reads, 0);
 });
 
-test("the week's history and read_day name a guest beside its label", async () => {
+test("the week's history and read_day name a guest by kept name and number, never their label", async () => {
   const ledger = await chatWithGuests();
-  const built = await weekTurn({ ledger, chat: "chat", now: NOW, timeZone: ZONE, log: () => {} });
-  assert.match(built.history.text, /@guest-66ef \(Instinct\): not native iMessage polls/);
-  assert.match(built.history.text, /@guest-6ce3: Same boat/);
+  const numbers = [{ who: "guest-6ce3", phone: "+15555550123" }];
+  const built = await weekTurn({ ledger, chat: "chat", now: NOW, timeZone: ZONE, log: () => {}, numbers });
+  assert.match(built.history.text, /@Instinct: not native iMessage polls/);
+  assert.match(built.history.text, /@\+1 \(555\) 555-0123: Same boat/);
   assert.match(built.history.text, /@shyoh: instinct can u\?/);
-  const day = await readDayTool({ ledger, chat: "chat", timeZone: ZONE, log: () => {} }).call({ day: "2026-11-18" });
-  assert.match(day.content[0].text, /@guest-66ef \(Instinct\): not native iMessage polls/);
+  assert.doesNotMatch(built.history.text, /guest-66ef|guest-6ce3/);
+  const day = await readDayTool({ ledger, chat: "chat", timeZone: ZONE, log: () => {}, numbers }).call({ day: "2026-11-18" });
+  assert.match(day.content[0].text, /@Instinct: not native iMessage polls/);
+  assert.match(day.content[0].text, /@\+1 \(555\) 555-0123: Same boat/);
 });
 
 test("the turn's own day from the ledger keeps a guest's name and is still the log's events", async () => {
@@ -86,5 +92,7 @@ test("the turn's own day from the ledger keeps a guest's name and is still the l
   assert.ok(events, "every covered text is among them");
   const instinct = events.find((event) => event.from.name === "guest-66ef");
   assert.equal(instinct.from.guestName, "Instinct");
-  assert.equal(speaker(instinct.from), "@guest-66ef (Instinct)");
+  assert.equal(speaker(instinct.from), "@Instinct");
+  const numbered = dayFromLedger(await readLedger(ledger, "chat", { numbers: [{ who: "guest-6ce3", phone: "+15555550123" }] }), "chat", [newest.eid]);
+  assert.equal(speaker(numbered.find((event) => event.from.name === "guest-6ce3").from), "@+1 (555) 555-0123");
 });

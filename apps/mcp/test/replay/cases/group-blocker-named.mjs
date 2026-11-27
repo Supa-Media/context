@@ -46,6 +46,19 @@ async function holdersLookup() {
   assert.equal(holdersTool({ group: null, holders: async () => null }), null, "only in a group chat");
 }
 
+/**
+ * 2026-11-27 launch-day rehearsal (invented chat): a job brief said "@guest-1001 said it doesn't work". Dev2: "just say
+ * their numbers instead of their guest id if it doesn't know their name". Sabotage: put the label back in
+ * `groupNames.js` `rosterLine` and this fails (the chat's lines and history are held by `groupNames.test.mjs` and
+ * `guestNamesInHistory.test.mjs`).
+ */
+async function guestsByNumber(chat) {
+  const numbers = [{ who: "guest-1a2b", phone: "+15550102233" }, { who: "guest-3c4d", phone: "+15550104455" }];
+  const turn = await chat.tag("ada", "Tex find us a cabin there", "Looking now.", [], { group: { people: ["ada"], guests: ["guest-1a2b", "guest-3c4d"], numbers, size: 3 } });
+  assert.match(turn.shown, /\+1 \(555\) 010-4455, on no Context account/, "the list names a guest by number");
+  assert.doesNotMatch(turn.shown, /guest-1a2b|guest-3c4d/, "and never by label");
+}
+
 export default {
   id: "group-blocker-named",
   incident: "2026-11-16 (and 2026-11-25, an ask the asker's own workspace could answer): a group chat lost its shared workspace overnight when someone joined who wasn't a member; Tex could only say the chat couldn't see it and sent people to the app, then, asked to add the newcomer, said only the owner could and sent them to the app again.",
@@ -77,6 +90,7 @@ export default {
       // And when the asker isn't in the workspace the chat named, who here is (send who_can_open, `groupHolders.js`):
       // the fact behind "a neutral boundary naming who holds the keys". Sabotage: drop the group check and this fails.
       await holdersLookup();
+      await guestsByNumber(chat);
     } finally {
       chat.restore();
     }

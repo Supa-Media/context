@@ -52,9 +52,12 @@ export function speaker(from) {
   if (from?.kind === "system") return "Context";
   // A person is always "@name" ("@someone" unnamed): no name, a look-alike of "You" included, renders as Tex's or Context's label.
   const name = typeof from?.name === "string" ? oneLine(from.name).replace(/^@+/, "") : "";
-  // A guest's kept name beside its label (`groupGuestNames.js` `withGuestNames`): "@guest-1a2b (Sam)".
+  // A guest by kept name and number, never the label when either is known (`groupGuestNames.js` `withGuestNames`):
+  // "@Sam (+1 (555) 123-4567)", "@+1 (555) 123-4567", or "@Sam".
   const known = name !== "" && typeof from?.guestName === "string" ? oneLine(from.guestName).replace(/[()]/g, "") : "";
-  return `@${name || "someone"}${known ? ` (${known})` : ""}`;
+  const number = name !== "" && typeof from?.guestNumber === "string" ? oneLine(from.guestNumber) : "";
+  if (known || number) return `@${known && number ? `${known} (${number})` : known || number}`;
+  return `@${name || "someone"}`;
 }
 
 /*

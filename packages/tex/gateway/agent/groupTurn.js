@@ -303,7 +303,7 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   // The names the chat gave its guests, beside the history they label (`groupGuestNames.js`).
   const namesRead = ledger === null ? Promise.resolve([]) : readGuestNames(ledger, group.key);
   const guestNamed = laterNames(); // with the about note's, once it is read (`guestNamesWithAbout`)
-  const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key, { names: guestNamed.promise }) : null)).then((turns) => ({ turns }), (error) => ({ error }));
+  const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key, { names: guestNamed.promise, numbers: group.numbers ?? [] }) : null)).then((turns) => ({ turns }), (error) => ({ error }));
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
   // A home's notes by their names now, or the old ones the last lookup found them under (`homeNames.js`).
   const named = homeNamesOf(group, names.key, kept);

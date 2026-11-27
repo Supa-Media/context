@@ -66,7 +66,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const { threads, start } = read;
   // How long the chat was quiet before this text, and an old text it replies to, said in the person's turn (`chatTime.js`).
   const time = timeNote({ covered: logged.covered ?? [], shown: parts.shown, byId: parts.byId ?? new Map(), timeZone: parts.timeZone });
-  if (week !== null) return { ...(await weekThreaded({ logged, parts, ledger, chat, threads, format, week, log })), threads, timeNote: time, sort };
+  if (week !== null) return { ...(await weekThreaded({ logged, parts, ledger, chat, threads, format, week, log, numbers: group?.numbers ?? [] })), threads, timeNote: time, sort };
   if (start === null) return { history: null, threads, read_thread: null, timeNote: time, sort }; // no thread yet: the chat as it was shown
   const tags = threadOfEvents(threads, parts.shown);
   const cutoff = windowStart(parts.answering); // the last day, its start moving in six-hour steps so the transcript is read from the cache
@@ -103,11 +103,11 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
  * day's summary and the `read_day` call that opens it; the thread list and each day's age in the person's turn. No
  * old moments (`callbacks.js`): the summaries carry the older days, in every chat alike.
  */
-async function weekThreaded({ logged, parts, ledger, chat, threads, format, week, log }) {
+async function weekThreaded({ logged, parts, ledger, chat, threads, format, week, log, numbers = [] }) {
   const covered = new Set((logged.covered ?? []).map((event) => event.id));
   const stretch = (event) => Number.isSafeInteger(parts.since) && event.at >= parts.since; // the stretch is carried as messages (`stretch.js`)
   const built = await weekTurn({
-    ledger, chat, now: parts.answering, timeZone: parts.timeZone, reads: week.reads ?? DEFAULT_READS, extra: parts.shown, grant: week.grant ?? null, readPicture: week.readPicture ?? null, log,
+    ledger, chat, now: parts.answering, timeZone: parts.timeZone, reads: week.reads ?? DEFAULT_READS, extra: parts.shown, grant: week.grant ?? null, readPicture: week.readPicture ?? null, log, numbers,
     skip: (event) => covered.has(event.id) || stretch(event),
     tags: (events) => threadOfEvents(threads, events),
   });
