@@ -113,7 +113,7 @@ flowchart LR
   end
   subgraph n_group_checkFinish["Check & finish"]
     n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/answerCheck.js · sendBack.js"]:::model
-    n_claimChecks["Claim checks<br/>code<br/>graph/nodes/claimChecks.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js"]:::code
+    n_claimChecks["Claim checks<br/>code<br/>graph/nodes/claimChecks.js · labelCheck.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js"]:::code
     n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>graph/nodes/reviewer.js · replyJudge.js"]:::model
     n_finish["Finish the text<br/>code<br/>graph/nodes/finish.js · texEntryPoint/finishTheText.js · textedApprovals.js · pushback.js · noteLinks.js · sayNothing.js · scheduledQuiet.js"]:::code
     n_chatAnswer["Answer the other chat<br/>code<br/>graph/nodes/chatAnswer.js"]:::code
@@ -272,7 +272,7 @@ every wire, from the same config.
 | Learn | learn | afterSend | on | Haiku 5.5 | low |  |  | reflect.js · memoryNudge.js |
 | After the reply | afterReply | afterSend | on | Haiku 5.5 | off | 4 s | own, threads, recent, hist | conversationThreads.js · selfReview.js |
 | Answer check | answerCheck | checkFinish | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/answerCheck.js · sendBack.js |
-| Claim checks | claimChecks | checkFinish | on | code |  |  |  | graph/nodes/claimChecks.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js |
+| Claim checks | claimChecks | checkFinish | on | code |  |  |  | graph/nodes/claimChecks.js · labelCheck.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js |
 | Reply reviewer | reviewer | checkFinish | on | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js |
 | Finish the text | finish | checkFinish | on | code |  |  |  | graph/nodes/finish.js · texEntryPoint/finishTheText.js · textedApprovals.js · pushback.js · noteLinks.js · sayNothing.js · scheduledQuiet.js |
 | Still answers them? | recheck | textThem | on | Clef |  |  |  | graph/nodes/recheck.js · textsDecide.js · apps/agent lookAgain.ts · groupRecheck.ts |

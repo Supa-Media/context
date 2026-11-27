@@ -9,11 +9,22 @@
  * notice itself goes to the Answer check on the turn (`t.claimNotice`), never into the record, since a notice can quote
  * the draft. Its settings (`texNodeSettings.cjs`) are read where the checks are built (`texEntryPoint/prepareTheAnswer.js`).
  */
+import { labelNotice } from "../../labelCheck.js";
+
 export async function claimChecksNode(_input, io) {
   const t = io.ctx.turn;
   const waiting = t.drafts?.waiting;
   t.claimNotice = null;
-  if (!waiting || typeof t.answerChecks?.code !== "function") return { when: ["pass"], back: false, review: false };
+  if (!waiting) return { when: ["pass"], back: false, review: false };
+  // A line that opens with a label no step reads, like "[check-in]", would reach them as written: back once a turn, as a
+  // fact (`labelCheck.js`; 2026-11-27). A rewrite that keeps it goes on to the other checks.
+  const label = t.labelChecked ? null : labelNotice(waiting.draft);
+  if (label !== null) {
+    t.labelChecked = true;
+    t.claimNotice = label;
+    return { when: ["back"], back: true, review: false };
+  }
+  if (typeof t.answerChecks?.code !== "function") return { when: ["pass"], back: false, review: false };
   const { notice, review } = await t.answerChecks.code(waiting.draft, waiting.info);
   t.claimNotice = notice === null || notice === undefined ? null : String(notice);
   return { when: [t.claimNotice === null ? "pass" : "back"], back: t.claimNotice !== null, review: review === true };

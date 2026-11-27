@@ -3,7 +3,7 @@
  * (`heartbeat.js`, split out 2026-11-10).
  *
  * A look is shown the last texts with them, each with when it was sent in
- * their time, and may name one to continue (`[continues N]`). The chat keeps,
+ * their time, and may name one to continue (`reply_under`). The chat keeps,
  * above a check-in's text, the text it went under, its last thinking and its
  * day's log, so a later turn can say why it texted
  * (`docs/decisions/texting-assistant/dates-everywhere.md`).
@@ -92,12 +92,51 @@ export function recentTexts(history, timeZone = null) {
     const clipped = said.length > RECENT_TEXT_CHARS ? `${said.slice(0, RECENT_TEXT_CHARS - 1)}…` : said;
     // Undated, Sunday's "the tournament is today" read on Monday as a mistake to correct (2026-11-09).
     const when = at !== null && zone !== null ? ` (${localStamp(at, zone)})` : "";
-    shown.push({ who: `${turn.role === "user" ? "Them" : checkIn ? "You (a check-in)" : "You"}${when}`, said: clipped, text: turn.text });
+    shown.push({ who: `${turn.role === "user" ? "Them" : checkIn ? "You, in a check-in" : "You"}${when}`, said: clipped, text: turn.text });
   }
-  return shown.slice(-RECENT_TEXTS_SHOWN).map((item, index) => ({ line: `[${index + 1}] ${item.who}: ${item.said}`, text: item.text }));
+  // Numbered "1." rather than "[1]": a look shown bracketed tags at the start of each line wrote one at the start of its
+  // own text, and "[check-in] Two things to check…" reached a person (2026-11-27).
+  return shown.slice(-RECENT_TEXTS_SHOWN).map((item, index) => ({ line: `${index + 1}. ${item.who}: ${item.said}`, text: item.text }));
 }
 
-/** How a look names the text it continues: `[continues 3]` at the very start of its answer. */
+/** The check-in's tool for sending its text as a reply under one of the shown texts, in place of a marker in its words. */
+export const REPLY_UNDER_TOOL = "reply_under";
+
+export const REPLY_UNDER_DEFINITION = {
+  name: REPLY_UNDER_TOOL,
+  description:
+    "Check-ins only. Send this check-in's text as a reply under one of your last texts with them, by its number in that list, " +
+    "when what you found continues it. Call it before you write the text; your text itself stays only what they should read.",
+  inputSchema: {
+    type: "object",
+    properties: { text: { type: "integer", minimum: 1, description: "The number of the shown text to reply under." } },
+    required: ["text"],
+  },
+};
+
+/**
+ * The look's `reply_under` tool, answered here (`turn.js` local tools), and the shown text it picked (2026-11-27: the
+ * `[continues N]` marker it replaces taught the look that a bracketed tag at the start of its answer is never shown).
+ * `picked()` is the whole text of the shown line it named, or null: never called, or a number that names no line.
+ */
+export function replyUnderLocal(recent) {
+  let picked = null;
+  return {
+    entry: {
+      tool: REPLY_UNDER_DEFINITION,
+      call: async (args) => {
+        const n = Number(args?.text);
+        const shown = Number.isInteger(n) && Array.isArray(recent) ? recent[n - 1] : undefined;
+        if (typeof shown?.text !== "string") return { isError: true, content: [{ type: "text", text: JSON.stringify({ text: args?.text ?? null, shown: Array.isArray(recent) ? recent.length : 0 }) }] };
+        picked = shown.text.slice(0, MAX_CONTINUES_CHARS);
+        return { content: [{ type: "text", text: JSON.stringify({ reply_under: n }) }] };
+      },
+    },
+    picked: () => picked,
+  };
+}
+
+/** How a look once named the text it continues, `[continues 3]` at the very start of its answer: still taken off, never taught (`reply_under`). */
 const CONTINUES_MARKER = /^\s*\[\s*continues\s+(\d{1,3})\s*\]\s*/i;
 /** The Worker matches on a text's opening words, so this much of it is enough. */
 const MAX_CONTINUES_CHARS = 1_000;

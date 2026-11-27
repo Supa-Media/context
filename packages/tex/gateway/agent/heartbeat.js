@@ -38,7 +38,8 @@
 
 import { texConfigOf, texToolList } from "./texConfig.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
-import { CHECK_IN_QUESTION, checkInAbout, continuesFrom, lastThinking, recentTexts } from "./checkInTexts.js";
+import { NO_CHECKS } from "./labelCheck.js";
+import { CHECK_IN_QUESTION, REPLY_UNDER_TOOL, checkInAbout, continuesFrom, lastThinking, recentTexts, replyUnderLocal } from "./checkInTexts.js";
 export { CHECK_IN_QUESTION, checkInAbout, continuesFrom, isCheckInLine, lastThinking, recentTextLines, recentTexts } from "./checkInTexts.js";
 import { HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
@@ -277,7 +278,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
       ? "Your last texts with them, oldest first, each with when it was sent in their time. Anything already said here is not news: never text it again. " +
         "\"Today\", \"tomorrow\" or \"tonight\" in one of them means that text's day, not today: a text that was right on the day it was sent is never a mistake to correct. " +
         "If what you found continues one of these, pick up from where it was left (what they asked, what you offered), never start it over with a new offer, " +
-        "and start your answer with [continues N], N being that text's number, so your text goes as a reply under it; the marker is never shown to them.\n" +
+        `and call ${REPLY_UNDER_TOOL} with that text's number first, so your text goes as a reply under it.\n` +
         recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
@@ -524,7 +525,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
     ? replyJudge({ setting: reviewing, scheduled: "check-in", timeZone, question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, byRunner: true })
     : null;
   t.judge = judge;
-  t.answerChecks = judge === null ? null : { code: judge.codeCheck, review: judge.review };
+  t.answerChecks = judge === null ? NO_CHECKS : { code: judge.codeCheck, review: judge.review }; // the label check still runs (`labelCheck.js`)
   t.reviewedAs = judge === null ? null : "checkin"; // what lets the Answer check's review read it (`answerCheck.js`)
   // Whether the look's silence stands: the Quiet check step decides, over Check-in's `checkin -> quietCheck` wire
   // (`graph/nodes/quietCheck.js`; Dev2, 2026-11-22: "let refusal become a real node that we can tune"). A config
@@ -540,6 +541,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
     : {};
   // The look, as the Front door node runs it (`checkInLook`): `answerCheck` is that node's stop at each draft, which
   // the Answer check node answers over the config's wires.
+  const under = replyUnderLocal(shownRecent); // the shown text it goes under, by its call, never in its words (2026-11-27)
   t.look = (answerCheck, via = null) => {
     t.looked = true;
     const callTool = heartbeatCallTool(dispatch);
@@ -552,11 +554,12 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
       // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
       // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back
       // "no such action" (found 2026-11-07, beside a routine that texted why).
-      grants: { send: ["say_nothing", "search_web"] }, // and the web, by search only (`checkInWeb`; Dev2, 2026-11-20)
+      grants: { send: ["say_nothing", "search_web", "reply_under"] }, // and the web, by search only (`checkInWeb`; Dev2, 2026-11-20)
       // A 1:1's turns are all shown one list when the front door's is fixed (`sixToolsFixed.js`; Dev2, 2026-11-20): the
       // look is a 1:1 turn, so it is shown every tool and refused, saying so, all but say_nothing.
       fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
       sayNothing: true,
+      local: via === null ? [under.entry] : via.local([under.entry]),
       ...silence,
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: via === null ? callTool : via.tools(callTool),
@@ -599,8 +602,9 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
     await reportToolFailures(controlPlane, session, "check_in", turn?.timing?.failures ?? failedBefore);
 
     const finished = turn !== null && !turn.exhausted;
-    // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
-    const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
+    // Its `reply_under` pick; an old `[continues N]` still comes off before anything reads the answer, never sent or kept.
+    const legacy = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
+    const marked = { answer: legacy.answer, continues: finished ? under.picked() ?? legacy.continues : null };
     // A mailbox it owed a word is said, in its words or added to them, so one marked told was told.
     const found = finished ? checkInText(marked.answer) : null;
     const muted = found ? mutedCheckIn(found, mutes) : null;

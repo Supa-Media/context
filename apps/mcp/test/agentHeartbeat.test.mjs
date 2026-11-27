@@ -198,15 +198,12 @@ function unitChecks(check) {
     "a look sees the last texts with them, its own check-ins marked, and is told to continue rather than repeat",
     JSON.stringify(recent) ===
       JSON.stringify([
-        "[1] You (a check-in): The lane hold expires at 5 PM today. Want me to draft a reply?",
-        "[2] Them: what's the Oct 30 pricing",
-        "[3] You: It's in a PDF I can't open.",
+        "1. You, in a check-in: The lane hold expires at 5 PM today. Want me to draft a reply?",
+        "2. Them: what's the Oct 30 pricing",
+        "3. You: It's in a PDF I can't open.",
       ]) &&
       heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent }).includes(
-        "start your answer with [continues N]",
-      ) &&
-      heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent }).includes(
-        "the marker is never shown to them.\n[1] You (a check-in): The lane hold",
+        "call reply_under with that text's number first, so your text goes as a reply under it.\n1. You, in a check-in: The lane hold",
       ),
   );
   // Sabotage record (applied, run, observed failing, reverted): `continuesFrom`
@@ -588,11 +585,11 @@ export async function runAgentHeartbeatChecks(check) {
 
     const [earlier, lastExchange] = [conversationTurns(bucket), newestExchangeId(bucket)];
     const lastShown = recentTexts(earlier);
-    model.install([{ text: `[continues ${lastShown.length}] Still want me to save that image to your branding folder?` }]);
+    model.install([{ toolCalls: [{ name: "reply_under", args: { text: lastShown.length } }] }, { text: "Still want me to save that image to your branding folder?" }]);
     const continued = await ask(env, TOKEN_BEAT, beat());
     const afterTurns = conversationTurns(bucket);
     check(
-      "a look that continues a text answers without the marker, names that text's whole words as continues, and joins its thread",
+      "a look that continues a text calls reply_under, names that text's whole words as continues, and joins its thread",
       continued.status === 200 && continued.body?.outcome === "speak" &&
         continued.body?.answer === "Still want me to save that image to your branding folder?" &&
         continued.body?.continues === lastShown.at(-1)?.text && typeof continued.body?.continues === "string" &&
@@ -603,15 +600,12 @@ export async function runAgentHeartbeatChecks(check) {
       !log().includes("[continues") && log().includes("**Texted:** Still want me to save that image") &&
         afterTurns.at(-1)?.text === "Still want me to save that image to your branding folder?",
     );
-    check(
-      "the look was shown its last texts numbered, and told how to mark one",
-      JSON.stringify(model.requests.at(-1)).includes("[continues N]") && JSON.stringify(model.requests.at(-1)).includes("[1] "),
-    );
+    check("the look was shown its last texts numbered, and how to pick one", JSON.stringify(model.requests.at(-1)).includes("call reply_under") && JSON.stringify(model.requests.at(-1)).includes("1. "));
     model.install([{ text: "[continues 99] Your rent is due Friday." }]);
-    const unnamed = await ask(env, TOKEN_BEAT, beat());
+    const legacy = await ask(env, TOKEN_BEAT, beat());
     check(
-      "a marker naming no shown text sends the text plain, without the marker",
-      unnamed.status === 200 && unnamed.body?.answer === "Your rent is due Friday." && unnamed.body?.continues === undefined,
+      "an old marker naming no shown text sends the text plain, without the marker",
+      legacy.status === 200 && legacy.body?.answer === "Your rent is due Friday." && legacy.body?.continues === undefined,
     );
 
     /* ---------------- what they muted, and words about the check-in itself (2026-10-21) ---------------- */

@@ -580,6 +580,7 @@ test/objectDateFacts.test.mjs
 test/datePropertiesWrite.test.mjs
 test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
+test/labelCheck.test.mjs
 test/folderNotesRoute.test.mjs
 test/mailNotesRoute.test.mjs
 test/mailReads.test.mjs

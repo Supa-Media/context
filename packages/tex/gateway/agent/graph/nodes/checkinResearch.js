@@ -23,6 +23,12 @@ import { trainingText } from "../../../../src/texTraining.cjs";
 const DEFAULTS = { model: "anthropic/claude-haiku-5-5", effort: "high", rounds: 12, ms: 180_000 };
 /** The longest brief the look is handed. */
 export const MAX_BRIEF_CHARS = 4_000;
+/**
+ * A finding's urgency is its first field, a plain word before the first "·" (2026-11-27: a brief written as
+ * "- [today] …" taught the look that a bracketed tag opens a line, and a real check-in went out as "[check-in] Two
+ * things to check…"). The bracketed form a brief may still hold counts the same.
+ */
+const URGENT = /^- \[?(?:today|tomorrow)\]?\s*(?:·|\s)/i;
 /** The answer when research found nothing worth the look's time. */
 export const NOTHING_FOUND = "- nothing";
 
@@ -32,7 +38,7 @@ export const RESEARCH_ASK = [
   "Above is what the check-in found changed. Before it decides what to text them, dig in with your read-only tools: open the emails that matter, search their notes, their other mail, their texts and chats, read their calendar for the days that matter, and search the web for facts about the world.",
   "Look for what a great assistant who knows their life would catch: something today or tomorrow they are not ready for; something that got lost by the wayside but still matters; a gap they have not filled (for example, an email about a court date they never mentioned anywhere: where the court is, what forms are due, by when); an ask of them nobody answered; two plans that clash. Check each against what is already handled: an invite they already answered, a thing Tex already texted them about, a matter settled in a later email or note is not a finding.",
   "You only read: you can't text, send, write or change anything, and the check-in decides what to text.",
-  `Answer with the brief only, one line per finding, most urgent first: \`- [today|tomorrow|this week|later] what it is · where you found it · the one next step Tex could offer to do for them\`. When nothing is worth their attention, answer \`${NOTHING_FOUND}\`.`,
+  `Answer with the brief only, one line per finding, most urgent first: \`- today|tomorrow|this week|later · what it is · where you found it · the one next step Tex could offer to do for them\`. When nothing is worth their attention, answer \`${NOTHING_FOUND}\`.`,
 ].join("\n\n");
 
 /** The step's model, effort, rounds, time limit and examples in this config; the defaults when it has no such step. */
@@ -57,7 +63,8 @@ export function briefOf(answer) {
   const lines = String(answer ?? "")
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("- ") && line !== NOTHING_FOUND);
+    .filter((line) => line.startsWith("- ") && line !== NOTHING_FOUND)
+    .map(unbracketed);
   const kept = [];
   let used = 0;
   for (const line of lines) {
@@ -66,6 +73,11 @@ export function briefOf(answer) {
     used += line.length + 1;
   }
   return kept.join("\n");
+}
+
+/** A finding whose urgency came bracketed ("- [today] x") as the look reads every finding: "- today · x". */
+function unbracketed(line) {
+  return line.replace(/^- \[\s*(today|tomorrow|this week|later)\s*\]\s*(?:·\s*)?/i, "- $1 · ");
 }
 
 /** What the look is told of the brief, beside what changed; "" for an empty brief. */
@@ -117,7 +129,7 @@ export default async function checkinResearch(input, io) {
   const lines = brief === "" ? [] : brief.split("\n");
   return {
     findings: lines.length,
-    urgent: lines.filter((line) => /^- \[(?:today|tomorrow)\]/i.test(line)).length,
+    urgent: lines.filter((line) => URGENT.test(line)).length,
     calls: Array.isArray(turn?.steps) ? turn.steps.length : 0,
     model: turn?.model ?? setup.model,
     brief,
