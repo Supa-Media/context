@@ -1,11 +1,14 @@
 /**
  * The test chat dock's height, set by dragging the grip on its top edge (Lab live sandbox mockup, Dev2 2026-11-16):
- * between 120px and the canvas's space less 120px, remembered in this browser.
+ * between 120px and the canvas's space less the canvas's 200px minimum (`.archcv`, `labCss4.ts`), remembered in this
+ * browser. The stylesheet caps it the same way and lets it shrink with the window (`labCssDock.ts`).
  */
 import { useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
 const KEY = "texLab.dockH";
 export const DOCK_MIN = 120;
+/** The canvas's own minimum height above the dock: `.archcv`'s `min-height` in `labCss4.ts`. */
+export const CANVAS_MIN = 200;
 
 function saved(): number | null {
   try {
@@ -27,7 +30,7 @@ export function useDockHeight() {
       const dock = e.currentTarget.parentElement;
       if (!dock || dock.classList.contains("min")) return;
       const room = dock.parentElement?.getBoundingClientRect().height ?? 0;
-      st.current = { y: e.clientY, h: dock.getBoundingClientRect().height, max: Math.max(DOCK_MIN, room - DOCK_MIN) };
+      st.current = { y: e.clientY, h: dock.getBoundingClientRect().height, max: Math.max(DOCK_MIN, room - CANVAS_MIN) };
       setDrag(true);
       e.currentTarget.setPointerCapture?.(e.pointerId);
     },

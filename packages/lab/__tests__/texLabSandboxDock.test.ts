@@ -327,7 +327,7 @@ describe("the test chat dock", () => {
     }
   });
 
-  test("the grip makes the dock taller, between 120px and the canvas less 120px, and it is remembered", async () => {
+  test("the grip makes the dock taller, between 120px and the canvas less its own 200px minimum, and it is remembered", async () => {
     await mount();
     const rect = jest.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const height = this.classList.contains("archsplit") ? 800 : this.id === "sandbox" ? 300 : 0;
@@ -339,9 +339,10 @@ describe("the test chat dock", () => {
       act(() => void grip.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientY: 300 })));
       expect(q("#sandbox")?.style.height).toBe("500px");
       act(() => void grip.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientY: -900 })));
-      expect(q("#sandbox")?.style.height).toBe("680px");
+      // 800px of room less the canvas's 200px minimum (`.archcv`): the dock never pushes the canvas past its floor.
+      expect(q("#sandbox")?.style.height).toBe("600px");
       act(() => void grip.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })));
-      expect(localStorage.getItem("texLab.dockH")).toBe("680");
+      expect(localStorage.getItem("texLab.dockH")).toBe("600");
     } finally {
       rect.mockRestore();
     }
