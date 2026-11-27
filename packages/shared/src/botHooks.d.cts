@@ -7,6 +7,8 @@ export interface HookPayload {
   from: string;
   area?: string;
   note?: string;
+  /** Where the answer goes: the mail note, or a routine's area mail (or the setup check's note). */
+  answer_in?: string;
   at?: number;
 }
 

@@ -167,6 +167,20 @@ keeps its notes there and knows what its modes ask of it.
      through a long list it was handed once. Test:
      `apps/mcp/test/botLogins.test.mjs` "setup_bot binds, mails the check and
      answers with every step left".
+  5. **A routine is passed on exactly like mail** (Dev, 2026-11-27: "Mail
+     also comes through a webhook", after the Capabilities bot's relay, an
+     older text that named only mail, read a routine wake and dropped it).
+     The relay stays a pure relay: `RELAY_PROMPT` says mail and routines go
+     to the main chat the same way, with the payload's job line. Every call
+     says that job in so many words and where the answer goes (`answer_in`:
+     the mail note, or for a routine `<area>/mail/<bot>.md`;
+     `botHooks.cjs`). And for a bot reached by webhook, `setup_bot` sends its
+     check as a test routine (`/gateway/bots/hook` `routine: true`, which
+     names only that bot's own check note) instead of asking for an answer
+     from the setup reply, so the check passes only when a routine wake
+     reached the main chat and got done. Tests: `botLogins.test.mjs`
+     "setup_bot binds", `apps/convex/__tests__/botHooks.test.ts` "the
+     agents' door".
      A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.

@@ -118,11 +118,12 @@ describe("a bot's webhook", () => {
     const at = call.headers.get("x-context-timestamp")!;
     expect(call.headers.get("x-context-signature")).toBe(`v1=${await signHook(KEY, at, call.body)}`);
     const body = JSON.parse(call.body);
-    expect(Object.keys(body).sort()).toEqual(["area", "at", "bot", "from", "instructions", "note", "type", "workspace"]);
+    expect(Object.keys(body).sort()).toEqual(["answer_in", "area", "at", "bot", "from", "instructions", "note", "type", "workspace"]);
     expect(body).toMatchObject({ type: "mail", workspace: "@supa-bots", bot: "finance", from: "@kim", area: "areas/finance", note: "areas/finance/mail/kim.md" });
     // Dev, 2026-11-26: the run that gets a call only relays to the bot's main chat, which answers in the note.
     expect(body.instructions).toContain(RELAY_PROMPT);
     expect(body.instructions).toContain('fetch { context: "@supa-bots", id: "areas/finance/mail/kim.md", args: { mail: true } }');
+    expect(body.answer_in).toBe("areas/finance/mail/kim.md");
     const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
     expect(audit.some((event) => event.action === "bot_hook.called")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("s3cret-path");
@@ -151,6 +152,11 @@ describe("a bot's webhook", () => {
     expect(sent).toMatchObject({ type: "routine", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context" });
     expect(sent.instructions).toContain('id: "areas/finance/routines/weekly/close.md"');
     expect(sent.instructions).toContain(RELAY_PROMPT);
+    // A routine is work, not mail, and the call says where its answer goes (the Capabilities bot, 2026-11-27: a routine
+    // wake read as mail with nothing to answer was dropped).
+    expect(sent.answer_in).toBe("areas/finance/mail/finance.md");
+    expect(sent.instructions).toContain("this is a routine, not mail");
+    expect(sent.instructions).toContain('path: "areas/finance/mail/finance.md"');
     // A routine type naming a mail note, mail naming a routine note, or a path that climbs out: nobody is called.
     for (const odd of [
       { note: "areas/finance/mail/kim.md" },
@@ -212,6 +218,14 @@ describe("a bot's webhook", () => {
     expect(seen).toHaveLength(1);
     const body = JSON.parse(seen[0]!.body);
     expect(body).toMatchObject({ type: "test", bot: "finance", workspace: "@supa-bots" });
+    // Setup's test routine (`setup_bot`): a real routine wake whose job is the bot's own setup check, and only that note,
+    // whatever path the caller sends along.
+    expect(await (await door(ANA, { action: "test", bot: "Finance", routine: true, note: "areas/other/secret.md" })).json()).toEqual({ ok: true, status: 200 });
+    const routine = JSON.parse(seen[1]!.body);
+    expect(routine).toMatchObject({ type: "routine", bot: "finance", from: "context", area: "bots/finance", note: "bots/finance/mail/context.md", answer_in: "bots/finance/mail/context.md" });
+    expect(routine.instructions).toContain("this is a routine, not mail");
+    expect(await (await door(KIM, { action: "test", bot: "Finance", routine: true })).json()).toEqual({ error: expect.stringContaining("owner or editor") });
+    expect(seen).toHaveLength(2);
 
     const answers = JSON.stringify([saved, listed]);
     expect(answers).not.toMatch(/s3cret|grok-abc|ctxbot_/);
