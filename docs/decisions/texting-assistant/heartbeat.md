@@ -102,7 +102,7 @@ opened a real check-in with "[check-in]", so the marker is no longer taught
 field rather than `[today]`, and the Claim checks send back, once a turn, a
 draft with a line that opens with a bracketed tag no step reads, or naming a
 guest's `guest-1a2b` key (`labelCheck.js`; replay case
-`checkin-no-label-tag`). Simplifying this back to a text marker costs the same
+`checkin-runs-the-graph`). Simplifying this back to a text marker costs the same
 leak: the replay case and `labelCheck.test.mjs` fail. The texting
 Worker's inbox keeps, per Sendblue chat, the `message_handle` of the last
 thirty texts (the person's, and Tex's own, read from Sendblue's send response)

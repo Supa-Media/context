@@ -1,7 +1,7 @@
 /**
  * A draft that would show the person an internal label goes back once, as a fact (`labelCheck.js`; 2026-11-27: a real
  * check-in went out as "[check-in] Two things to check…", and guest keys like guest-66ef reached five chats).
- * Sabotage: make `labelNotice` return null and the replay case `checkin-no-label-tag` fails with these.
+ * Sabotage: make `labelNotice` return null and the replay case `checkin-runs-the-graph` fails with these.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
