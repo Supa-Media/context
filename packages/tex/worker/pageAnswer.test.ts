@@ -26,7 +26,7 @@ async function chatWithAsk(): Promise<MemoryStorage> {
   const hi: Message = { kind: "message", eventId: "e1", chatId: CHAT, from: PHONE, messageId: "m1", text: "write Jo back" };
   await accept(storage, hi, 1_000);
   for (const key of (await storage.list({ prefix: "pending:" })).keys()) await storage.delete(key);
-  await rememberAskReply(storage, [ASK], 2_000);
+  await rememberAskReply(storage, [ASK], 2_000, ASK);
   return storage;
 }
 

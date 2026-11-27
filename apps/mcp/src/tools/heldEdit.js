@@ -72,7 +72,9 @@ async function revise(store, id, { userId, body, now }) {
   const detail = emailCopy({ ...email, from }, null, []);
   if (detail.length > TEXTED_COPY_CAP) return { ok: false, why: "too_long" };
 
-  const next = { ...record, args, key: callKey(EMAIL_TOOL, args), detail, edited_at: now };
+  // The text the ask went out as no longer holds this copy, so it is dropped: a 👍 now answers the copy itself (`textedApprovals.js`).
+  const { shown_text: _shown, ...kept } = record;
+  const next = { ...kept, args, key: callKey(EMAIL_TOOL, args), detail, edited_at: now };
   // Written only if the ask is still the version read: a yes or another edit that landed first is not overwritten.
   const written = await store.put(key, JSON.stringify(next), { onlyIf: { etagMatches: etag } });
   if (!written) return { ok: false, why: "conflict" };

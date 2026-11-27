@@ -2,7 +2,7 @@
  * A held email or calendar change carries the clock of each stage it took
  * (`stages`), so a slow held call can be read off the turn's trace
  * (`turnTiming.js`). The forward email's read starts with the Mail checker,
- * before the control plane's check, and the held text stays as it was.
+ * before the control plane's check, and the held facts stay as they were.
  *
  * Sabotage: move the forward read back after `store.email.check` (the
  * `readForward` call below the room check) → "the forward read starts before
@@ -16,10 +16,16 @@ import { calendarGate } from "../src/tools/calendarGate.js";
 import { REFUSED } from "../src/tools/email.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
-const HELD_TEXT =
-  "Held for their 👍, and nothing failed: right after your answer they are texted this exact email and asked " +
-  "for their 👍, and it sends then. Say in one short line what you drafted. Don't repeat the email, don't give " +
-  "them a copy to send themselves, and don't call send_email again in this turn.";
+/** A held call answers the model with facts, never words for Tex to say (`heldFacts.js`, 2026-11-27): here, the copy whole. */
+const HELD_FACTS = {
+  held: true,
+  done: false,
+  ok_from: "the person texting",
+  ok_by: ["👍", "yes"],
+  what: 'send an email to jo@example.com, "Fwd"',
+  copy: 'From: me@example.com\nTo: jo@example.com\nSubject: Fwd\n\nPassing this on.\n\n(Below this goes the forwarded email from Jo <jo@example.com>, "Thursday", it has no attachments.)',
+  copy_shown_whole: "required",
+};
 
 const FORWARD = { to: ["jo@example.com"], subject: "Fwd", body: "Passing this on.", forward: "email:me@example.com/Msg_1" };
 
@@ -52,7 +58,7 @@ test("a held forward starts its read before the room check answers, and keeps it
   const result = await emailGate(FORWARD, { store, session, target: { workspaceId: "ws_1" } });
   assert.equal(result?.held, true);
   assert.equal(result.isError, true);
-  assert.equal(result.content[0].text, HELD_TEXT);
+  assert.deepEqual(JSON.parse(result.content[0].text), HELD_FACTS);
   assert.deepEqual(events.find((e) => e.read === "asked"), { read: "asked", address: "me@example.com", messageId: "Msg_1" });
   assert.equal(events.find((e) => e.check === "answered")?.readBefore, true, "the forward read starts before the room check answers");
   for (const key of ["checker", "check", "read", "pending"]) assert.ok(isSettled(result.stages?.[key]), `stages.${key} is a whole, non-negative number`);

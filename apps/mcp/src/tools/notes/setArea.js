@@ -241,7 +241,6 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const whose = bot.whose === undefined ? undefined : String(bot.whose).trim();
     if (whose !== undefined && whose !== "" && !/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(whose)) return toolError("invalid: bot.whose is the @handle of the person it belongs to. Pass it like @seyi.");
     const card = [["holder", name], ["kind", "agent"], ["bot", kind]];
-    if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
     // Its logo, stored in the workspace by the write itself: `avatar:` names it, as a page's photo: does (`uploadedImages.js`).
     let images;
@@ -266,6 +265,27 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const paths = botCardPaths(root, name);
     const found = await factProps(store, paths);
     const cardAt = paths.slice(1).find((path) => found?.get(path)?.props) ?? paths[0];
+    /*
+      WHOSE BOT IT IS IS NOT ANOTHER EDITOR'S TO SAY (2026-11-27). `bind_bot` binds a card to the connection the card
+      names, and to nobody else's (`botBind.js`): what that connection writes is signed by the bot, and its reads say
+      the bot. So `belongs_to` on a card already here is the owner's line, or the line of the person it names, who may
+      clear it or hand the bot on. An editor who could rewrite it on somebody else's card would bind their bot, and a
+      card that names nobody is an owner's to bind, so claiming one is an owner's too. A card this call makes says
+      whom it was made for.
+    */
+    const already = found?.get(cardAt)?.props?.properties ?? null;
+    if (whose !== undefined && already !== null) {
+      const named = typeof already.belongs_to === "string" ? already.belongs_to.trim().toLowerCase() : "";
+      const me = typeof store.actor?.name === "string" ? store.actor.name.trim().toLowerCase() : "";
+      if (store.actor?.role !== "owner" && !(named !== "" && named === me)) {
+        return toolError(
+          named === ""
+            ? `refused: ${name}'s card is already here and names nobody, so only an owner of this workspace says whose bot it is. Ask an owner to set belongs_to.`
+            : `refused: ${name} is ${already.belongs_to}'s bot, so only they or an owner change that. Ask one of them, then try again.`,
+        );
+      }
+    }
+    if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     // A cards folder inside the Areas folder says `area: false`, so it is never drawn as an area; the one beside it needs none.
     if (cardAt !== paths[0]) {
       const cardsFolder = cardAt.slice(0, cardAt === paths[1] ? -`/${cardSlug(name)}/about.md`.length : -`/${cardSlug(name)}.md`.length);

@@ -402,7 +402,7 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     assert.equal(asked.body?.route?.fellBack, null);
     assert.equal(asked.body?.route?.pick, "act");
     const replies = toolReplies(model.requests.at(-1));
-    assert.match(replies[0] ?? "", /Held for their 👍/, "the claim waits for the person");
+    assert.match(replies[0] ?? "", /"held":true/, "the claim waits for the person");
     assert.equal(claimed("woodshop"), false, "nothing was claimed");
     assert.equal(pending().length, 1, "the held call is waiting");
   } finally {

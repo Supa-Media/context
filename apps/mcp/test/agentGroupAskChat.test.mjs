@@ -81,7 +81,7 @@ async function held(token, from, key = KEY) {
   const email = { ...EMAIL, subject: `Thursday ${drafts}` };
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: email } }] }, verdict("yes"), { text: "Drafted it for Jo." }]);
   const asked = await tagged(token, "Tex email Jo that it's Thursday at 7 at Bo's", from, key);
-  assert.match(asked.body?.answer ?? "", new RegExp(`@${from}, give it a 👍`));
+  assert.match(asked.body?.answer ?? "", new RegExp(`Subject: Thursday ${drafts}`), "the email is shown whole");
   assert.equal(live().length, 1);
 }
 
@@ -160,7 +160,7 @@ test("a turn that holds Ada's email and asks Cy something drops Cy's ask and kee
   const email = { ...EMAIL, to: ["bo@example.com"], subject: "Ada's" };
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: email } }] }, verdict("yes"), { text: "Drafted it for Bo. @cy, are you in for 8?" }]);
   const asked = await tagged(TOKEN_ADA, "Tex email Bo that we're coming at 8", "ada");
-  assert.match(asked.body?.answer ?? "", /@ada, give it a 👍/);
+  assert.match(asked.body?.answer ?? "", /Subject: Ada's/, "her email is shown whole");
   assert.equal(live().length, 1);
   assert.ok(!cys.includes(live()[0]), "Cy's ask is the one dropped");
   assert.deepEqual(await yes(TOKEN_ADA, "ada"), { sent: 1, model: false });
@@ -250,7 +250,7 @@ test("an ask shown again in a reply that asks something stays armed, in that cha
   });
   await armForText(store, { userId: "user_a", ids: [record.id], chat: KEY });
   const { ask } = await textedAsk(store, { actorUserId: "user_a" }, [record], "Still want this one?", { who: "ada", chat: KEY });
-  assert.match(ask ?? "", /@ada, give it a 👍/);
+  assert.equal(ask, "Still want this one?\n\nemail Jo", "Tex's words, then what it holds");
   const armed = (await listPending(store, { userId: "user_a", texting: true, chat: KEY })).map(({ record: kept }) => kept.id);
   assert.deepEqual(armed, [record.id]);
 });

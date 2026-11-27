@@ -48,7 +48,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "@context/lab/app/TexLab.web";
-import { G, go, set, lab, node, MAIN, clone } from "@context/lab/app/engine/state";
+import { G, edit, go, set, lab, node, MAIN, clone } from "@context/lab/app/engine/state";
 import { mods } from "@context/lab/app/engine/modules";
 
 const roots: (() => void)[] = [];
@@ -105,7 +105,6 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a step's panel shows its name, its reads stack, and says when its reads run in another order than listed", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
-    click("#nMore");
 
     expect(q("#props")?.hidden).toBe(false);
     expect((q("#nLabel") as HTMLInputElement).value).toBe("Front door");
@@ -122,10 +121,49 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(q("#stack .cutline")).not.toBeNull();
   });
 
+  test("the goal is the first thing under the step's name, read as text and edited in place", () => {
+    mount();
+    act(() => set({ sel: { t: "node", id: "fd" } }));
+    const goal = node("fd")!.goal!;
+    expect(goal).toBeTruthy();
+    // Right after the name row, before the facts line, the card switch and every setting (Dev, 2026-11-26).
+    const order = [...q("#props .insbd")!.children].map((el) => el.id || el.className);
+    expect(order.indexOf("nGoalText")).toBe(order.indexOf("ph") + 1);
+    expect(q("#nGoalText")?.textContent).toBe(goal);
+    expect(q("#nGoal")).toBeNull();
+
+    // Esc leaves it as it was.
+    click("#nGoalText");
+    const box = q("#nGoal") as HTMLTextAreaElement;
+    expect(box.value).toBe(goal);
+    act(() => {
+      box.value = "Thrown away";
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(q("#nGoal")).toBeNull();
+    expect(node("fd")!.goal).toBe(goal);
+
+    // Leaving the box saves it.
+    click("#nGoalText");
+    const box2 = q("#nGoal") as HTMLTextAreaElement;
+    act(() => {
+      box2.value = "  Answers every text first.  ";
+      box2.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(node("fd")!.goal).toBe("Answers every text first.");
+    expect(q("#nGoalText")?.textContent).toContain("Answers every text first.");
+  });
+
+  test("a step with no goal says what one is for", () => {
+    mount();
+    act(() => edit(() => void (node("fd")!.goal = "")));
+    act(() => set({ sel: { t: "node", id: "fd" } }));
+    expect(q("#nGoalText.empty")?.textContent).toBe("Add a goal: why this step exists, and what breaks without it.");
+  });
+
   test("editing the step's name forks main and changes the step", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
-    click("#nMore");
 
     commit("#nLabel", "Door 2");
 
@@ -137,7 +175,6 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("the down arrow swaps the first two reads", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
-    click("#nMore");
     const before = [...node("fd")!.ctx];
 
     click('[data-dn="0"]');
@@ -149,7 +186,6 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("the remove button takes the first read out", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
-    click("#nMore");
     const before = [...node("fd")!.ctx];
 
     click('[data-rm="0"]');
@@ -160,9 +196,8 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a model that answers typed questions only sets a one-question schema and hides the free text switch", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "mail" } }));
-    click("#nMore");
 
-    click('#nModel [data-v="clef"]');
+    commit("#setModel", "clef");
 
     expect(node("mail")!.model).toBe("clef");
     expect(node("mail")!.outSchema).toEqual([{ name: "answer", type: "choice", options: "yes, no, unsure" }]);
@@ -172,7 +207,6 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a custom model is added, used, edited and deleted", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
-    click("#nMore");
 
     click("#mNewModel");
     const name = q("#mfName") as HTMLInputElement;
@@ -186,10 +220,10 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(G().models![key].name).toBe("Kimi K2");
     expect(node("fd")!.model).toBe(key);
 
-    click('#nModel [data-v="haiku-5-5"]');
+    commit("#setModel", "haiku-5-5");
     expect(q("#mEditModel")).toBeNull();
 
-    click(`#nModel [data-v="${key}"]`);
+    commit("#setModel", key);
     click("#mEditModel");
     expect(q("#mfDel")).not.toBeNull();
 

@@ -49,7 +49,7 @@ import { turnFailed } from "./groupTurnFailed";
 export { turnFailed };
 import { SEEN_FOR_MS } from "./replayWindow";
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
-import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
+import { ASK_KEY, isAsker, isItForTexInGroup, openAskWords, type OpenAsk } from "./isItForTex";
 import { ServiceError, type Fetch } from "./clients";
 import { reportRoutineResult, type RoutineOutcome } from "./routineClients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
@@ -65,7 +65,7 @@ import type { InboundAttachment } from "./inbound";
 import { groupReviewSharing } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { keepSentStickers, keepSticker } from "./stickers";
-import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
+import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, isAnswerTap, onMachineAsk, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
@@ -349,16 +349,17 @@ async function acceptReaction(storage: InboxStorage, message: GroupMessage, came
     log("reaction_removed");
     return { kind: "done", outcome: "ignored" };
   }
-  // The ask's own words are checked by `holdsAsAnswer`, and again by the gateway against what is held. An ask to run
+  // On the open ask's own text (`holdsAsAnswer`), checked again by the gateway against what is held. An ask to run
   // a job on someone's computer waits on its owner, not the asker: anyone's goes, and the gateway takes only the owner's.
-  if ((asker || (onTex && onMachineAsk(reaction))) && holdsAsAnswer(reaction)) {
+  const onTheOpenAsk = holdsAsAnswer(reaction, await openAskWords(storage, now));
+  if ((asker && onTheOpenAsk) || (onTex && onMachineAsk(reaction) && isAnswerTap(reaction))) {
     await logGroupInbound(storage, { ...message, text: line }, now);
     await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
     log("reaction_ask");
     return { kind: "done", outcome: "queued" };
   }
   // Somebody else's on the ask that is held for the asker is a line of the chat, never an answer.
-  const answersTex = onTex && answers(reaction) && !holdsAsAnswer(reaction);
+  const answersTex = onTex && answers(reaction) && !onTheOpenAsk;
   log(answersTex ? "reaction_answer" : "reaction_context");
   return { kind: "line", line };
 }

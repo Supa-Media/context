@@ -25,7 +25,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendPart } from "./outgoing";
 import { ourCardUrl, pickedText } from "./pickCard";
 import type { Message } from "./reply";
-import { isAsk, keptAsk } from "./thumbs";
+import { keptAsk } from "./thumbs";
 
 /** When a card of ours last came from this inbox's person. */
 const HERE_KEY = "cards:app";
@@ -99,8 +99,14 @@ export function askCard(ask: string, config: AppCardConfig): AppCard {
   };
 }
 
-/** The ask card after a reply that carries an ask, where cards go. */
-export function withAskCard(parts: SendPart[], texts: readonly string[], config: AppCardConfig | null | undefined): SendPart[] {
-  const ask = texts.find(isAsk);
+/** Whether a text is the reply's ask: the text the gateway armed, as it sent it (`thumbs.ts`). */
+export function isTheAsk(text: string, ask: string | undefined): boolean {
+  return typeof ask === "string" && ask.trim() !== "" && text.trim() === ask.trim();
+}
+
+/** The ask card after a reply that carries an ask (`ask`, the text the gateway armed), where cards go. */
+export function withAskCard(parts: SendPart[], texts: readonly string[], config: AppCardConfig | null | undefined, asked?: string): SendPart[] {
+  // The ask as one of the texts it went in; a long one split across texts is still the ask the gateway armed.
+  const ask = typeof asked === "string" && asked.trim() !== "" ? (texts.find((text) => isTheAsk(text, asked)) ?? asked) : undefined;
   return ask !== undefined && cardsOn(config) ? [...parts, { card: askCard(ask, config) }] : parts;
 }

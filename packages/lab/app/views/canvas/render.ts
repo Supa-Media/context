@@ -16,13 +16,12 @@ import type { GroupDefs } from "../../engine/groups";
 import type { LabEdge, LabGraph, LabNode, Selection } from "../../types";
 import { CARD_DX, CARD_DY, CARD_H, CARD_W, groupCardHtml } from "./groupCard";
 
-export const W = 180;
-export const H = 64;
+import { H, W, wireBows, wirePath, type Pt } from "./wires";
+export { H, W, wireBows, wirePath, type Pt, type WireBow } from "./wires";
 
 export type Cam = { x: number; y: number; k: number };
 export type Rect = { width: number; height: number };
 export type Bounds = { x0: number; x1: number; y0: number; y1: number };
-export type Pt = { x: number; y: number };
 
 const ESC: Record<string, string> = {
   "&": "&amp;",
@@ -32,42 +31,6 @@ const ESC: Record<string, string> = {
 };
 export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ESC[c]);
-
-export function wirePath(
-  a: Pt & { x: number; y: number },
-  b: Pt,
-  mode: string,
-  /** How wide each end is: a step's box, or a group's wider card given with its x at the card's left edge. */
-  aw = W,
-  bw = W,
-): { d: string; lx?: number; ly?: number } {
-  if (mode === "loop") {
-    const bot = Math.max(a.y, b.y) + H + 70;
-    return {
-      d: `M${a.x + W / 2},${a.y + H} C${a.x + W / 2},${bot} ${b.x + W / 2},${bot} ${b.x + W / 2},${b.y + H}`,
-      lx: (a.x + b.x + W) / 2,
-      ly: bot - 12,
-    };
-  }
-  let x1 = a.x + aw,
-    y1 = a.y + H / 2,
-    x2 = b.x,
-    y2 = b.y + H / 2;
-  if (Math.abs(a.x - b.x) < W) {
-    x1 = a.x + aw / 2;
-    x2 = b.x + bw / 2;
-    y1 = b.y > a.y ? a.y + H : a.y;
-    y2 = b.y > a.y ? b.y : b.y + H;
-    const my = (y1 + y2) / 2;
-    return { d: `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}` };
-  }
-  if (b.x + bw <= a.x) {
-    x1 = a.x;
-    x2 = b.x + bw;
-  }
-  const mx = (x1 + x2) / 2;
-  return { d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}` };
-}
 
 export function wireIconHtml(mode: string): string {
   const w = WIRES[mode];
@@ -243,6 +206,21 @@ export function renderGraphHtml(
     .join(
       "",
     )}<marker id="m-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1L9,5L0,9z" fill="var(--accent)"/></marker></defs>`;
+  // Wires drawn between the same two ends bow apart (`wireBows`); only the wires this view draws count.
+  const drawn = (e: LabEdge) => {
+    const a = node(e.from, g),
+      b = node(e.to, g);
+    return !!a && !!b && !(only && !(only.has(a.id) && only.has(b.id))) && !tucked.has(a.id) && !tucked.has(b.id);
+  };
+  const bows = wireBows(
+    g.edges.map((e: LabEdge) => (drawn(e) ? e : { ...e, mode: "loop" })),
+    (id) => {
+      const n = node(id, g);
+      if (!n || tucked.has(id) || (only && !only.has(id))) return null;
+      const at = end(n);
+      return { x: at.at.x, y: at.at.y, w: at.w, h: H };
+    },
+  );
   g.edges.forEach((e: LabEdge, i: number) => {
     const a = node(e.from, g);
     const b = node(e.to, g);
@@ -254,7 +232,7 @@ export function renderGraphHtml(
     const s = sel?.t === "edge" && sel.i === i;
     const ea = end(a),
       eb = end(b);
-    const p = wirePath(ea.at, eb.at, e.mode, ea.w, eb.w);
+    const p = wirePath(ea.at, eb.at, e.mode, ea.w, eb.w, bows.get(i));
     const wm = marks && marks.newWires.has(wireKey(e)) ? " wnew" : "";
     h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}${wm}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
     h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(wireName(e, WIRES) + ": " + a.label + " → " + b.label)}</title></path>`;

@@ -18,6 +18,41 @@ Answers from a real bench round, kept so the judge can be graded against a perso
 
 ## Answers
 
+### 1. Email Puttery in the thread asking if we can bring a cake on Saturday
+
+as Lena, task
+
+#### canyon-satin-grain-lark
+
+**Person:** can you email puttery in the thread asking if we can bring a cake on saturday
+
+**Assistant:** Here's the email I'd send:
+
+From: lena@example.invalid
+To: events@puttery.example
+Subject: Re: Your booking: Saturday November 14, 7:00 pm, party of 6
+(A reply inside the existing email thread.)
+
+Hi, quick question on booking PR-4471. Is it okay if we bring a cake for Saturday? Thanks, Lena
+
+Give it a 👍 and I'll send it.
+
+**Person:** YES
+
+**Assistant:** Done, I sent an email to events@puttery.example, "Re: Your booking: Saturday November 14, 7:00 pm, party of 6".
+
+Tools: search_email, read_email, send_email (held for OK), search_email, read_email, send_email (held for OK)
+
+Mail: mail search "puttery": 1 found | mail read 19b2putt0001
+
+Emails: [{"to":["events@puttery.example"],"cc":[],"subject":"Re: Your booking: Saturday November 14, 7:00 pm, party of 6","replyTo":"19b2putt0001","body":"Hi, quick question on booking PR-4471. Is it okay if we bring a cake for Saturday? Thanks, Lena","draft":false}]
+
+Rounds: [{"used":4,"of":24}]
+
+Steps: tools search_email ok, read_email ok, send_email email held | outcome: replied
+
+Time 7.9 s, $0.0035, 2 texts
+
 ### 2. Tell my landlord which plumber slot works
 as Lena, task
 
@@ -59,6 +94,152 @@ Steps: tools search_email ok, search_notes ok, read_email ok, read_calendar ok, 
 
 Time 12.0 s, $0.0037, 2 texts
 
+#### bramble-camp-prairie-maple
+
+**Person:** reply to my landlord about the plumber, pick whichever slot works with my calendar
+
+**Assistant:** Monday the 16th at 2 pm, since your dentist is 10 to 11. Draft's ready, 👍 to send.
+
+Here's the email I'd send:
+
+From: lena@example.invalid
+To: martin.kell@example.invalid
+Subject: Re: Plumber for the kitchen sink
+(A reply inside the existing email thread.)
+
+Hi Martin,
+
+Monday the 16th at 2 pm works for me. I'll be home to let him in.
+
+Thanks,
+Lena
+
+Give it a 👍 and I'll send it.
+
+**Person:** YES
+
+**Assistant:** Done, I sent an email to martin.kell@example.invalid, "Re: Plumber for the kitchen sink".
+
+Tools: search_email, read_calendar, read_email, send_email (held for OK), search_email, read_calendar, read_email, send_email (held for OK)
+
+Mail: mail search "plumber landlord": 1 found | mail read 19b2land0002
+
+Emails: [{"to":["martin.kell@example.invalid"],"cc":[],"subject":"Re: Plumber for the kitchen sink","replyTo":"19b2land0002","body":"Hi Martin, Monday the 16th at 2 pm works for me. I'll be home to let him in. Thanks, Lena","draft":false}]
+
+Rounds: [{"used":4,"of":24}]
+
+Steps: tools search_email ok, read_calendar ok, read_email ok, send_email email held | outcome: replied
+
+Time 11.3 s, $0.0041, 2 texts
+
+#### poppy-fig-pine-petal
+
+**Person:** reply to my landlord about the plumber, pick whichever slot works with my calendar
+
+**Assistant:** Dentist's at 10 that Monday, so I took 2 pm. Reply to Martin's ready: "2 pm on Monday the 16th works, I'll be home to let him in." 👍 to send it.
+
+Here's the email I'd send:
+
+From: lena@example.invalid
+To: martin.kell@example.invalid
+Subject: Re: Plumber for the kitchen sink
+(A reply inside the existing email thread.)
+
+Hi Martin,
+
+2 pm on Monday the 16th works for me. I'll be home to let him in.
+
+Thanks,
+Lena
+
+Give it a 👍 and I'll send it.
+
+**Person:** YES
+
+**Assistant:** Done, I sent an email to martin.kell@example.invalid, "Re: Plumber for the kitchen sink".
+
+Tools: search_notes, search_email, read_calendar, read_email, send_email (held for OK), search_notes, search_email, read_calendar, read_email, send_email (held for OK)
+
+Mail: mail search "plumber": 1 found | mail read 19b2land0002
+
+Emails: [{"to":["martin.kell@example.invalid"],"cc":[],"subject":"Re: Plumber for the kitchen sink","replyTo":"19b2land0002","body":"Hi Martin, 2 pm on Monday the 16th works for me. I'll be home to let him in. Thanks, Lena","draft":false}]
+
+Rounds: [{"used":4,"of":24}]
+
+Steps: tools search_notes ok, search_email ok, read_calendar ok, read_email ok, send_email email held | outcome: replied
+
+Time 11.3 s, $0.0041, 2 texts
+
+### 3. Forward the CloudNine statement to the accountant
+
+as Lena, task
+
+#### anchor-marsh-acorn-seal
+
+**Person:** forward my cloudnine october statement to accounts@ledgerly.example
+
+**Assistant:** found it: the October statement, 9.99 USD. ready to forward to accounts@ledgerly.example. tap 👍 to send.
+
+Here's the email I'd send:
+
+From: lena@example.invalid
+To: accounts@ledgerly.example
+Subject: Fwd: Your CloudNine statement for October 2026
+
+Forwarding my CloudNine statement for October 2026.
+
+(Below this goes the forwarded email from CloudNine Storage <billing@cloudnine.example>, "Your CloudNine statement for October 2026", it has no attachments.)
+
+Give it a 👍 and I'll send it.
+
+**Person:** YES
+
+**Assistant:** Done, I sent an email to accounts@ledgerly.example, "Fwd: Your CloudNine statement for October 2026".
+
+Tools: search_email, send_email (held for OK), search_email, send_email (held for OK)
+
+Mail: mail search "CloudNine October statement": 1 found | mail search "{CloudNine October statement}": 1 found | mail read 19b2invo0003
+
+Emails: [{"to":["accounts@ledgerly.example"],"cc":[],"subject":"Fwd: Your CloudNine statement for October 2026","forward":"19b2invo0003","body":"Forwarding my CloudNine statement for October 2026.","draft":false}]
+
+Rounds: [{"used":3,"of":24}]
+
+Steps: tools search_email ok, send_email email held | outcome: replied
+
+Time 6.3 s, $0.0026, 2 texts
+
+#### pigeon-pepper-walnut-snow
+
+**Person:** forward my cloudnine october statement to accounts@ledgerly.example
+
+**Assistant:** Here's the email I'd send:
+
+From: lena@example.invalid
+To: accounts@ledgerly.example
+Subject: Fwd: Your CloudNine statement for October 2026
+
+Forwarding CloudNine's October 2026 statement.
+
+(Below this goes the forwarded email from CloudNine Storage <billing@cloudnine.example>, "Your CloudNine statement for October 2026", it has no attachments.)
+
+Give it a 👍 and I'll send it.
+
+**Person:** YES
+
+**Assistant:** Done, I sent an email to accounts@ledgerly.example, "Fwd: Your CloudNine statement for October 2026".
+
+Tools: search_email, send_email (held for OK), search_email, send_email (held for OK)
+
+Mail: mail search "Cloudnine October statement": 1 found | mail search "{Cloudnine October statement}": 1 found | mail read 19b2invo0003
+
+Emails: [{"to":["accounts@ledgerly.example"],"cc":[],"subject":"Fwd: Your CloudNine statement for October 2026","forward":"19b2invo0003","body":"Forwarding CloudNine's October 2026 statement.","draft":false}]
+
+Rounds: [{"used":3,"of":24}]
+
+Steps: tools search_email ok, send_email email held | outcome: replied
+
+Time 6.7 s, $0.0027, 2 texts
+
 ### 4. Put Ines's housewarming on my calendar
 as Lena, task
 
@@ -83,6 +264,28 @@ Changes recorded:
 - create calendar/calendar: added "Ines's housewarming" at 2026-11-20T20:00:00-05:00
 
 Time 9.4 s, $0.0045, 1 text
+
+#### cocoa-nickel-candle-loom
+
+**Person:** put ines's housewarming on my calendar
+
+**Assistant:** Added Ines's housewarming, Friday November 20, 8 to 11 pm, at 14 Oak Street, flat 3. Her email said 8 pm, so I guessed the 11 pm end.
+
+Tools: search_notes, search_email, calendar_event (failed), calendar_event
+
+Mail: mail search "Ines housewarming": 1 found
+
+Rounds: [{"used":4,"of":24}]
+
+Steps: tools search_notes ok, search_email ok, calendar_event calendar failed, calendar_event calendar ok | outcome: replied
+
+Tool errors: send: Not changed: end is a time with its offset, like 2026-10-20T15:00:00-04:00, or a whole day, like 2026-10-20. The manual for calendar, so the next call gets it …
+
+Changes recorded:
+
+- create calendar/calendar: added "Ines's housewarming" at 2026-11-20T20:00:00-05:00
+
+Time 8.7 s, $0.0042, 1 text
 
 ### 7. What's on Monday
 as Lena, task
@@ -121,6 +324,33 @@ Changes recorded:
 - written lena/tex/routines/once/grab-envelopes-keys.md: --- at: 2026-11-12 2:30 pm --- Remind them to grab the envelopes and the keys.
 
 Time 3.4 s, $0.0020, 1 text
+
+### 10. Add my words to a note, word for word
+
+as Lena, task
+
+#### meadow-mist-zinc-elm
+
+**Person:** add this under day 2 in my spanish notes, word for word: ser is for what something is, estar is for how it is
+
+**Assistant:** Added under Day 2.
+
+https://app.bench.invalid/note/@lena/study/spanish.md?t=Spanish&k=0XShU8MIUR4ZtAy_QjMV6Q
+
+Tools: read_note, write_note
+
+Rounds: [{"used":3,"of":24}]
+
+Steps: tools read_note ok, write_note ok | outcome: replied
+
+Links: [{"workspace":"lena","from":"index.md","to":"spanish","line":"- [[spanish]]: The index describes Lena's Spanish study notes as part of her personal workspace.","isNew":true},{"workspace":"lena","from":"study/spanish.md","to":"index","line":"- [[index]]: The index describes Lena's Spanish study notes as part of her personal workspace.","isNew":true}]
+
+Changes recorded:
+
+- written lena/index.md: ## Connections - [[spanish]]: The index describes Lena's Spanish study notes as part of her personal workspace.
+- written lena/study/spanish.md: # Spanish ## Day 1 - Greetings: hola, buenos días, buenas noches. - Numbers one to ten. ## Day 2 - Present tense of regular -ar verbs: hablo, hablas, habla. - ser is for what something is, estar is for how it is ## Day 3 - Food words: pan, queso, manzana. ## Connections - [[index]]: The index descri
+
+Time 4.0 s, $0.0032, 1 text
 
 ### 11. Recall a fact from the notes
 as Lena, task
@@ -183,6 +413,37 @@ Steps: tools none | outcome: replied
 
 Time 12.9 s, $0.0041, 2 texts
 
+### 15. Draft it, don't send it
+
+as Lena, task
+
+#### focus-onyx-eagle-solar
+
+**Person:** draft an email to ines saying i can make the housewarming and i'll bring wine. don't send it yet, i want to read it first
+
+**Assistant:** Here's the email I'd send:
+
+From: lena@example.invalid
+To: ines@example.invalid
+Subject: Housewarming
+
+Hi Ines,
+
+I can make the housewarming, and I'll bring wine.
+
+See you there,
+Lena
+
+Give it a 👍 and I'll send it.
+
+Tools: search_notes, search_notes, send_email (held for OK)
+
+Rounds: [{"used":3,"of":24}]
+
+Steps: tools search_notes ok, search_notes ok, send_email email held | outcome: replied
+
+Time 6.0 s, $0.0028, 1 text
+
 ### 16. Check what the group chat said about dinner
 as Lena, task
 
@@ -201,3 +462,19 @@ Rounds: [{"used":3,"of":24}]
 Steps: tools group_chats ok, group_chats ok | outcome: replied
 
 Time 5.4 s, $0.0030, 1 text
+
+#### brick-air-nectar-zinc
+
+**Person:** can you check what the supper club chat said about dinner sunday? what time is it
+
+**Assistant:** It's 7:00 am on Thursday, November 12.
+
+In Supper Club, Omar said this morning that Sunday's at his place, starting at 7:30 instead of 7, and to bring your own drinks.
+
+Tools: group_chats, group_chats
+
+Rounds: [{"used":2,"of":24}]
+
+Steps: tools group_chats ok, group_chats ok | outcome: replied
+
+Time 3.7 s, $0.0019, 1 text

@@ -225,7 +225,8 @@ test("Tex offers a shared workspace for work with someone, and one texted YES ma
   const offer = await text("Lisa and I are starting a pottery stall at the market, can you note our supplier list");
   const system = JSON.stringify(model.requests[0]);
   assert.match(system, /done with at least one other person/);
-  assert.match(offer, /I need your OK: claim the handle @pottery-co .*and invite lisa@example\.com as an editor/);
+  // Tex's own words, then what the yes does, whole: no fixed ask line (2026-11-27, `textedApprovals.js` `withCopies`).
+  assert.match(offer, /^Since you run the pottery stall with Lisa.*\n\nclaim the handle @pottery-co .*and invite lisa@example\.com as an editor/s);
   assert.equal(controlPlane.workspaceSetupCalls.some((entry) => entry.slug === "pottery-co" && entry.dryRun === false), false);
 
   const yes = await text("YES");

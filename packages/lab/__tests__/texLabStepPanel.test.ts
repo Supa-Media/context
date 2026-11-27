@@ -201,9 +201,10 @@ describe("the step panel's cards", () => {
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardRun")!.getAttribute("aria-pressed")).toBe("true");
     const t = q("#props")!.textContent!;
-    // The status sits beside the step's name, as in the mockup.
-    expect(q("#props .ph .st.ok")?.textContent).toBe("Ran");
-    expect(q("#props .runhead .st")).toBeNull();
+    // The status sits on the line of facts under the goal.
+    expect(q("#props .runmeta .st.ok")?.textContent).toBe("Ran");
+    // The status sits once, on the line of facts under the goal.
+    expect(document.querySelectorAll("#props .st").length).toBe(1);
     expect(t).toContain("1.2k in");
     expect(t).toContain("$0.012");
     expect(t).toContain("Decided");
@@ -240,7 +241,7 @@ describe("the step panel's cards", () => {
     mount();
     ran();
     act(() => set({ sel: { t: "node", id: "triage" }, pin: true }));
-    expect(q("#props .ph .st.none")?.textContent).toBe("Didn't run");
+    expect(q("#props .runmeta .st.none")?.textContent).toBe("Didn't run");
     expect(q("#insFoot")?.textContent).toBe("Nothing logged for this text");
     expect(q("#props")!.textContent).toContain("Didn't run for this text, so there's nothing to show.");
     expect(q(".tabs")).toBeNull();
@@ -277,11 +278,12 @@ describe("the step panel's cards", () => {
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardDot")).toBeNull();
     click("#cardSet");
-    // The mockup's short list; the rest is behind More settings.
+    // One list, one control per field: the model is a picker, never a second grid of buttons.
     expect(q("#setShort")).not.toBeNull();
     expect(q("#setModel")).not.toBeNull();
     expect(q("#nModel")).toBeNull();
-    expect(q("#props .ph .st")).toBeNull();
+    expect(q("#nEffort")).toBeNull();
+    expect(q("#props .runmeta .st")).toBeNull();
     expect(q("#insFoot")?.textContent).toBe("main: a change starts your own copy · tex_dev node set");
     expect(q(".chgf")).toBeNull();
     const was = G().nodes.find((n) => n.id === "fd")!.effort;
@@ -295,14 +297,15 @@ describe("the step panel's cards", () => {
     expect(qa(".chgf").length).toBe(1);
     expect(q('#setShort [data-field="effort"] .was')?.textContent).toBe(`was ${was} on main`);
     expect(q("#insFoot")?.textContent).toMatch(/^Draft .+ · saved as you change it · tex_dev node set$/);
-    // More settings opens the full panel, its own field outlined too.
-    expect(q("#nMore")?.textContent).toBe("More settings ▾");
+    // More opens the code files, record, timing and change note; the goal is never behind it.
+    expect(q("#nGoalText")).not.toBeNull();
+    expect(q("#nNote")).toBeNull();
     click("#nMore");
-    expect(q("#nEffort.chgf")).not.toBeNull();
-    expect(q("#nGoal")).not.toBeNull();
+    expect(q("#nNote")).not.toBeNull();
+    expect(qa(".chgf").length).toBe(1);
     click("#nMore");
-    expect(q("#nGoal")).toBeNull();
-    expect(q("#props")!.textContent).toContain("settings in draft");
+    expect(q("#nNote")).toBeNull();
+    expect(q("#props")!.textContent).not.toContain("settings in draft");
     click("#cardRun");
     expect(q("#cardDot")).not.toBeNull();
     expect(q(".chgf")).toBeNull();

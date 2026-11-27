@@ -24,6 +24,7 @@
 
 import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 import { CALENDAR_TOOL, REFUSED, calendarCopy, calendarSummary, readCalendarChange, refusalFor } from "./calendarWrite.js";
 import { emailCaller } from "./emailGate.js";
 import { offerFor, offerTarget } from "./offerFor.js";
@@ -125,15 +126,12 @@ export async function calendarGate(supplied, { store, session, target }) {
     return toolError("Not changed: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  // Texted: the facts, and Tex's own answer is the ask (`heldFacts.js`).
+  if (texting) return { ...heldFacts({ copy: record.detail ?? null, what: record.summary ?? null, okFrom: okFromOf(session) }), stages };
   return {
     ...toolError(
-      texting
-        ? "Held for their yes, and nothing failed: right after your answer, in this same reply, they are shown this exact change " +
-            "and asked, and one yes or 👍 makes it" + (guests.length > 0 ? " and Google tells the guests" : "") +
-            ". Say in one short line what you'd change, without repeating it or asking for their yes. " +
-            "Never say it is still waiting, and never point them to another message, app or confirmation. Don't call this again in this turn."
-        : "Not changed yet: the person must approve this exact change in the Context app. " +
-            "Once they have, call calendar_event again with exactly the same arguments and you will be told it was done.",
+      "Not changed yet: the person must approve this exact change in the Context app. " +
+        "Once they have, call calendar_event again with exactly the same arguments and you will be told it was done.",
     ),
     held: true,
     stages,
