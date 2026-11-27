@@ -456,3 +456,16 @@ invited by number") and `apps/mcp/test/labSandboxWorld.test.mjs` (ignoring `worl
 token to the turn, or keeping people who left each fail a named test). On main: `apps/convex/__tests__/controlPlane/texLabWorldReach.test.ts`
 (reaching a personal workspace, starting from an owner's role, counting a guest or keeping `context:private` each fail
 a named test, and "reaches what the real rule gives" fails on drift) and `apps/mcp/test/labSandboxWorldLocal.test.mjs`.
+
+## A made-up chat's link opens for other Lab developers (2026-11-27)
+
+A made-up group chat an AI opened through one person's Context grant was linked to the person it was for, signed in to
+the Lab on their own account, and answered "There is no such test chat": every test chat lives in an object named from
+its opener's user id. Now a made-up chat on main (`source: "world"`) keeps a link object named from its id alone, and a
+call naming a test chat the caller has none of looks there (`linkShare.js`). The caller gets it only when they are in
+every workspace its people hold roles in (`worlds` as they would be answered): everything Tex said there came from those
+workspaces, so they see nothing they could not read themselves. Their texts run on their own token, at their own access.
+Only its opener resets it. A copy of a real chat, Maya, a Dev or Training conversation and a preview's chat carry their
+opener's own texts, calendar and notes, and are never linked. *What simplifying it would cost:* sharing every test chat
+by link shows one developer's 1:1 to another; dropping the workspace check shows a chat's notes to someone outside the
+workspace. `apps/mcp/test/labSandboxLinkShare.test.mjs` fails on either, and on a linked caller resetting.

@@ -9,7 +9,8 @@
  * Tex sent there. Both live in the test chat's own object and go with it: Reset, or a day unused, and the address
  * answers 404.
  *
- * Who may open one: the test chat's owner, never anyone holding the link. The object is named from the caller's own
+ * Who may open one: the test chat's owner, never anyone holding the link (a made-up chat linked to another developer
+ * who passes its workspace check, `linkShare.js`, is theirs to read too). The object is named from the caller's own
  * user id as the control plane answers it (`object.js` `sandboxName`), so anyone else's request reaches a different,
  * empty object and is answered exactly as an address that never existed. The id (128 random bits) is unguessable as
  * well, but it is not what lets anyone in: a page is made from the person's own notes, and a link that leaked would
@@ -22,6 +23,7 @@ import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { callSandbox, sandboxStub } from "./object.js";
 import { PAGE_PREFIX } from "../fromGateway/labSandbox_sandboxTools.js";
+import { linkedChat } from "./linkShare.js";
 
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const ASSET_ID = /^[0-9a-f]{32}$/;
@@ -73,10 +75,16 @@ export async function handleLabSandboxPage(request, env, path) {
   if (!token) return Response.json({ error: "sign_in" }, { status: 401, headers: HEADERS });
   const [sandboxId, id, ...rest] = String(path).slice(PAGE_PREFIX.length).split("/");
   if (rest.length > 0 || !SANDBOX_ID.test(sandboxId ?? "") || !ASSET_ID.test(id ?? "")) return missing();
-  const who = await createControlPlane(env).labSandbox(token, "who").catch(() => null);
+  const controlPlane = createControlPlane(env);
+  const who = await controlPlane.labSandbox(token, "who").catch(() => null);
   if (who === null) return Response.json({ error: "unavailable" }, { status: 503, headers: HEADERS });
   if (who.status === "refused" || typeof who.userId !== "string") return Response.json({ error: "forbidden" }, { status: 403, headers: HEADERS });
-  const asset = await sandboxAsset(env, who.userId, sandboxId, id).catch(() => null);
+  let asset = await sandboxAsset(env, who.userId, sandboxId, id).catch(() => null);
+  // Another developer's made-up chat linked to this caller (`linkShare.js`) serves its pages to them as well.
+  if (asset === null) {
+    const linked = await linkedChat({ env, controlPlane, token, who, sandboxId }).catch(() => null);
+    if (linked && !linked.error) asset = await sandboxAsset(env, linked.owner, sandboxId, id).catch(() => null);
+  }
   if (asset === null) return missing();
   if (asset.kind === "picture") return new Response(Uint8Array.from(atob(asset.base64), (c) => c.charCodeAt(0)), { headers: { ...HEADERS, "content-type": asset.type } });
   if (new URL(request.url).searchParams.get("as") === "html") {

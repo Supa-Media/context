@@ -418,7 +418,7 @@ export function serveSandbox(tables, op, body) {
 /** What an object with no test chat in it answers: opening one, reading it, and the person's index's send count. */
 const CHATLESS_OPS = new Set(["init", "state", "count"]);
 /** The person's index object's own keys (`route.js`: `sb:<id>` a test chat listed, `used:<id>` its last use). */
-const INDEX_KEY = /^(sb|used):[0-9a-f]{16}$/;
+const INDEX_KEY = /^((sb|used):[0-9a-f]{16}|link)$/; // `link`: whose a made-up chat is, in its link object (`linkShare.js`)
 
 /** Whether storage holds a test chat, read without making anything. */
 function chatKept(sql) {
