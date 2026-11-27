@@ -273,3 +273,55 @@ test("a blank owner or delegate is the field left empty, never a clear: null cle
   assert.equal(cleared.isError, undefined, said(cleared));
   assert.equal((await props("areas/finance/about.md")).owner, undefined);
 });
+
+/*
+  WHOSE BOT IT IS IS NOT ANOTHER EDITOR'S TO SAY (2026-11-27). `bind_bot` binds a card to the connection the card
+  names (`botBind.js`), so rewriting `belongs_to` on a card made for somebody else is taking their bot's identity:
+  what the bound connection writes is signed by the bot. The bots folder is team-visible, so an editor can write the
+  card; only an owner, or the person it names, says whose bot it is.
+
+  Sabotage: the whole guard removed → "an editor does not make somebody else's bot theirs" (the card says @kim and
+  bind_bot no longer refuses) and "an editor does not claim a card that is already here and names nobody" fail.
+  Applied, file run, both observed failing, restored.
+*/
+const GROK_CARD = '---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: "@seyi"\n---\n\n# Grok Bot\n';
+const bindAs = async (store) => (await import("../src/tools/notes/botBind.js")).toolBindBot(store, "team", RULES, new PrivacyOverrides(), "Grok Bot");
+
+test("an editor does not make somebody else's bot theirs, and cannot bind it after trying", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } });
+  assert.equal(result.isError, true, said(result));
+  assert.match(said(result), /@seyi's bot/);
+  assert.equal((await props("bots/grok-bot/about.md")).belongs_to, "@seyi", "the card is unchanged");
+  assert.match(said(await bindAs(store)), /only their own connection binds it/);
+});
+
+test("an editor does not claim a card that is already here and names nobody", async () => {
+  const unnamed = '---\nholder: Grok Bot\nkind: agent\nbot: grok\n---\n\n# Grok Bot\n';
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": unnamed });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } });
+  assert.equal(result.isError, true, said(result));
+  assert.equal((await props("bots/grok-bot/about.md")).belongs_to, undefined);
+});
+
+test("the person a card names hands their own bot on, and an owner says whose any bot is", async () => {
+  const mine = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  mine.store.actor = { ...mine.store.actor, role: "editor", name: "@seyi" };
+  assert.equal((await run(mine.store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } })).isError, undefined);
+  assert.equal((await mine.props("bots/grok-bot/about.md")).belongs_to, "@kim");
+
+  const owner = await world({ "areas/finance/about.md": FINANCE, "bots/grok-bot/about.md": GROK_CARD });
+  owner.store.actor = { ...owner.store.actor, role: "owner", name: "@dev" };
+  assert.equal((await run(owner.store, { area: "areas/finance", bot: { name: "Grok Bot", whose: "@kim" } })).isError, undefined);
+  assert.equal((await owner.props("bots/grok-bot/about.md")).belongs_to, "@kim");
+});
+
+test("an editor still makes a card of its own, naming itself", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  store.actor = { ...store.actor, role: "editor", name: "@kim" };
+  const result = await run(store, { area: "areas/finance", bot: { name: "Kim Bot", whose: "@kim" } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.equal((await props("bots/kim-bot/about.md")).belongs_to, "@kim");
+});
