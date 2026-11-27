@@ -17,6 +17,7 @@ import { castGrammar } from "./castGrammar";
 import { highlightGrammar } from "./highlightGrammar";
 import { underlineGrammar } from "./underlineGrammar";
 import { tagGrammar } from "./tagGrammar";
+import { listUnderTextGrammar } from "./listUnderTextGrammar";
 
 /**
  * The Markdown dialect this editor parses.
@@ -39,7 +40,9 @@ import { tagGrammar } from "./tagGrammar";
  * `==highlight==`, which GFM does not have — see `highlightGrammar.ts`.
  * `tagGrammar`: a `#tag` written in the text — see `tagGrammar.ts`.
  * `underlineGrammar`: `<u>underline</u>`, the one tag the writing bar
- * writes — see `underlineGrammar.ts`.
+ * writes — see `underlineGrammar.ts`. `listUnderTextGrammar`: `- ` typed
+ * straight under some text starts the list before its first word — see
+ * `listUnderTextGrammar.ts`.
  *
  * Minus one CommonMark rule: setext headings. A line of only `-` or `=` under
  * a paragraph makes that paragraph a heading, so typing `-` to start a bullet
@@ -56,7 +59,7 @@ import { tagGrammar } from "./tagGrammar";
 const noSetextHeadings: MarkdownConfig = { remove: ["SetextHeading"] };
 
 export function markdownLanguage() {
-  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, underlineGrammar, tagGrammar, noSetextHeadings], codeLanguages: FENCE_LANGUAGES });
+  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, underlineGrammar, tagGrammar, listUnderTextGrammar, noSetextHeadings], codeLanguages: FENCE_LANGUAGES });
 }
 
 /**
