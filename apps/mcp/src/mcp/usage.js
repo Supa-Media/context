@@ -5,6 +5,7 @@
 
 import { countTokens, requestText, responseParts } from "./tokens.js";
 import { TEX_CLIENTS } from "../search/quality.js";
+import { MACHINE_RUN_CLIENT_ID } from "../tools/machineRun.js";
 
 /**
  * The metrics one tool call is worth.
@@ -59,8 +60,11 @@ export function reportToolsListed(store) {
   }
 }
 
-/** Clients whose tool calls are not a person's AI client calling: the app itself, and Tex (counted as texting). */
-const NOT_A_CALLER = new Set(["context_console", ...TEX_CLIENTS]);
+/**
+ * Clients whose tool calls are not a person's AI client calling: the app itself, Tex (counted as texting), and a
+ * Tex job running on the person's computer (`tools/machineRun.js`), which runs for the person who texted it.
+ */
+const NOT_A_CALLER = new Set(["context_console", MACHINE_RUN_CLIENT_ID, ...TEX_CLIENTS]);
 
 /**
  * That this call was a person's own AI client calling a tool, for the Context usage source's `called`
