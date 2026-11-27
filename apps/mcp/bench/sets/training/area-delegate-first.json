@@ -1,0 +1,12 @@
+{
+  "id": "area-delegate-first",
+  "kind": "one",
+  "members": ["Kofi"],
+  "set": "training",
+  "setting": "Kofi texts Tex. His team workspace @forge has an area devops/ whose about.md names owner @kofi's colleague @ines and delegate Piper, a bot; its mail is areas/devops/mail/ and its approvals say any change to the build machines needs @ines. Tex is told this in its Bots and areas module.",
+  "title": "Kofi flags slow builds to the DevOps area",
+  "msgs": [
+    {"id":"m1","labels":{"fd":{"must":["tell the DevOps area in its mail, addressed to its delegate Piper first, at areas/devops/mail/ in @forge, saying what Kofi saw and since when","tell Kofi it went to Piper in the DevOps area, with the mail's link"],"never":["try to fix the build machines itself, or change anything the area's approvals reserve for @ines","go to @ines first when the area has a delegate","only suggest he ask someone, without sending it"],"star":true}},"text":"builds have been crawling all morning, can someone look into it","who":"Kofi"},
+    {"id":"m2","tex":true,"text":"told piper in the devops area that builds have been slow since this morning: https://context.lc/note/@forge/areas/devops/mail/tex.md","who":"Tex"}
+  ]
+}
