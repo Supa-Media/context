@@ -7,9 +7,13 @@
  * An open group is a graph like the whole one (move, wire, delete, pick); its ⤢ cards open (`data-gopen`) and its pills
  * go to the thing outside (`data-gport`): a group opens, a step is picked on the whole graph.
  * The test chat's line (`lineDecor.ts`, `data-line`, no `data-id`) is only ever picked: never moved, wired or focused.
+ * Several steps can be picked (Dev, 2026-11-27, `engine/picks.ts`): Shift or ⌘/Ctrl click toggles one, a Shift drag on
+ * empty canvas draws a box (a plain drag still pans), Esc clears, Delete removes them all, dragging one moves them all,
+ * and ⌥⌘K (Ctrl+Alt+K) opens Make component.
  */
 import { useEffect, type RefObject } from "react";
 import {
+  deleteSteps,
   delSel,
   edit,
   emit,
@@ -33,9 +37,14 @@ import { isGroupFocus } from "../../engine/groups";
 import { groupsOf } from "../../data/graph";
 import { startNodeCase } from "../../engine/caseDraft";
 import { H, W, wheelCam, type Cam } from "./render";
+import { addPicks, canPickSeveral, clearPicks, inBox, togglePick } from "../../engine/picks";
+import { whyNot } from "../../engine/makeComponent";
+import { isMakeKey } from "./MultiBar.web";
 
 type Act =
   | { k: "pan"; sx: number; sy: number; cx: number; cy: number; moved: boolean }
+  /** A Shift drag on empty canvas: the box from where it started (screen), picking what it touches on release. */
+  | { k: "box"; sx: number; sy: number; moved: boolean }
   | { k: "wire"; from: string }
   | {
       k: "move";
@@ -46,6 +55,10 @@ type Act =
       before: string;
       /** Down on the step's dashed "+" chip: a click opens its add-case form (Dev2, 2026-11-15). */
       addCase?: boolean;
+      /** Shift or ⌘/Ctrl held: a click adds the step to the picks or takes it out. */
+      toggle?: boolean;
+      /** The other picked steps, moved with it: each one's place from the step dragged. */
+      with?: Array<{ id: string; ox: number; oy: number }>;
     }
   | { k: "edge"; i: number }
   | { k: "fblk"; mod?: string; go?: string }
@@ -77,6 +90,12 @@ export function useStageInput({
     let space = false;
     let lastTap: { id: string | null; at: number } = { id: null, at: 0 };
     const panClass = () => st.classList.toggle("pan", lab.tool === "pan");
+    // The Shift-drag box, drawn over the stage while it is dragged.
+    const boxEl = document.createElement("div");
+    boxEl.className = "mbox";
+    boxEl.hidden = true;
+    st.appendChild(boxEl);
+    const several = () => !readOnly && canPickSeveral();
     const openViewer = (k: string) => {
       if (mods(G())[k]) set({ viewer: { kind: "module", key: k } });
     };
@@ -84,7 +103,8 @@ export function useStageInput({
     const tap = (e: PointerEvent) => {
       const t = e.target as Element;
       const g = t.closest?.(".nd[data-id]") as SVGGElement | null;
-      if (!g || t.closest(".port")) {
+      // A Shift or ⌘/Ctrl click picks several; two of them quickly never focus a step.
+      if (!g || t.closest(".port") || e.shiftKey || e.metaKey || e.ctrlKey) {
         lastTap = { id: null, at: 0 };
         return;
       }
@@ -147,6 +167,10 @@ export function useStageInput({
         act = { k: "line", id: ln.dataset.line! };
         return;
       }
+      if (e.shiftKey && lab.tool !== "pan" && !space && !nd && !hit && !port && several()) {
+        act = { k: "box", sx: e.clientX, sy: e.clientY, moved: false };
+        return;
+      }
       if (lab.tool === "pan" || space || (!nd && !hit && !port)) {
         const c = cam.current!;
         act = {
@@ -167,6 +191,9 @@ export function useStageInput({
       }
       if (nd) {
         const n = node(nd.dataset.id!)!;
+        const toggle = (e.shiftKey || e.metaKey || e.ctrlKey) && several();
+        // One of several picked: they all move with it.
+        const others = lab.picks.length >= 2 && lab.picks.includes(n.id) && several() ? lab.picks.filter((id) => id !== n.id) : [];
         act = {
           k: "move",
           id: n.id,
@@ -175,6 +202,11 @@ export function useStageInput({
           moved: false,
           before: JSON.stringify(G()),
           addCase: !!t.closest("[data-addcase]"),
+          toggle,
+          with: others.flatMap((id) => {
+            const o = node(id);
+            return o ? [{ id, ox: o.x - n.x, oy: o.y - n.y }] : [];
+          }),
         };
         return;
       }
@@ -201,8 +233,23 @@ export function useStageInput({
             act.before = JSON.stringify(G());
           }
           act.moved = true;
+          for (const o of act.with ?? []) {
+            const m = node(o.id);
+            if (m) {
+              m.x = nx + o.ox;
+              m.y = ny + o.oy;
+            }
+          }
           moveNode(act.id, nx, ny);
         }
+      } else if (act.k === "box") {
+        const r = st.getBoundingClientRect();
+        if (Math.abs(e.clientX - act.sx) + Math.abs(e.clientY - act.sy) > 3) act.moved = true;
+        boxEl.hidden = !act.moved;
+        boxEl.style.left = Math.min(act.sx, e.clientX) - r.left + "px";
+        boxEl.style.top = Math.min(act.sy, e.clientY) - r.top + "px";
+        boxEl.style.width = Math.abs(e.clientX - act.sx) + "px";
+        boxEl.style.height = Math.abs(e.clientY - act.sy) + "px";
       } else if (act.k === "wire") {
         const a = node(act.from);
         if (a)
@@ -240,8 +287,21 @@ export function useStageInput({
         else set({ sel: { t: "node", id: a.id }, pin: true });
         return;
       }
+      if (a.k === "box") {
+        boxEl.hidden = true;
+        if (!a.moved) return;
+        // What the box touches, as drawn: every step and group card on the canvas (the test chat's line has no data-id).
+        const rects = [...st.querySelectorAll<SVGGraphicsElement>(".nd[data-id]")].map((el) => {
+          const b = el.getBoundingClientRect();
+          return { id: el.dataset.id!, x: b.left, y: b.top, w: b.width, h: b.height };
+        });
+        const ids = inBox(rects, { x0: a.sx, y0: a.sy, x1: e.clientX, y1: e.clientY });
+        if (ids.length) addPicks(ids);
+        return;
+      }
       if (a.k === "pan") {
-        if (!a.moved && lab.sel && !lab.cfocus)
+        if (!a.moved && lab.picks.length) clearPicks();
+        else if (!a.moved && lab.sel && !lab.cfocus)
           set({ sel: null, addCtxOpen: false });
         return;
       }
@@ -249,8 +309,10 @@ export function useStageInput({
         if (a.moved) {
           pushUndo(a.before);
           markDirty();
+        } else if (a.toggle) {
+          togglePick(a.id);
         } else {
-          set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
+          set({ sel: { t: "node", id: a.id }, picks: [], makeOpen: false, addCtxOpen: false, pin: true });
           if (a.addCase && !readOnly) startNodeCase(a.id);
         }
         return;
@@ -283,6 +345,11 @@ export function useStageInput({
       const typing = /INPUT|TEXTAREA|SELECT/.test(
         document.activeElement?.tagName || "",
       );
+      // Esc clears several picks first; the next Esc goes up a level as before.
+      if (e.key === "Escape" && !typing && lab.view === "canvas" && !lab.viewer && lab.picks.length) {
+        clearPicks();
+        return;
+      }
       if (
         e.key === "Escape" &&
         lab.cfocus &&
@@ -300,10 +367,20 @@ export function useStageInput({
         e.preventDefault();
       }
       const k = e.key.toLowerCase();
+      if (isMakeKey(e)) {
+        e.preventDefault();
+        if (lab.picks.length >= 2 && several() && !whyNot(lab.picks)) set({ makeOpen: true });
+        return;
+      }
       if (!e.metaKey && !e.ctrlKey) {
         if (k === "v") set({ tool: "sel" });
         if (k === "c") set({ tool: "con" });
         if (k === "h") set({ tool: "pan" });
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && lab.picks.length >= 2 && several()) {
+        e.preventDefault();
+        deleteSteps(lab.picks);
+        return;
       }
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -344,6 +421,7 @@ export function useStageInput({
       st.removeEventListener("wheel", wheel);
       window.removeEventListener("keydown", keydown);
       window.removeEventListener("keyup", keyup);
+      boxEl.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

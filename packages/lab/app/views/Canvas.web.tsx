@@ -47,6 +47,8 @@ import { panelRow } from "../engine/stepRunNow";
 import { lineDecorHtml, lineTimes } from "./canvas/lineDecor";
 import { onPage } from "../engine/pages";
 import { tuckedComponents } from "../engine/components";
+import { canPickSeveral } from "../engine/picks";
+import { MultiBar } from "./canvas/MultiBar.web";
 
 function Svg({
   d,
@@ -160,13 +162,16 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
   const marks = graph || (lab.cfocus && !opened) ? null : currentMarks();
   const tags = runTags(s.scn);
+  // Several steps picked at once (`engine/picks.ts`): only where steps can be picked, and only the ones drawn here.
+  const picks = s.picks.length >= 2 && !graph && canPickSeveral() ? s.picks.filter((id) => node(id, g)) : [];
+  const picked = picks.length >= 2 ? new Set(picks) : null;
   let html: string;
   if (lab.cfocus && !opened) {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
   } else if (lab.cfocus && opened) {
-    const f = renderGroupFocusHtml(g, sim, lab.cfocus, groups, { tags, sel: s.sel, lit: testLit, counts: stepCounts(whole), marks });
+    const f = renderGroupFocusHtml(g, sim, lab.cfocus, groups, { tags, sel: s.sel, lit: testLit, counts: stepCounts(whole), marks, picked });
     fBounds.current = f.fBounds;
     html = f.html;
   } else {
@@ -174,7 +179,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`); a test
     // text arrives on the texting page, so the nightly page has none.
     const line = texting ? lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps)) : { under: "", over: "" };
-    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(whole), marks, { groups }) + line.over;
+    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(whole), marks, { groups, picked }) + line.over;
   }
   // The focus bar is the path to the focus: Whole graph / each group around it / it (mockup 5y8sZpxqRYNZEdqqXTjq6J v3).
   const focused = lab.cfocus && (opened || node(lab.cfocus, g)) ? lab.cfocus : null;
@@ -217,7 +222,11 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
       </div>
       {marks && !stepView ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       </div>
-      {focused ? (
+      {picked ? (
+        <div className="ghint">
+          <span className="kbd">Shift</span> click or drag to pick more · <span className="kbd">Esc</span> clears
+        </div>
+      ) : focused ? (
         <div className="ghint">
           <span className="kbd">Esc</span> up one level
         </div>
@@ -226,7 +235,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
       ) : null}
       <>
       <div className="float tools" role="toolbar" aria-label="Tools">
-        <button className="ib" id="tSel" aria-pressed={tool === "sel"} title="Select and move (V); hold space to move the canvas" aria-label="Select" onClick={() => setTool("sel")}>
+        <button className="ib" id="tSel" aria-pressed={tool === "sel"} title="Select and move (V); hold space to move the canvas; Shift-click or Shift-drag to pick several" aria-label="Select" onClick={() => setTool("sel")}>
           <Svg d='<path d="M6 4l12 7-5.5 1.5L10 18z"/>' />
         </button>
         <button
@@ -267,6 +276,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
           </>
         )}
       </div>
+      {picked ? <MultiBar ids={[...picked]} /> : null}
       <div className="float keyw keypop" id="keyw" hidden={stepView || !keyOpen} dangerouslySetInnerHTML={{ __html: stepView || !keyOpen ? "" : keywHtml() + caseKeyHtml() }} />
       <div className="menu" id="addMenu" hidden={!addOpen}>
         <AddMenu

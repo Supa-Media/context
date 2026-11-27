@@ -179,10 +179,13 @@ export function renderGraphHtml(
   /**
    * `only`: draw just these steps and boxes and the wires between them (an open group, `groupView.ts`); the wires keep
    * their places in the graph, so picking one picks the graph's. `groups`: the graph's group definitions, for the cards.
+   * `picked`: several steps picked at once, each drawn selected.
    */
-  opts: { only?: ReadonlySet<string> | null; groups?: GroupDefs; group?: string } = {},
+  opts: { only?: ReadonlySet<string> | null; groups?: GroupDefs; group?: string; picked?: ReadonlySet<string> | null } = {},
 ): string {
   const only = opts.only ?? null;
+  // Several steps picked at once (`engine/picks.ts`): each wears the canvas's own selected ring.
+  const picked = opts.picked ?? null;
   const isBox = (id: string) => !!g.folded?.[id];
   // Components whose every wire meets another group are held by those groups, not drawn here (`engine/components.ts`).
   const tucked = only ? new Set<string>() : tuckedComponents(g, opts.groups ?? {});
@@ -245,7 +248,7 @@ export function renderGraphHtml(
     if (only && !only.has(n.id)) continue;
     if (tucked.has(n.id)) continue;
     const m = MODELS[n.model] || MODELS.code;
-    const s = sel?.t === "node" && sel.id === n.id;
+    const s = (sel?.t === "node" && sel.id === n.id) || !!picked?.has(n.id);
     const mk = marks?.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : "";
     // A New run step (kind `run`, `texRunNodes.cjs`): a pill naming where the new run starts (its wire), or nowhere.
     const run = n.kind === "run";

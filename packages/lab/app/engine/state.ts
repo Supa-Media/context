@@ -28,6 +28,13 @@ export type LabState = {
   cur: LabVersion;
   dirty: boolean;
   sel: Selection;
+  /**
+   * Several steps picked on the canvas at once (Shift or ⌘/Ctrl click, Shift drag; Dev, 2026-11-27): two or more ids,
+   * and `sel` is null while they are, so the step panel closes. One pick is `sel` itself (`engine/picks.ts`).
+   */
+  picks: string[];
+  /** The Make component popover is open over the picks' bar (`views/canvas/MultiBar.web.tsx`). */
+  makeOpen: boolean;
   scn: string;
   view: View;
   tool: Tool;
@@ -53,6 +60,9 @@ export type LabState = {
   /** The workspace browser or module viewer, when open: what the artifact's `#viewer` showed. */
   viewer: { kind: "module"; key: string } | { kind: "diff"; key: string } | { kind: "ws"; ws: string; at?: string } | null;
   toastText: string | null;
+  /** The part of the toast drawn bold (a name), and what its Undo does; none for a plain toast. */
+  toastBold: string | null;
+  toastUndo: (() => void) | null;
   myId: string | null;
   /** Each version author's name, as the shared list gives it (a handle, else "Someone"). */
   names: Record<string, string>;
@@ -139,6 +149,8 @@ export const lab: LabState = {
   cur: clone(MAIN),
   dirty: false,
   sel: null,
+  picks: [],
+  makeOpen: false,
   scn: "",
   view: "canvas",
   tool: "sel",
@@ -159,6 +171,8 @@ export const lab: LabState = {
   sideOpen: false,
   viewer: null,
   toastText: null,
+  toastBold: null,
+  toastUndo: null,
   myId: null,
   names: {},
   sync: "Shared with staff",
@@ -222,13 +236,21 @@ export const stepsOf = (g: LabGraph = G()): LabGraph => (g.folded ? unfoldGroups
 export const isMain = () => lab.cur.id === "main";
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
-export function toast(t: string) {
+/** A short line at the bottom; `bold` names the part drawn bold, and `undo` adds an Undo that stays a little longer. */
+export function toast(t: string, opts: { bold?: string; undo?: () => void } = {}) {
   lab.toastText = t;
+  lab.toastBold = opts.bold ?? null;
+  lab.toastUndo = opts.undo ?? null;
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    lab.toastText = null;
-    emit();
-  }, 2600);
+  toastTimer = setTimeout(
+    () => {
+      lab.toastText = null;
+      lab.toastBold = null;
+      lab.toastUndo = null;
+      emit();
+    },
+    opts.undo ? 6000 : 2600,
+  );
   emit();
 }
 
@@ -282,6 +304,7 @@ export function undo() {
   }
   lab.cur.graph = shownGraph(JSON.parse(last), lab.cfocus);
   lab.sel = null;
+  lab.picks = [];
   lab.dirty = true;
   emit();
 }
@@ -296,6 +319,7 @@ export function openVersion(id: string) {
   lab.dirty = false;
   lab.undoStack = [];
   lab.sel = null;
+  lab.picks = [];
   emit();
   if (lab.view === "canvas") fit();
 }
@@ -336,6 +360,7 @@ export function focusOn(id: string) {
   lab.cfocus = id;
   // An open group has no box to show properties for; a step's view has the step picked.
   lab.sel = group ? null : { t: "node", id };
+  lab.picks = [];
   lab.fArea = null;
   if (lab.view !== "canvas") go("canvas");
   else {
@@ -357,6 +382,7 @@ export function focusUp() {
 /** "Whole graph": the focus ends and every group folds again. */
 export function unfocus() {
   lab.cfocus = null;
+  lab.picks = [];
   lab.cur.graph = shownGraph(G(), null);
   emit();
   requestAnimationFrame(() => fit());
@@ -405,30 +431,40 @@ export function set(patch: Partial<LabState>) {
   emit();
 }
 
+/**
+ * Delete these steps (or folded groups' boxes, with their steps), their wires and the reads of their output, as one
+ * undo: the one picked, or every one of several picked (`engine/picks.ts`).
+ */
+export function deleteSteps(ids: string[]) {
+  // The test chat's line is no step of the graph (`lineSteps.ts`): nothing to delete, and no draft to start.
+  const real = ids.filter((id) => id !== "lineIn" && id !== "lineOut");
+  if (real.length === 0) return;
+  // A folded group's box goes with its steps, so a box holding the start or the send stays too.
+  const held = real.flatMap((id) => G().folded?.[id]?.nodes.map((n) => n.id) ?? []);
+  if ([...real, ...held].some((x) => x === "text" || x === "send")) {
+    toast("Every version needs a start and a send");
+    return;
+  }
+  const gone = new Set([...real, ...held]);
+  edit(() => {
+    // On the steps, every group opened: a step inside a folded box (one followed while running) goes as one drawn does.
+    const g = stepsOf(G());
+    g.nodes = g.nodes.filter((n) => !gone.has(n.id));
+    g.edges = g.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to));
+    g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => ![...gone].some((x) => c === "out:" + x))));
+    lab.cur.graph = shownGraph(g, lab.cfocus);
+    lab.sel = null;
+    lab.picks = [];
+  });
+  toast("Deleted. Undo brings it back.");
+}
+
 /** Delete the selected step (with its wires and the reads of its output) or wire; the artifact's `delSel`. */
 export function delSel() {
   const sel = lab.sel;
   if (!sel) return;
   if (sel.t === "node") {
-    // The test chat's line is no step of the graph (`lineSteps.ts`): nothing to delete, and no draft to start.
-    if (sel.id === "lineIn" || sel.id === "lineOut") return;
-    // A folded group's box goes with its steps, so a box holding the start or the send stays too.
-    const held = G().folded?.[sel.id]?.nodes.map((n) => n.id) ?? [];
-    if (["text", "send"].includes(sel.id) || held.some((x) => x === "text" || x === "send")) {
-      toast("Every version needs a start and a send");
-      return;
-    }
-    const gone = new Set([sel.id, ...held]);
-    edit(() => {
-      // On the steps, every group opened: a step inside a folded box (one followed while running) goes as one drawn does.
-      const g = stepsOf(G());
-      g.nodes = g.nodes.filter((n) => !gone.has(n.id));
-      g.edges = g.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to));
-      g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => ![...gone].some((x) => c === "out:" + x))));
-      lab.cur.graph = shownGraph(g, lab.cfocus);
-      lab.sel = null;
-    });
-    toast("Deleted. Undo brings it back.");
+    deleteSteps([sel.id]);
   } else {
     const i = sel.i;
     edit(() => {
