@@ -296,7 +296,8 @@ describe("the Areas side panel", () => {
     expect(all("owner-face-logo").length).toBeGreaterThan(0);
     await press(one("area-row-areas/finance"));
     await settle();
-    expect(strip(one("area-panel-prompt-text").textContent)).toContain('path: "areas/people/finance.md"');
+    // Its picture step comes back from the one setup call the prompt names (Dev, 2026-11-27; `botLogins.test.mjs` "setup_bot").
+    expect(strip(one("area-panel-prompt-text").textContent)).toContain('setup_bot: "Finance"');
     await press(one("area-panel-upload-logo"));
     await settle();
     expect(stored).toEqual(["image/png"]);

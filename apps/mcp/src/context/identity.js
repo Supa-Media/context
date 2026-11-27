@@ -22,6 +22,8 @@ export function actorFor(session) {
   return {
     workspaceId: session.workspaceId,
     workspaceKind: session.workspaceKind,
+    // The workspace's @name, for an answer that tells an agent the context: to pass back (`botBind.js` `toolSetupBot`).
+    workspaceSlug: typeof session.workspaceSlug === "string" ? session.workspaceSlug : null,
     userId: session.actorUserId,
     clientId: session.actorClientId,
     // The name the client registered: display text for the opens log (`search/opens.js`), never read for a decision.

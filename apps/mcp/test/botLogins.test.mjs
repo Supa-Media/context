@@ -215,3 +215,40 @@ test("write_note's schema takes mail.as", async () => {
   const writeNote = noteWriteToolDefinitions().find((tool) => tool.name === "write_note");
   assert.equal(validateArguments(writeNote.inputSchema, { path: "areas/plans.md", mail: { text: "hi", as: "grok-bot", used: 0 } }), null);
 });
+
+test("setup_bot binds, mails the check and answers with every step left, filled in for that bot", async () => {
+  // Dev, 2026-11-27: "could we make a context mcp action that makes it easier?", after seven bots stopped part way
+  // through the pasted steps. One call, whose answer is the rest, filled in.
+  const { store, calls, text } = await world({ role: "editor", name: "@seyi", workspaceSlug: "supa" });
+  const result = await toolSetArea(store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
+  assert.equal(result.isError, undefined, said(result));
+  assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot" }]);
+  assert.equal((await mailOf(text, "bots/grok-bot/mail/context.md")).length, 1);
+  const answer = said(result);
+  // The check, the as: name, the relay routine (its card says reach: webhook) and its picture, in that order.
+  const check = answer.indexOf('write { context: "@supa", action: "mail", path: "bots/grok-bot/mail/context.md"');
+  const as = answer.indexOf('pass as: "grok-bot"');
+  const relay = answer.indexOf("Never write to Context, reply, or send anything from this run.");
+  const picture = answer.indexOf('path: "bots/grok-bot/about.md"');
+  assert.ok(check > 0 && as > check && relay > as && picture > relay, answer);
+  assert.match(answer, /orient \{ context: "@supa", for: "Grok Bot" \}/);
+  // Bots sharing one workspace save their pictures to one file: each takes a lock and uploads its own copy (#4442).
+  assert.match(answer, /mkdir \/workspace\/\.profile-picture\.lock/);
+  assert.match(answer, /\/workspace\/profile-picture-grok-bot\.png/);
+});
+
+test("setup_bot leaves out the relay routine for a bot that checks its own mail, and is refused as bind_bot is", async () => {
+  const mailer = await world({ role: "editor", name: "@seyi" }, CARD.replace("reach: webhook\n", ""));
+  const result = await toolSetArea(mailer.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
+  assert.equal(result.isError, undefined, said(result));
+  assert.doesNotMatch(said(result), /webhook fires/);
+  // No workspace name known: no context: argument is made up.
+  assert.doesNotMatch(said(result), /context: "/);
+  const theirs = await world({ role: "editor", name: "@sayo" });
+  const refused = await toolSetArea(theirs.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
+  assert.equal(refused.isError, true);
+  assert.match(said(refused), /only their own connection binds it/);
+  assert.deepEqual(theirs.calls, []);
+  const member = await world({ role: "member", name: "@seyi" });
+  assert.equal((await toolSetArea(member.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" })).isError, true);
+});

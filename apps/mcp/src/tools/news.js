@@ -43,7 +43,9 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-11-27",
     text:
       "manage action area takes pulse: true, which writes the area's routines from templates (improve your metric, then one per mode) and " +
-      "keeps any already there, or pulse: false, which pauses the ones a template wrote. Fetching a routine note now returns its run brief after it.",
+      "keeps any already there, or pulse: false, which pauses the ones a template wrote. Fetching a routine note now returns its run brief after it. " +
+      'It also takes setup_bot: "<your bot name>", needing no area: a bot\'s whole setup in one call from its own main chat. It binds the connection ' +
+      "as that bot, mails the check, and answers with every step left, filled in: answer the check, what to remember, the webhook routine and the picture.",
   },
   {
     date: "2026-11-26",
@@ -531,7 +533,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "757cd01e";
+export const TOOL_SHAPE = "a2b42b03";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
