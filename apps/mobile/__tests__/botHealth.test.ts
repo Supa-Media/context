@@ -22,8 +22,11 @@ describe("a webhook bot", () => {
     expect(botHealth({ ...ROW, lastCallOk: false, lastCallStatus: 503 }, [], NOW)).toMatchObject({ state: "webhook failing", tone: "crit", bad: true });
     expect(botHealth({ ...ROW, lastCallOk: false, lastCallStatus: 0 }, [], NOW).why).toContain("didn't reach");
     expect(botHealth(ROW, [answered, unanswered], NOW)).toMatchObject({ state: "not answering", tone: "warn", routines: "1 of 2 routines answered this week" });
-    // Sent minutes ago is not yet missed.
-    expect(botHealth(ROW, [{ ...unanswered, lastAt: NOW - 10 * MIN }], NOW).state).toBe("answering");
+    // Sent minutes ago is not yet missed, and not yet answered: a call that landed is not an answer (Dev, 2026-11-27).
+    expect(botHealth(ROW, [{ ...unanswered, lastAt: NOW - 10 * MIN }], NOW)).toMatchObject({ state: "reachable", bad: false, why: expect.stringContaining("No answer yet.") });
+    expect(botHealth(ROW, [], NOW)).toMatchObject({ state: "reachable", why: expect.stringContaining("Nothing to answer yet this week.") });
+    // Its own check-in counts as answering, as for a bot with no webhook.
+    expect(botHealth(ROW, [], NOW, { checkedAt: NOW - 2 * MIN })).toMatchObject({ state: "answering", why: "Checks every 5 min · last check 2 min ago" });
     expect(botHealth({ ...ROW, lastCallAt: null, lastCallOk: null, lastCallStatus: null }, [], NOW)).toMatchObject({ state: "not tried", bad: false });
   });
 
@@ -43,14 +46,14 @@ describe("a bot that checks in", () => {
 
   test("a check-in counts even where the card says nothing of its reach; a webhook row wins", () => {
     expect(botHealth(null, [], NOW, { checkedAt: NOW - MIN }).state).toBe("checking");
-    expect(botHealth(ROW, [], NOW, { reach: "mail", checkedAt: NOW - CHECK_STALE_MS * 3 }).state).toBe("answering");
+    expect(botHealth(ROW, [], NOW, { reach: "mail", checkedAt: NOW - CHECK_STALE_MS * 3 }).via).toBe("webhook");
   });
 
   test("the lookups match a bot by its mail name, in the hook list and the check-ins", () => {
     const state = { week: "2026-11-23", routines: [], usage: [], checks: [{ bot: "muse-bot", at: NOW - 2 * MIN }] };
     const lookups = botLookups([ROW], state, NOW);
     expect(lookups.hookRowOf("Grok Bot")).toEqual(ROW);
-    expect(lookups.healthOf("Grok Bot")?.state).toBe("answering");
+    expect(lookups.healthOf("Grok Bot")?.state).toBe("reachable");
     expect(lookups.healthOf("Muse Bot", "mail")?.state).toBe("checking");
     expect(lookups.healthOf("Instinct", "mail")?.state).toBe("not checking");
     expect(botLookups(undefined, state, NOW).healthOf("Grok Bot")).toBeUndefined();

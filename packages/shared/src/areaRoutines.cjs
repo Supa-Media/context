@@ -259,7 +259,7 @@ function weekOf(ms, timeZone = DEFAULT_ROUTINE_ZONE) {
 function mailOnlyText(reach = "webhook") {
   return (
     "Talk to other areas and other bots only in Context mail: to ask an area anything, write in its mail (<that area>/mail/<your name>.md), and its bot is told for you. " +
-    `Never use your own app's messages, tasks, memory or schedules to talk to another bot or to keep a recurring job${reach === "webhook" ? "" : " (your 5-minute check-in is the one schedule you keep)"}: bots here belong to different people and run in different apps, and anything that isn't in Context didn't happen.`
+    `Never use your own app's messages, tasks, memory or schedules to talk to another bot or to keep a recurring job (your 5-minute check-in is the one schedule you keep${reach === "webhook" ? ", beside your webhook's relay routine" : ""}): bots here belong to different people and run in different apps, and anything that isn't in Context didn't happen.`
   );
 }
 
@@ -267,12 +267,13 @@ function mailOnlyText(reach = "webhook") {
 function routinesText(where, reach = "webhook") {
   const how =
     reach === "webhook"
-      ? 'to your webhook as type "routine", naming the routine note, and orient lists the ones waiting for you); never set up a routine of your own for them'
+      ? 'to your webhook as type "routine", naming the routine note, and your 5-minute check-in lists the ones waiting for you); never set up a routine of your own for the jobs themselves'
       : "your 5-minute check-in lists the ones waiting for you). The check-in is the one timer you keep; never set up a routine of your own for the jobs themselves";
   return (
     `Your recurring jobs are the area's routines, notes in ${where}routines/<how often>/<name>.md. Context runs them on time and sends each one to you (${how}. ` +
     "Fetch the routine note: its run brief comes after it, with the area, its metric worked out now, its budget left and where heavy lifting goes, so a run needs no research. " +
     `Do the job, then answer in the area's mail, saying how much of your weekly usage it took: write { action: "mail", path: "${where}mail/<your name>.md", args: { text, used: <whole percent> } }. ` +
+    "When several routines or mail lines wait, or several arrive at once, do every one, oldest first, and answer each in its own area's mail: never only the newest, and never drop one because others came with it. " +
     "An area may cap how much of your week it spends; once its share is used, Context holds its routines and mail pings until Monday."
   );
 }

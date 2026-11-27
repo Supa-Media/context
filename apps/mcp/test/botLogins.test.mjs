@@ -235,6 +235,12 @@ test("setup_bot binds, mails the check and answers with every step left, filled 
   const as = answer.indexOf('pass as: "grok-bot"');
   const picture = answer.indexOf('path: "bots/grok-bot/about.md"');
   assert.ok(relay > 0 && routine > relay && as > routine && picture > as, answer);
+  // A webhook call may wait until the person writes in the bot's chat (Dev, 2026-11-27: "fix these PLEASE"), so a
+  // webhook bot makes the 5-minute check-in too, and is never told to switch to a webhook it already has.
+  const checkIn = answer.indexOf('runs every 5 minutes');
+  assert.ok(checkIn > relay && checkIn < routine, answer);
+  assert.match(answer, /orient \{ context: "@supa", for: "Grok Bot", check: true \}/);
+  assert.doesNotMatch(answer, /switch you to a webhook/);
   // Not answered from the setup reply, which would prove nothing about routines.
   assert.doesNotMatch(answer, /Answer Context's setup check now/);
   assert.match(answer, /orient \{ context: "@supa", for: "Grok Bot" \}/);
@@ -269,7 +275,9 @@ test("a card with no reach is set up its app's way: Grok by webhook, Muse and In
   // it might be a little tough, so we should store skills or guides in the connect_bot action".
   const grok = await world({ role: "editor", name: "@seyi" }, CARD.replace("reach: webhook\n", ""));
   const grokSaid = said(await toolSetArea(grok.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" }));
-  assert.doesNotMatch(grokSaid, /check: true/);
+  // Grok gets the relay routine and the test routine; since 2026-11-27 it keeps the 5-minute check-in as well.
+  assert.match(grokSaid, /webhook fires/);
+  assert.match(grokSaid, /check: true/);
   assert.equal(grok.calls.filter((call) => call.action === "test").length, 1);
   const muse = await world({ role: "editor", name: "@seyi" }, CARD.replace("reach: webhook\n", "").replace("bot: grok", "bot: muse"));
   const museSaid = said(await toolSetArea(muse.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" }));
@@ -278,7 +286,7 @@ test("a card with no reach is set up its app's way: Grok by webhook, Muse and In
   assert.equal(muse.calls.filter((call) => call.action === "test").length, 0);
   // A card that says its reach keeps it, whatever its app prefers.
   const hooked = await world({ role: "editor", name: "@seyi" }, CARD.replace("bot: grok", "bot: instinct"));
-  assert.doesNotMatch(said(await toolSetArea(hooked.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" })), /check: true/);
+  assert.match(said(await toolSetArea(hooked.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" })), /webhook fires/);
 });
 
 test("setup_bot falls back to answering the check from the chat when the test routine can't be sent", async () => {

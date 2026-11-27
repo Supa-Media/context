@@ -29,6 +29,7 @@ import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
 import { toolBindBot, toolSetupBot } from "./botBind.js";
 import { areaPulse } from "./areaPulse.js";
+import { makeMailNote } from "./mailNoteMade.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
 const { botCardPaths, botShortName, parseWorksInEntry, worksInLine } = areaRoutines;
@@ -235,6 +236,14 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const wrote = await change(store, scope, rules, overrides, `${area}/about.md`, seat, { create: area !== root && args.create === true });
     if (wrote.error) return toolError(wrote.error);
     done.push(wrote.unchanged ? `${area}: already so` : `${area}: set ${seat.map(([key]) => key).filter((key) => key !== "metric" && key !== "target" && key !== "helper").join(", ")}`);
+    // The bot that now holds the area gets its mail note there at once, so its first routine answer has somewhere to
+    // land (Dev, 2026-11-27; `mailNoteMade.js`). Tex reads its mail another way.
+    const seated = seat.find(([key, value]) => (key === "owner" || key === "delegate") && typeof value === "string" && isBot(value) && value.toLowerCase() !== "tex");
+    if (seated !== undefined) {
+      const mailPath = `${area}/mail/${mailJoinName(seated[1])}.md`;
+      const made = await makeMailNote(store, scope, rules, overrides, mailPath);
+      if (made === "made") done.push(`${mailPath}: made, for ${seated[1]}'s answers`);
+    }
   }
 
   // A bot: its card, and its name on the agents list.

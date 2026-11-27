@@ -394,3 +394,24 @@ test("Tex sends without joining and keeps a mailbox, so an answer to it wakes Te
   assert.deepEqual(controlPlaneStub.texAsks.map(({ path, mailboxId, answered }) => [path, mailboxId, answered]), [[NOTE, box.mailboxId, "ws_mail"]]);
 });
 
+
+test("the first line to a missing mail note beside an about.md makes the note; elsewhere it stays not found (Dev, 2026-11-27)", async () => {
+  // Dev, 2026-11-27: "fix these PLEASE" — three routine answers bounced NOT_FOUND because nothing had made the area's
+  // mail note for its bot.
+  bucket.set("1-projects/caps/about.md", { body: "---\nowner: Capabilities\n---\n\n# Caps\n", etag: "a0" });
+  const BOX = "1-projects/caps/mail/capabilities.md";
+  const sent = await call(TOKEN_LEAD, "write_note", { path: BOX, mail: { text: "Routine done.", used: 1 } });
+  assert.ok(!sent.isError, sent.text);
+  assert.match(bucket.get(BOX).body, /^# Mail with Caps\n/);
+  assert.match(bucket.get(BOX).body, / to everyone \[used 1%\]: Routine done\./);
+  assert.equal(mail.parseMail(bucket.get(BOX).body).events.length, 1, "one line, written once");
+  // No about.md beside the mail folder: nothing is made.
+  const stray = await call(TOKEN_LEAD, "write_note", { path: "1-projects/launch/nope/mail/capabilities.md", mail: { text: "x", used: 1 } });
+  assert.ok(stray.isError);
+  assert.match(stray.text, /not found/i);
+  assert.equal(bucket.get("1-projects/launch/nope/mail/capabilities.md"), undefined);
+  // A reader can't make one.
+  const reader = await call(TOKEN_READER, "write_note", { path: "1-projects/caps/mail/reader.md", mail: { text: "x", used: 1 } });
+  assert.ok(reader.isError);
+  assert.equal(bucket.get("1-projects/caps/mail/reader.md"), undefined);
+});
