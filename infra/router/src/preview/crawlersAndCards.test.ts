@@ -71,6 +71,26 @@ describe("isCrawler: the unfurlers people actually paste links into", () => {
     expect(isCrawler(ua)).toBe(false);
   });
 
+  // The AI search and answer engines' published UAs. The first three carry a
+  // full desktop Chrome string, which suppresses the generic fallback, so they
+  // are only recognised by name. Before the fix the official OAI-SearchBot UA
+  // was served the Expo shell while a bare `OAI-SearchBot/1.4` prerendered.
+  const DESKTOP_CHROME =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  it.each([
+    ["OAI-SearchBot (official)", `${DESKTOP_CHROME}; compatible; OAI-SearchBot/1.4; +https://openai.com/searchbot`],
+    ["OAI-SearchBot (bare)", "OAI-SearchBot/1.4"],
+    ["PerplexityBot behind Chrome", `${DESKTOP_CHROME}; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot`],
+    ["Perplexity-User behind Chrome", `${DESKTOP_CHROME}; compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user`],
+    ["PerplexityBot (published)", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"],
+    ["ChatGPT-User", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot"],
+    ["Claude-SearchBot", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +https://www.anthropic.com)"],
+    ["Googlebot smartphone", "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"],
+  ])("%s is a crawler even with a browser string", (_name, ua) => {
+    expect(isCrawler(ua)).toBe(true);
+    expect(route(new URL("https://context.lc/"), ua).kind).toBe("preview");
+  });
+
   it("a missing User-Agent is a person, not a crawler", () => {
     expect(isCrawler(undefined)).toBe(false);
     expect(isCrawler(null)).toBe(false);

@@ -22,6 +22,12 @@ export interface SitePreviewDecision {
   legacySlug?: string;
   origin: string;
   prefix: string;
+  /**
+   * The homepage website at the apex's own addresses (`/devlog`): its card
+   * names the handle (the apex has no `/og/page.png`), and no page is a 404
+   * rather than the product card, through `legacy`.
+   */
+  home?: true;
 }
 
 function timeout(ms: number): AbortSignal | undefined {
@@ -38,11 +44,16 @@ function cacheOrNull(): Cache | null {
   }
 }
 
+/**
+ * The page's answer; `null` when the control plane said there is no such
+ * page; `undefined` when it could not be asked (timeout, error, non-200).
+ * Every caller but the homepage's treats the last two alike.
+ */
 async function askSitePreview(
   convexOrigin: string,
   handle: string,
   routePath: string,
-): Promise<SitePreviewAnswer | null> {
+): Promise<SitePreviewAnswer | null | undefined> {
   try {
     const signal = timeout(PREVIEW_TIMEOUT_MS);
     const response = await fetch(`${convexOrigin}/site/preview`, {
@@ -51,12 +62,26 @@ async function askSitePreview(
       body: JSON.stringify({ handle, routePath }),
       ...(signal ? { signal } : {}),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return undefined;
     const answer = parseSitePreview(await response.json());
     return answer.title === null || answer.siteName === null ? null : answer;
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+/** The control plane could not be asked: try again later, and do not index this. */
+function unavailableResponse(): Response {
+  return new Response("Temporarily unavailable.\n", {
+    status: 503,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "300",
+      "X-Robots-Tag": "noindex",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 function htmlResponse(html: string): Response {
@@ -84,13 +109,16 @@ export async function sitePreviewResponse(
   legacy: (slug: string) => Promise<Response>,
 ): Promise<Response> {
   const answer =
-    convexOrigin === null ? null : await askSitePreview(convexOrigin, decision.handle, decision.routePath);
-  if (answer === null) {
+    convexOrigin === null ? undefined : await askSitePreview(convexOrigin, decision.handle, decision.routePath);
+  // A page that may well exist is never told to a search engine as missing.
+  if (answer === undefined && decision.home) return unavailableResponse();
+  if (answer === null || answer === undefined) {
+    if (decision.home) return await legacy("");
     return decision.legacySlug === undefined
       ? htmlResponse(renderPreviewHtml(GENERIC_PREVIEW))
       : await legacy(decision.legacySlug);
   }
-  const handleInCard = decision.prefix === "" ? null : decision.handle;
+  const handleInCard = decision.prefix === "" && !decision.home ? null : decision.handle;
   const meta = previewForSitePage(answer, {
     origin: decision.origin,
     prefix: decision.prefix,

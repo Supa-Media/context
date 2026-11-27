@@ -155,8 +155,10 @@ describe("context.lc is unchanged", () => {
     expect(convexCalls("/site/home")).toBeGreaterThan(0);
   });
 
-  it("robots.txt still allows everything", async () => {
-    expect(await (await get("https://context.lc/robots.txt")).text()).toBe("User-agent: *\nAllow: /\n");
+  it("robots.txt is the apex's, not Tex's", async () => {
+    const body = await (await get("https://context.lc/robots.txt")).text();
+    expect(body).toMatch(/^User-agent: \*\nContent-Signal: [^\n]+\nAllow: \/$/m);
+    expect(body).not.toContain("Disallow: /waitlist");
   });
 });
 

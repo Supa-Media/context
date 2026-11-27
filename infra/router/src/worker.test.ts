@@ -100,10 +100,24 @@ describe("every crawler gets server-rendered tags", () => {
     // The point of the whole design: there is no lookup, so there is nothing
     // to leak and nothing to time. If this ever fails, someone has added a
     // workspace fetch to an unauthenticated code path.
-    for (const path of ["/", "/login", "/@alice", "/@nobody", "/whatever"]) {
+    for (const path of ["/", "/login", "/@alice", "/@nobody", "/console/@alice/notes", "/s/nope"]) {
       await get(path, CRAWLER_UAS.Slackbot);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // The one lookup a bare top-level address makes: whether Context's own
+  // homepage website (a fixed handle, public by intent) has a page there.
+  // The path is never a workspace name, so no name the crawler typed reaches
+  // the control plane as one.
+  it("a bare address asks only whether the homepage website has that page", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: null, description: null, siteName: null, cardVersion: null }));
+    const response = await get("/alice", CRAWLER_UAS.Slackbot);
+    expect(response.status).toBe(404);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const request = fetchSpy.mock.calls[0]!;
+    expect(String(request[0])).toMatch(/\/site\/preview$/);
+    expect(JSON.parse(String((request[1] as RequestInit).body))).toEqual({ handle: "context-lc", routePath: "/alice" });
   });
 
   it("does not let a shared cache hand the crawler shell to a person", async () => {

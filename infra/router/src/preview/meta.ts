@@ -6,7 +6,8 @@
  * ever fetches a workspace.
  */
 
-import { AGENT_SENTENCE } from "../agentFront";
+import { AGENT_SENTENCE, MCP_ENDPOINT } from "../agentFront";
+import { faqJsonLd, FREE_ACCOUNT_SENTENCE, HOME_FAQ } from "../faq";
 
 /** Canonical origin. Every absolute URL a preview emits is built from this. */
 export const ORIGIN = "https://context.lc";
@@ -22,11 +23,20 @@ export const SITE_NAME = "Context";
  */
 export const BRAND_NAME = "Context.LC";
 
+/** The homepage's title and description: the crawler's card and the app shell's head say the same. */
+export const HOME_TITLE = "Context.LC — Less chaos. Finally, everyone’s on the same page.";
+export const HOME_DESCRIPTION =
+  "Shared memory for you, your team and every AI you use. ChatGPT, " +
+  "Claude, Cursor and other MCP clients read the same plain Markdown notes, " +
+  "kept in storage you own.";
+
 /**
  * The home page's structured data: Google reads `WebSite` for the site name
- * over the result and `Organization.logo` as a brand image. Constant JSON,
- * never interpolated, so there is nothing to escape but `<` (a `</script>` in
- * a future edit would otherwise close the block).
+ * over the result and `Organization.logo` as a brand image. `SoftwareApplication`
+ * says what the product is and that an account costs nothing; `FAQPage` is the
+ * questions the page shows, word for word (`../faq.ts`). Constant JSON, never
+ * interpolated, so there is nothing to escape but `<` (a `</script>` in a
+ * future edit would otherwise close the block).
  */
 const HOME_STRUCTURED_DATA = JSON.stringify({
   "@context": "https://schema.org",
@@ -46,6 +56,25 @@ const HOME_STRUCTURED_DATA = JSON.stringify({
       url: `${ORIGIN}/`,
       logo: `${ORIGIN}/favicon-192.png`,
     },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${ORIGIN}/#software`,
+      name: BRAND_NAME,
+      url: `${ORIGIN}/`,
+      applicationCategory: "ProductivityApplication",
+      operatingSystem: "Web",
+      description:
+        "Shared Markdown notes for people, groups, and the AI tools they use. " +
+        `An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.`,
+      publisher: { "@id": `${ORIGIN}/#organization` },
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+        description: FREE_ACCOUNT_SENTENCE,
+      },
+    },
+    faqJsonLd(HOME_FAQ, `${ORIGIN}/#faq`),
   ],
 }).replace(/</g, "\\u003c");
 
@@ -148,13 +177,10 @@ const PREVIEW_ROUTES: ReadonlyMap<string, PreviewMeta> = new Map<
   [
     "",
     Object.freeze({
-      title: "Context.LC — Less chaos. Finally, everyone’s on the same page.",
+      title: HOME_TITLE,
       // What a search result shows under the title. Plain words first: a
       // stranger deciding whether to click has not met "MCP" or "bucket".
-      description:
-        "Shared memory for you, your team and every AI you use. ChatGPT, " +
-        "Claude, Codex and Notion AI read the same plain Markdown notes, " +
-        "kept in storage you own.",
+      description: HOME_DESCRIPTION,
       canonical: `${ORIGIN}/`,
       imageAlt: "Context. Less chaos. Finally, everyone’s on the same page.",
       structuredData: true,
@@ -289,9 +315,21 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
     ? `<nav>
     <a href="${ORIGIN}/agents">Grok Bot guide</a>
     <a href="${ORIGIN}/claude">Claude guide</a>
+    <a href="${ORIGIN}/shared-ai-memory">Shared AI memory</a>
     <a href="${ORIGIN}/llms.txt">llms.txt</a>
   </nav>
   `
+    : "";
+  // The questions the FAQPage data names, shown on the page as the data says.
+  const faq = meta.structuredData
+    ? `
+    <section>
+      <h2>Questions</h2>${HOME_FAQ.map(
+        (entry) => `
+      <h3>${escapeHtml(entry.question)}</h3>
+      <p>${escapeHtml(entry.answer)}</p>`,
+      ).join("")}
+    </section>`
     : "";
   const agentLine = meta.structuredData ? `\n    <p>${escapeHtml(AGENT_SENTENCE)}</p>` : "";
 
@@ -343,7 +381,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   ${agentNav}<main>
     <h1>${title}</h1>
     <p>${description}</p>
-    <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>
+    <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>${faq}
   </main>${agentLine === "" ? "" : `\n  <footer>${agentLine}\n  </footer>`}
 </body>
 </html>

@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { icoFromPng, ICON_PATHS } from "./icons";
+import { icoFromPng, ICON_PATHS, TRAINING_CRAWLERS } from "./icons";
 import { renderPreviewHtml, previewFor, GENERIC_PREVIEW } from "./preview";
 import { route } from "./route";
 
@@ -120,12 +120,24 @@ describe("robots.txt", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
       const body = await response.text();
-      expect(body).toMatch(/^User-agent: \*$/m);
-      expect(body).toMatch(/^Allow: \/$/m);
-      expect(body).not.toMatch(/Disallow:\s*\//);
+      expect(body).toMatch(/^User-agent: \*\nContent-Signal: search=yes,ai-input=yes,ai-train=no,use=reference\nAllow: \/$/m);
+      expect(body).toMatch(/^Sitemap: https:\/\/context\.lc\/sitemap\.xml$/m);
       expect(body).not.toContain("<");
     }
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps denying the training crawlers, and only them", async () => {
+    const body = await (await get("https://context.lc/robots.txt", BROWSER)).text();
+    for (const agent of ["GPTBot", "ClaudeBot", "Google-Extended", "CCBot", "Applebot-Extended", "meta-externalagent"]) {
+      expect(body).toMatch(new RegExp(`^User-agent: ${agent}\\nDisallow: /$`, "m"));
+    }
+    // Search and answer engines are never disallowed: the `*` group allows them.
+    for (const agent of ["Googlebot", "Bingbot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Perplexity-User", "Claude-SearchBot"]) {
+      expect(body).not.toMatch(new RegExp(`^User-agent: ${agent}$`, "im"));
+    }
+    // The only Disallow lines are the training groups'.
+    expect(body.match(/^Disallow: \/$/gm)?.length).toBe(TRAINING_CRAWLERS.length);
   });
 });
 

@@ -55,6 +55,17 @@ const CRAWLER_TOKENS: readonly string[] = [
   "baiduspider",
   "sogou",
   "applebot-extended",
+  // AI search and answer engines. Named outright because their official UAs
+  // also carry a full browser string (`Macintosh … Chrome/131 … Safari/537.36;
+  // compatible; OAI-SearchBot/1.4`), which BROWSER_ENGINE below would
+  // otherwise take for a person: the bare token prerendered, the real UA got
+  // the Expo shell.
+  "oai-searchbot",
+  "chatgpt-user",
+  "perplexitybot",
+  "perplexity-user",
+  "claude-searchbot",
+  "claude-user",
   // Auditing tools that render the head.
   "chrome-lighthouse",
   "w3c_validator",

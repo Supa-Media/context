@@ -183,21 +183,22 @@ Claude Code stores one sign-in per server URL. Adding \`${MCP_ENDPOINT}\` twice 
 
 export const LLMS_TEXT = `# Context
 
-> Shared Markdown notes for a person and the AI tools they use. An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.
+> Shared Markdown notes for people, groups, and the AI tools they use. An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.
 
-Context does not charge for an account. A new address joins the waitlist. One connection reaches every workspace that account belongs to, addressed as @name.
+The same portable Markdown files give those tools shared memory, instead of a separate memory inside each assistant. ChatGPT, Claude, Cursor, and other MCP-compatible clients can read and write the same notes.
+
+Context does not charge for an account. A new address joins the waitlist. One connection reaches every workspace that account belongs to, addressed as @name. Notes are plain Markdown in storage you own. You can download everything as folders.
 
 ## Guides
 
-- [Grok Bot](${GUIDE_ORIGIN}/grokbot.md): set up Context in Grok Bot
 - [Claude](${GUIDE_ORIGIN}/claude.md): set up Context in Claude and Claude Code
+- [Grok Bot](${GUIDE_ORIGIN}/grokbot.md): set up Context in Grok Bot
 
 ## Pages
 
-- [Grok Bot guide](${GUIDE_ORIGIN}/agents): the same Grok Bot guide as a page
 - [Claude guide](${GUIDE_ORIGIN}/claude): the same Claude guide as a page
-- [Privacy](${GUIDE_ORIGIN}/privacy): what Context stores
-- [Terms](${GUIDE_ORIGIN}/terms): the terms of use
+- [Grok Bot guide](${GUIDE_ORIGIN}/agents): the same Grok Bot guide as a page
+- [Shared AI memory](${GUIDE_ORIGIN}/shared-ai-memory): how ChatGPT, Claude, Cursor, and other MCP clients share one set of notes you own
 `;
 
 function escapeHtml(value: string): string {
