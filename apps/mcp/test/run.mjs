@@ -27,6 +27,8 @@ if (!unit.length || missing.length) throw new Error(`test/unit.list names files 
 const TS = ["--experimental-transform-types", "--disable-warning=ExperimentalWarning", "--import", "./test/tsRegister.mjs"];
 // test/isolated.mjs's suites, split across this many processes (see its header).
 const ISOLATED_SHARDS = 3;
+// Every `node --test` run, the whole unit list or the `--only` files, takes the same flags from here.
+const unitArgs = (files, extra = []) => [...TS, "--test", "--test-timeout=120000", ...extra, ...files];
 const ENTRIES = [
   ["test.mjs", ["test/test.mjs"]],
   ...Array.from({ length: ISOLATED_SHARDS }, (_, shard) => [
@@ -36,7 +38,7 @@ const ENTRIES = [
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
   // One test that never settles fails by its name after two minutes, rather than holding its slice to the job timeout.
-  ["node --test", [...TS, "--test", "--test-timeout=120000", ...unit]],
+  ["node --test", unitArgs(unit)],
 ];
 // `pnpm test:unit` (`run.mjs unit`) runs the `node --test` entry alone, and
 // `run.mjs integration` runs every other one. CI runs the two halves as two
@@ -52,15 +54,27 @@ if (mode !== undefined && !MODES[mode]) throw new Error(`run.mjs takes no argume
 // (`node --test --test-shard`, which splits by file), so CI can run them on
 // three runners at once (2026-11-02): on one, they took 110 seconds, the
 // longest job on every gateway pull request.
-const shard = process.argv[3];
+// `run.mjs unit --only <file...>` runs just those unit files (paths as unit.list names them, relative to apps/mcp).
+// The precheck runs only the files a change reaches (scripts/precheck-tests.mjs). A file not on the list is an error,
+// so a typo cannot quietly run nothing and pass.
+const onlyFiles = process.argv[3] === "--only" ? process.argv.slice(4) : null;
+if (onlyFiles) {
+  if (mode !== "unit") throw new Error(`only "unit" takes --only, not ${JSON.stringify(mode)}`);
+  if (onlyFiles.length === 0) throw new Error("--only takes one or more test files named in test/unit.list");
+  const listed = new Set(unit);
+  const unlisted = onlyFiles.filter((file) => !listed.has(file));
+  if (unlisted.length) throw new Error(`--only names files that test/unit.list does not: ${unlisted.join(", ")}`);
+}
+const shard = onlyFiles ? undefined : process.argv[3];
 if (shard !== undefined) {
   const [index, total] = shard.split("/").map(Number);
   if (mode !== "unit" || !/^\d+\/\d+$/.test(shard) || index < 1 || index > total) {
     throw new Error(`only "unit" takes a shard, as INDEX/TOTAL with 1 <= INDEX <= TOTAL, not ${JSON.stringify(shard)}`);
   }
 }
-const only = (mode ? ENTRIES.filter(MODES[mode]) : ENTRIES).map(([name, args]) =>
-  shard && name === "node --test" ? [`${name} ${shard}`, [...TS, "--test", "--test-timeout=120000", `--test-shard=${shard}`, ...args.slice(TS.length + 2)]] : [name, args],
+const selected = onlyFiles ? [["node --test", unitArgs(onlyFiles)]] : ENTRIES;
+const only = (mode ? selected.filter(MODES[mode]) : selected).map(([name, args]) =>
+  shard && name === "node --test" ? [`${name} ${shard}`, unitArgs(unit, [`--test-shard=${shard}`])] : [name, args],
 );
 
 const STUCK_MS = Number(process.env.TEST_STUCK_MS) || 7 * 60_000;
