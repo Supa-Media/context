@@ -16,13 +16,18 @@
  * workspace object instead: it goes down the runner's socket, and the runner
  * holds it until the session has been shown it (`ws.machine.mail`).
  *
+ * A line to a person's own Tex (its mailbox joined from their texts, `texChat`) wakes their Tex in mail: the control
+ * plane checks the sender and keeps the run (`askTexMail`), and the person's Tex store is woken at once, whose alarm
+ * hands the run to the texting Worker (`TexRoutines.texMailDue`), which runs it through the gateway's `/tex/mail-run`
+ * (`packages/tex/gateway/agent/mailRunRoute.js`). Tex's own lines never wake it.
+ *
  * Who receives is decided here, from the line: the name it is addressed to,
  * or everyone who joined but the sender. The sender never gets its own line.
  * Delivery never fails the send: a job that cannot be reached reads the line
  * in the note as any other agent would.
  */
 
-import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
+import { callTexStore, ownerName, texStoreStub, texTimers } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 
 /**
@@ -34,6 +39,29 @@ const ROSTER_AGENTS = new Set(["tex", "advisor"]);
 
 /** Recipients handed one line at most; a note's mail is a small team, not a broadcast list. */
 export const MAX_DELIVERIES = 20;
+
+/** The alarm id a waiting Tex-in-mail run is woken under in its owner's Tex store: one per mailbox. */
+export const TEX_MAIL_ALARM = "mail:";
+
+/**
+ * Wakes the person's own Tex whose mailbox on this note the line is to (`texChat`), unless the line is Tex's own.
+ * The control plane decides whether it may (`mail.askTex`); the alarm carries the owner and the mailbox, never the mail.
+ */
+async function wakeTex(env, mail, boxes, line) {
+  if (typeof mail?.askTex !== "function" || line.from === "tex" || (line.to !== "tex" && line.to !== "everyone")) return [];
+  const box = boxes.find((each) => each?.texChat === true && each.name === "tex" && each.own !== true && typeof each.mailboxId === "string");
+  if (!box) return [];
+  try {
+    const owner = await mail.askTex(line.path, box.mailboxId);
+    if (typeof owner !== "string") return [];
+    const stub = texStoreStub(env, { person: owner });
+    if (stub === null) return [];
+    await texTimers(stub).schedule({ id: `${TEX_MAIL_ALARM}${box.mailboxId}`, at: Date.now(), payload: { owner: ownerName({ person: owner }), mail: box.mailboxId } });
+    return ["tex"];
+  } catch {
+    return [];
+  }
+}
 
 /** A mail id for the runner's inbox: one per line and machine, never a credential. */
 function messageIdOf(line, mailboxId) {
@@ -65,7 +93,7 @@ async function toMachine(env, workspaceId, box, line) {
 
 /**
  * @param {{ TEXTING?: { mailDeliver?: (call: object) => Promise<{ taken?: boolean }> }, WORKSPACE_STORE?: object }} env
- * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, machineWorkspaceId?: string, own?: boolean }>> }} mail
+ * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, machineWorkspaceId?: string, texChat?: true, own?: boolean }>>, askTex?: (path: string, mailboxId: string) => Promise<string | null> }} mail
  * @param {{ path: string, at: string, from: string, app: string | null, to: string, mailKind: "note" | "ask" | "interrupt", text: string }} line
  * @returns {Promise<string[]>} the names of the jobs and machines that took the line
  */
@@ -78,6 +106,8 @@ export async function deliverMail(env, mail, line) {
     return [];
   }
   const texting = env?.TEXTING;
+  const woke = await wakeTex(env, mail, Array.isArray(boxes) ? boxes : [], line);
+  if (woke.length > 0 && line.to === "tex") return woke;
   if (ROSTER_AGENTS.has(line.to)) {
     const sender = (Array.isArray(boxes) ? boxes : []).find((box) => box?.name === line.from && typeof box.jobId === "string" && typeof box.mailboxId === "string" && box.own === true);
     if (!sender || typeof texting?.mailDeliver !== "function") return [];
@@ -121,5 +151,5 @@ export async function deliverMail(env, mail, line) {
       }
     }),
   );
-  return [...taken, ...(await Promise.all(toMachines))].filter(Boolean);
+  return [...woke, ...taken, ...(await Promise.all(toMachines))].filter(Boolean);
 }

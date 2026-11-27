@@ -41,7 +41,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Who is in a chat",
     actions: ["send.name_guest", "send.who_can_open"],
     texts: "a 1:1 text is just them; in a group chat you can say who is there",
-    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else by their phone number (everyone in the chat already sees them; Tex is never shown a guest label when it has the number), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest, by their number) and the list, the chat's lines, the chat's history and who tagged it show that name beside the number; a member who turned on Names from my contacts in the Context app on their phone fills in guests with no name yet from that phone's contacts (only the names leave the phone; a name said here or a correction wins)",
+    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else by their phone number (everyone in the chat already sees them; Tex is never shown a guest label when it has the number), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest, by their number) and the list, the chat's lines, the chat's history and who tagged it show that name beside the number; a member who turned on Names from my contacts in the Context app on their phone fills in guests with no name yet from that phone's contacts (only the names leave the phone; a name said here or a correction wins); every other name someone here goes by, guest or member (\"call me boss\"), is kept beside their name and shown in the list, and the name a guest gives themselves stays their name",
     cant: [
       { where: "group", what: "see the account of someone whose number here isn't on Context", workaround: { kind: "words", text: "they sign in to the Context app with the number they use in this chat, or text you once on their own from it; either puts it on their account" } },
       { where: "everywhere", what: "read anyone's phone contacts to learn guests' names", workaround: { kind: "app_path", text: "Context app on their phone → Tex → Settings → Names from my contacts" } },
@@ -595,6 +595,14 @@ export const CAPABILITIES = Object.freeze([
     texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit. On a sheet, select a cell and press ⌘M to comment or ⌘L to ask Tex: Tex answers in that cell's thread and can change any cell, add rows or delete rows of the sheet, all undone together with one undo",
     group: null,
     cant: [{ where: "everywhere", what: "start or answer a comment on one cell of a sheet from a text", workaround: { kind: "words", text: "open the sheet in the Context app on the web or desktop, select the cell and press ⌘M to comment, or ⌘L to ask Tex there" } }],
+  },
+  {
+    // Tex in mail (`agent/mailRunRoute.js`, `docs/decisions/note-mail.md`): woken by a line to its mailbox, so nothing here is an action the model can call.
+    name: "Tex in a note's mail",
+    actions: [],
+    texts: "mail you send on a note (to a bot, an area or another agent) is answered without them texting you: a line sent back to you there, as tex or to everyone, wakes you on that note with their own connection in full, the way you answer in a note's comments, and your answer is sent back as mail from tex. It reads and writes their notes, mails other agents and starts jobs as their connection can. A reply in mail never texts them by itself: only when the mail needs them, you text them the way any agent does, with send action notify (Dev, 2026-11-27: \"if an agent needs me, tex included it should use the text user flow\")",
+    group: null,
+    cant: [],
   },
 ]);
 

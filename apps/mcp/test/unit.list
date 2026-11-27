@@ -75,6 +75,7 @@ test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
+test/openQuestion.test.mjs
 test/parallelReads.test.mjs
 test/pathAddressLinks.test.mjs
 test/agentHeldEcho.test.mjs
@@ -264,6 +265,7 @@ test/presence/movedNotice.test.mjs
 test/searchKeyed/census.test.mjs
 test/agentGroupActions.test.mjs
 test/agentGroupSignIn.test.mjs
+test/browserReach.test.mjs
 test/agentGroupOffer.test.mjs
 test/agentGroupGuests.test.mjs
 test/vaultChatShare.test.mjs
@@ -384,6 +386,7 @@ test/texMerge.test.mjs
 test/texStoreMove.test.mjs
 test/texRouting.test.mjs
 test/texRoster.test.mjs
+test/texMail.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
 test/chatBlockers.test.mjs
@@ -688,6 +691,7 @@ test/labSandboxSearch.test.mjs
 test/labChatMail.test.mjs
 test/labStickers.test.mjs
 test/labSandboxChat.test.mjs
+test/labSandboxNames.test.mjs
 test/labSandboxChatMail.test.mjs
 test/labSandboxCross.test.mjs
 test/editNode.test.mjs

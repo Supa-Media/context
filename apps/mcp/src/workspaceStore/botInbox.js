@@ -103,6 +103,17 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
       }
       return items;
     },
+    /**
+     * `bot` wrote its own line at `at`: it is reached, so it counts as a check-in (Dev, 2026-11-27: Muse answered mail
+     * from its own login and its card still said "Not checking yet"). Only its bound login writes as it (`mail.js`), and
+     * a later check-in is never moved back.
+     */
+    seen(bot, at) {
+      const name = mailJoinName(bot);
+      if (name === "" || !Number.isFinite(at)) return;
+      const when = Math.min(at, now());
+      sql.exec("INSERT INTO ws_bot_checks (bot, at) VALUES (?, ?) ON CONFLICT(bot) DO UPDATE SET at = MAX(at, excluded.at)", name, when);
+    },
     /** When `bot` last checked in, or null for never. */
     lastCheck(bot) {
       const row = all(sql.exec("SELECT at FROM ws_bot_checks WHERE bot = ?", mailJoinName(bot)))[0];

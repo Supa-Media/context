@@ -2,11 +2,13 @@
  * The test chat dock of the Lab live sandbox (mockup https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5, approved by
  * Dev2 2026-11-16): the grip on its top edge, the Grid | Timeline switch, the Timeline (`views/canvas/
  * SandboxTimeline.web.tsx`) at its three densities, and the canvas's run pill (top left, in the row
- * it shares with the change legend: `views/canvas/RunPill.web.tsx`). The Lab's compact scale: 13px text, 12px
+ * it shares with the change legend: `views/canvas/RunPill.web.tsx`). The dock never takes the canvas below its 200px
+ * minimum (`.archcv`, `labCss4.ts`): its cap leaves 200px, and it shrinks when the window does, so a height dragged
+ * in a taller window never pushes its last text and the composer off the bottom. The Lab's compact scale: 13px text, 12px
  * meta, 28px controls. Names are `sb`-prefixed: the Lab's root is `.tl` and its top bar `.bar`. `labCss5.ts` appends it.
  */
 export const LAB_CSS_DOCK = String.raw`
-.tl .sbx{position:relative;height:340px;max-height:calc(100% - 120px)}
+.tl .sbx{position:relative;height:340px;max-height:calc(100% - 200px);flex:0 1 auto}
 .tl .sbx.drag{transition:none;user-select:none;-webkit-user-select:none}
 .tl .sbgrip{position:absolute;top:-5px;left:0;right:0;height:10px;cursor:ns-resize;z-index:6;display:grid;place-items:center;touch-action:none}
 .tl .sbgrip::after{content:"";width:40px;height:4px;border-radius:2px;background:var(--line2)}

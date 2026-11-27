@@ -260,7 +260,10 @@ export const READ_TOOLS = Object.freeze(
  * and nothing went, 2026-11-26);
  * a mute mutes the test chat (`controlPlaneAnswer`), and the chat object then reads it as a muted chat does.
  * Tex's own computer (`tex_computer`) runs for real on the test chat's own computer, never the person's
- * (`sandboxComputer`). Their note writes and calls pass the fences like any other.
+ * (`sandboxComputer`). A name kept for someone in the chat (`name_guest`) goes into the chat's ledger, which in a test
+ * chat is the test chat's own (`wire.js`; any other chat's is never written), so the next turn reads it back as a real
+ * chat's does (stubbed as done, a kept name was never seen again, 2026-11-27). Their note writes and calls pass the
+ * fences like any other.
  */
 /**
  * Tools that run through their real gate in a test chat, so it holds, asks and sends on exactly what a real chat would
@@ -270,13 +273,20 @@ export const READ_TOOLS = Object.freeze(
  */
 export const REAL_GATE = Object.freeze(new Set(["send_email"]));
 
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer", "name_guest"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
  * turn reads as a refusal, and listed. A job that would run on a computer is refused the same way (`jobs.js`).
  */
 const NO_MACHINE = /^(browse|fill_login|make_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
+/**
+ * Whether a Lab test chat refuses this tool for wanting a browser or a computer (`toolAnswer`). The turn's tool list
+ * leaves such a tool out (`turnWeb.js`), so what the turn is told it can do is what this check lets it do.
+ */
+export function sandboxRefusesTool(env, name) {
+  return sandboxGateOf(env) !== null && typeof name === "string" && NO_MACHINE.test(name);
+}
 export const MACHINE_REFUSAL = "Not run: a Lab test chat has no browser and no computer, so this step can't run here. Say so plainly, and carry on with what you can do without it.";
 
 /** What a stubbed tool would have done, for the test chat's list. */

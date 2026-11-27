@@ -59,6 +59,7 @@ flowchart LR
       n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
       n_jobReport(["A job reports<br/>code<br/>graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js"]):::start
       n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · noteRunSheet.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
+      n_mailRun(["Tex in mail<br/>Haiku 5.5 · effort medium<br/>mailRunRoute.js · noteRun.js · apps/mcp/src/mail/deliver.js"]):::start
       n_joined(["Tex added<br/>code<br/>graph/nodes/joined.js · joined.js · groupJoined.ts"]):::start
       n_did(["Tex did<br/>code<br/>graph/nodes/did.js · did.js · didFacts.ts"]):::start
     end
@@ -108,6 +109,7 @@ flowchart LR
     n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
     n_connect["Connect notes<br/>Haiku 5.5 · effort low · off<br/>noteConnect.js · graph/nodes/connect.js"]:::off
     n_groupCard["Group card<br/>Haiku 5.5 · effort low<br/>graph/nodes/groupCard.js · groupCard.js"]:::model
+    n_guestNames["Guest names<br/>Haiku 5.5 · effort off<br/>graph/nodes/guestNames.js · guestNamePass.js"]:::model
   end
   subgraph n_group_checkFinish["Check & finish"]
     n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/answerCheck.js · sendBack.js"]:::model
@@ -202,6 +204,7 @@ flowchart LR
   n_reportRun -.->|starts a new run| n_jobReport
   n_finish -.->|uses: finished| n_nudgeOffer
   n_doorStep -.->|uses| n_shapeGate
+  n_send -.->|background: sent, ended, answered| n_guestNames
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -294,6 +297,7 @@ every wire, from the same config.
 | 5-7 Hand to a job | handoff | ladder | on | code |  |  |  | graph/nodes/handoff.js · handoff.js |
 | Connect notes | connect | afterSend | off | Haiku 5.5 | low |  |  | noteConnect.js · graph/nodes/connect.js |
 | Tex in a note | noteRun | starts | on | Haiku 5.5 | medium |  | p-sheet-cell | noteRun.js · noteRunSheet.js · graph/nodes/noteRun.js · noteRunRoute.js |
+| Tex in mail | mailRun | starts | on | Haiku 5.5 | medium |  |  | mailRunRoute.js · noteRun.js · apps/mcp/src/mail/deliver.js |
 | Nudge | nudgeOffer | checkFinish | off | Haiku 5.5 | low | 3 s |  | graph/nodes/nudgeOffer.js · nudges.js · capabilities.js |
 | Quiet check | quietCheck | checkInLook | on | Haiku 5.5 | low | 8 s | train:quietCheck | graph/nodes/quietCheck.js |
 | Research | checkinResearch | checkInLook | on | Haiku 5.5 | high | 180 s | train:checkinResearch | graph/nodes/checkinResearch.js |
@@ -306,6 +310,7 @@ every wire, from the same config.
 | Chat style | chatStyle | fdReads | on | code |  |  |  | graph/nodes/chatStyle.js · chatStyle.js |
 | On screen | screen | fdReads | on | code |  |  |  | graph/nodes/screen.js · screen.js |
 | New run | reportRun | jobs | on | code |  |  |  | graph/nodes/reportRun.js · texRunNodes.cjs · jobTexts.ts |
+| Guest names | guestNames | afterSend | on | Haiku 5.5 | off |  | p-guest-names | graph/nodes/guestNames.js · guestNamePass.js |
 | Nightly | nightly |  | on | code |  |  |  | dream.js · housekeeping.js |
 | Dream | dream |  | on | Haiku 5.5 | low |  |  | dream.js |
 | Day summaries | daysum |  | on | Haiku 5.5 | low |  |  | daySummaries.js |
@@ -313,7 +318,7 @@ every wire, from the same config.
 | Recheck About me | aboutCheck |  | on | Sonnet 5.5 | medium |  |  | graph/nodes/aboutCheck.js |
 | Drop past-date lines | aboutExpire |  | on | code |  |  |  | graph/nodes/aboutExpire.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → finish (wait) · finish → send (wait) · answerCheck → claimChecks (uses) · answerCheck → reviewer (uses) · send → recheck (uses) · tools → toolRules (uses) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · checkin → quietCheck (uses, quiet) · checkin → checkinResearch (uses, look) · fd → memberCards (uses) · learn → groupCard (uses) · answerCheck → friendCheck (uses) · joined → fd (wait, intro) · did → fd (wait, tell) · answerCheck → roomCheck (uses) · finish → roomCheck (uses) · fd → roomCheck (uses) · fd → chatStyle (uses) · fd → screen (uses) · job → reportRun (wait, job) · reportRun → jobReport (generator) · finish → nudgeOffer (uses, finished) · doorStep → shapeGate (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → finish (wait) · finish → send (wait) · answerCheck → claimChecks (uses) · answerCheck → reviewer (uses) · send → recheck (uses) · tools → toolRules (uses) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · checkin → quietCheck (uses, quiet) · checkin → checkinResearch (uses, look) · fd → memberCards (uses) · learn → groupCard (uses) · answerCheck → friendCheck (uses) · joined → fd (wait, intro) · did → fd (wait, tell) · answerCheck → roomCheck (uses) · finish → roomCheck (uses) · fd → roomCheck (uses) · fd → chatStyle (uses) · fd → screen (uses) · job → reportRun (wait, job) · reportRun → jobReport (generator) · finish → nudgeOffer (uses, finished) · doorStep → shapeGate (uses) · send → guestNames (background, sent, ended, answered) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
 <!-- tex-config: steps end -->
 
 ## The rule

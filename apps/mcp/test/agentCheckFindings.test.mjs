@@ -52,6 +52,7 @@ test("a job's part is never held for advice alone", async () => {
 
 test("facts on the same draft go back in one notice, with advice riding along", async () => {
   const claims = await searched(claimCheck({ question: "find us a venue for 30", job: { id: "job-1" } }));
+  claims.wrapWeb({ tools: [{ name: "browse" }], call: async () => ({ content: [] }) }); // a turn with a browser, as a texted one has
   const draft = `${WALL} I've added it to your notes. Can you check their site and forward me the menu?`;
   const notice = await claims.check(draft);
   assert.ok(carries(notice, CLAIM_NOTICE), "the claim with no write");

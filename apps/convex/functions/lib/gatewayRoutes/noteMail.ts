@@ -87,3 +87,45 @@ export async function gatewayMailJobsHandler(ctx: ActionCtx, body: Record<string
   });
   return json({ mailboxes });
 }
+
+/**
+ * `POST /gateway/mail/tex` `{ accessToken, workspaceId, path, mailboxId }` → `{ owner: personalWorkspaceId | null }`:
+ * a line was sent to a person's own Tex on this note, so their Tex in mail is woken (`functions/noteMail.ts`
+ * `askTexMail`). The token is the sender's; `null` answers every refusal alike.
+ */
+export async function gatewayMailTexHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const workspaceId = stringField(body, "workspaceId");
+  const path = stringField(body, "path");
+  const mailboxId = stringField(body, "mailboxId");
+  if (accessToken === null || workspaceId === null || path === null || mailboxId === null) return json({ owner: null });
+  const asked = await ctx.runMutation(internal.functions.noteMail.askTexMail, {
+    hashedAccessToken: await hashToken(accessToken),
+    workspaceId,
+    path,
+    mailboxId,
+  });
+  return json({ owner: asked?.owner ?? null });
+}
+
+/**
+ * `POST /agent-texts/mail-runs/due` (the texting Worker's secret) `{ owner }` → `{ runs: [{ runId, accessToken,
+ * workspaceId, path, mailboxId }] }`: the Tex-in-mail runs waiting for this personal workspace's person, each with a
+ * texting session of theirs (`functions/texMail.ts`). The plaintext tokens are made here and returned once; only their
+ * hashes reach the database.
+ */
+export async function agentTexMailDueHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const owner = stringField(body, "owner");
+  if (owner === null || owner.length > 64) return json({ runs: [] });
+  const plaintext: string[] = [];
+  const tokens: Array<{ hashedAccessToken: string; hashedRefreshToken: string }> = [];
+  const runIds: string[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const accessToken = `cat_${randomOpaqueToken(32)}`;
+    plaintext.push(accessToken);
+    tokens.push({ hashedAccessToken: await hashToken(accessToken), hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`) });
+    runIds.push(`texmail_${randomOpaqueToken(16)}`);
+  }
+  const claimed = await ctx.runMutation(internal.functions.texMail.claimTexMailRuns, { ownerWorkspaceId: owner, runIds, tokens });
+  return json({ runs: claimed.map(({ token, ...run }) => ({ ...run, accessToken: plaintext[token]! })) });
+}

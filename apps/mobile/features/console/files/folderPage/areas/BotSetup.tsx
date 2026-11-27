@@ -7,11 +7,14 @@
  * has anything new in its inbox or not"). A saved webhook wins over the card.
  *
  * Who changes it: its person, or whoever may replace the saved webhook (`botHookList` `canReplace`: who set it, or the
- * workspace's owner). Everyone else sees what is saved, read-only. While it isn't working, its setup prompt is drawn
- * open, since pasting it again is the way back.
+ * workspace's owner). Everyone else sees what is saved, read-only. While it isn't working, Setup is three numbered
+ * steps tied to its health (`setupSteps.ts`, `SetupStepsCard.tsx`): copy the prompt, paste it into the bot's own chat,
+ * and what turns its status green; pasting it again is the way back from every bad state (Dev, 2026-11-27: "fix this
+ * side panel to be more clear on how to set things up"). When the bot this panel saw failing works again, one green
+ * line says so.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Text } from "../../../../design/components/Text";
@@ -22,6 +25,8 @@ import { PromptBox, botSetupPrompt } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
 import type { Bot } from "./bots";
 import { useBotHookRow, type BotHealth } from "./botHealth";
+import { SetupDone, SetupStepsCard } from "./SetupStepsCard";
+import { backWords, setupSteps } from "./setupSteps";
 import type { PropertyChanges } from "../useFolderPage";
 
 export interface BotSetupProps {
@@ -63,11 +68,20 @@ export function BotSetup({ bot, health, canEdit, workspace, workspaceId, cardPat
     cardPath,
   );
   const failing = health?.bad === true;
-  const promptOpen = mayChange && (row === null || failing);
+  // Drawn open while it isn't working, or before a webhook bot has one; a check-in bot that checks in keeps its Copy.
+  const promptOpen = mayChange && (failing || (row === null && way === "webhook"));
   const again = way === "check" ? (health?.state === "stopped checking" || health?.state === "not answering" ? `Paste it into ${bot.name} again. It sets its 5-minute check-in up again, on a timer that outlasts its chat.` : `Paste it into ${bot.name}. It connects Context and checks in every 5 minutes.`) : row === null ? `Paste it into ${bot.name}. It connects Context, asks you to sign in, and saves its webhook.` : `Paste it into ${bot.name}. It saves its webhook again and sends a test.`;
 
   const saved = row !== null && row !== undefined;
-  const promptBlock = promptOpen ? (
+  // Numbered steps tied to its health (`setupSteps.ts`), and a line once the bot this panel first saw failing is
+  // working again (Dev, 2026-11-27: "fix this side panel to be more clear on how to set things up").
+  const steps = promptOpen ? setupSteps(bot.name, appOf(bot.card.bot)?.label.replace(/ bot$/i, "") ?? null, health, way) : null;
+  const sawBad = useRef(false);
+  if (health?.bad === true) sawBad.current = true;
+  const back = mayChange && sawBad.current && health !== undefined && health.tone === "ok";
+  const promptBlock = steps !== null ? (
+    <SetupStepsCard steps={steps} prompt={prompt} />
+  ) : promptOpen ? (
     <>
       <PromptBox title="Setup prompt" text={prompt} copyWord="Copy setup prompt" testID="bot-setup-prompt" />
       <Text variant="treeMeta" style={styles.muted}>
@@ -123,10 +137,11 @@ export function BotSetup({ bot, health, canEdit, workspace, workspaceId, cardPat
           {`To fix it, ${bot.whose || "its person"} pastes its setup prompt into ${bot.name} again.`}
         </Text>
       ) : null}
-      {/* A saved webhook first, then the prompt that sets it again; with none yet, the prompt leads. */}
-      {saved ? hook : null}
+      {back && health !== undefined ? <SetupDone words={backWords(bot.name, health)} /> : null}
+      {/* The steps lead; a saved webhook follows them. Without steps, a saved webhook first, then the prompt. */}
+      {saved && steps === null ? hook : null}
       {promptBlock}
-      {saved ? null : hook}
+      {saved && steps === null ? null : hook}
     </View>
   );
 }

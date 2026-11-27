@@ -31,6 +31,14 @@ test("the run is offered the read door's tools only: a write, a reply or a hand-
   assert.deepEqual(noteRunTools(null), []);
 });
 
+test("Tex in mail's run keeps every tool the person's connection offers, writes too, never a reply or a hand-over", () => {
+  const offered = [{ name: "read_note", annotations: { readOnlyHint: true } }, { name: "write_note", annotations: {} }, { name: "send_email" }, { name: "say_nothing" }, { name: "need_more_tools" }];
+  assert.deepEqual(noteRunTools(offered, { full: true }).map((tool) => tool.name), ["read_note", "write_note", "send_email"]);
+  assert.deepEqual(noteRunTools(offered).map((tool) => tool.name), ["read_note"], "a comment's run still only reads");
+  assert.match(noteRunQuestion({ path: "a.md", noteText: "", anchor: { text: "" }, ask: "x", history: [], full: true }), /Your tools: reads and writes\./);
+  assert.match(noteRunQuestion({ path: "a.md", noteText: "", anchor: { text: "" }, ask: "x", history: [] }), /Your tools: reads only\./);
+});
+
 test("the run's dispatcher refuses a write and any name it was not given, and holds every call to the run's workspace", async () => {
   const seen = [];
   const dispatch = async (name, args) => {

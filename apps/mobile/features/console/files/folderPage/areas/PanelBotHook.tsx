@@ -108,12 +108,9 @@ export function BotHookView({
     <View style={styles.box} testID="area-panel-hook">
       {row === null ? null : (
         <View style={styles.saved}>
-          <View style={styles.value}>
-            <Text variant="tree" numberOfLines={1} testID="area-panel-hook-saved">{`Webhook at ${row.host}`}</Text>
-            <Text variant="treeMeta" style={styles.muted} numberOfLines={1} testID="area-panel-hook-detail">
-              {[row.headerEnds === null ? "No header" : `Header ends ${row.headerEnds}`, row.setByName === "" ? "" : `set by @${row.setByName}`].filter(Boolean).join(" · ")}
-            </Text>
-          </View>
+          {/* The host alone: the header's last characters and who saved it meant nothing to its person (Dev, 2026-11-27,
+              of "Header ends lbM= · set by @seyi": "what does this mean? and why do we have to show it"). */}
+          <Text variant="tree" numberOfLines={1} testID="area-panel-hook-saved">{`Webhook at ${row.host}`}</Text>
           {canEdit ? (
             <View style={styles.actions}>
               <Pressable role="button" onPress={() => void onTest()} style={styles.button} testID="area-panel-hook-test">
@@ -216,7 +213,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     box: { gap: space.x1 },
     saved: { gap: space.x2 },
-    value: { gap: 2 },
     actions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
     button: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     link: { paddingVertical: 2 },

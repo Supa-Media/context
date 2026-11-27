@@ -33,7 +33,7 @@ import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./works
 import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
 import { areaAnswer, areaSeatsSection, holderAnswer, rosterAnswer } from "./area.js";
-import { botCheckAnswer } from "./botCheck.js";
+import { botCheckAnswer, recordCheckIn } from "./botCheck.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -287,10 +287,19 @@ export async function toolOrient(store, scope, rules, overrides, options = {}) {
   // was not told about when it connected.
   if (typeof options.area === "string" && options.area.trim() !== "") return await areaAnswer(store, scope, rules, overrides, options.area);
   // A bot's cheap check-in: one line, or what is new and where (`botCheck.js`), never the full holder answer.
-  if (options.check === true && typeof options.for === "string" && options.for.trim() !== "") return await botCheckAnswer(store, options.for, async () => await holderAnswer(store, scope, rules, overrides, options.for));
-  if (typeof options.for === "string" && options.for.trim() !== "") return await holderAnswer(store, scope, rules, overrides, options.for);
+  // `check` as the word "true" too: some apps send a flag as text.
+  const checking = options.check === true || options.check === "true";
+  if (checking && typeof options.for === "string" && options.for.trim() !== "") return await botCheckAnswer(store, options.for, async () => await holderAnswer(store, scope, rules, overrides, options.for));
+  if (typeof options.for === "string" && options.for.trim() !== "") {
+    // A bot orienting for itself has checked in, even where its app dropped `check` (one connected before the
+    // argument existed keeps its old list of arguments; Dev, 2026-11-27: Muse ran its 5-minute job and still read
+    // "Not checking yet").
+    await recordCheckIn(store, options.for);
+    return await holderAnswer(store, scope, rules, overrides, options.for);
+  }
   const about = aboutOf(options);
   const asked = about === null ? null : /^(area|for)\s+(.+)$/i.exec(about);
+  if (asked && asked[1].toLowerCase() !== "area") await recordCheckIn(store, asked[2].trim());
   if (asked) return await (asked[1].toLowerCase() === "area" ? areaAnswer : holderAnswer)(store, scope, rules, overrides, asked[2].trim());
   if (about === null && options.since !== undefined) return await sinceAnswer(store, scope, rules, overrides, options.since);
   if (about === null) return await overview(store, scope, rules, overrides);

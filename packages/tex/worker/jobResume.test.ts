@@ -12,6 +12,7 @@
  *  5. `readSteers` dropping `resume` → "the chat picks up only this chat's ended jobs, within the limit".
  *  6. `resumeJob` not keeping the restart's text → "a restart's own words reach the job it picks up".
  *  7. `resumeJobs` sending the placeholder over their words → "the chat's restart hands the job their words".
+ *  8. `resumeJobs` checking only "not done" again (no `canResume`) → "the chat does not send a restart for a job whose run was let go".
  */
 
 import { describe, expect, it } from "vitest";
@@ -144,6 +145,19 @@ describe("picking an ended job back up", () => {
     await storage.put(`job:${id}`, { ...(await storage.get<object>(`job:${id}`)), state: "failed", finishedAt: NOW + 3 });
     await resumeJobs(storage, [{ id, resume: true, machine: { ...machine, machineId: "mch_2" } }], { id: "e2", text: "" }, send, NOW + 4);
     expect(steers[1]?.machine).toBeUndefined();
+  });
+
+  it("the chat does not send a restart for a job whose run was let go, by the gateway's own rule", async () => {
+    // One window for the gateway's offer, the chat and the job's object (`packages/shared/src/jobResume.cjs`, 2026-11-27).
+    const storage = new MemoryStorage();
+    const id = "c1667a96-c13d-4594-ad0a-28918542283f";
+    await storage.put(`job:${id}`, { id, title: "Book brunch", state: "stuck", startedAt: NOW, finishedAt: NOW + 1 });
+    const steers: JobSteer[] = [];
+    const send = async (_id: string, steer: JobSteer) => (steers.push(steer), true);
+    expect(await resumeJobs(storage, [{ id, resume: true }], { id: "e1", text: "" }, send, NOW + 1 + JOB_SHOWN_MS + 1)).toEqual(["Book brunch"]);
+    expect(steers).toEqual([]);
+    expect(await resumeJobs(storage, [{ id, resume: true }], { id: "e2", text: "" }, send, NOW + 1 + JOB_SHOWN_MS)).toEqual([]);
+    expect(steers).toHaveLength(1);
   });
 
   it("a restart's own words reach the job it picks up", async () => {

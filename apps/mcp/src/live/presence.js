@@ -23,6 +23,8 @@ export async function announceCommittedToPresence(store, path, result, actor = n
   if (!result || typeof result.documentId !== "string" || typeof result.etag !== "string") return;
   const run = async () => {
     try {
+      // May be a promise: who wrote it is worked out behind the response (`live/activityBot.js`).
+      actor = await Promise.resolve(actor).catch(() => null);
       const room = roomByName(rooms, roomKey(workspaceId, path));
       await room.fetch("https://presence.invalid/committed", {
         method: "POST",
@@ -233,11 +235,13 @@ export async function announceWriteToPresence(store, { path, content, etag, acto
 
   const run = async () => {
     try {
+      // May be a promise, as for a committed write above.
+      const who = await Promise.resolve(actor).catch(() => null);
       const room = roomByName(rooms, roomKey(workspaceId, path));
       await room.fetch("https://presence.invalid/external", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: content, etag: etag ?? null, actor: actor ?? null }),
+        body: JSON.stringify({ text: content, etag: etag ?? null, actor: who ?? null }),
       });
     } catch {
       // A room that cannot be reached is a live view that refreshes a little

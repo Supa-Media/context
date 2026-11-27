@@ -13,7 +13,7 @@ import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 import { objectFirstBots } from "../src/store/objectBots.js";
 import { toolOrient } from "../src/orient/tool.js";
-import { botCheckAnswer, FULL_AFTER_MS } from "../src/orient/botCheck.js";
+import { botCheckAnswer, FULL_AFTER_MS, recordCheckIn } from "../src/orient/botCheck.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
 import { WorkspaceStore } from "../src/workspaceStore.js";
 import { durableSqlite } from "./durableSqlite.mjs";
@@ -127,6 +127,22 @@ test("the bot's own answer clears what waited in that note, and its answer to a 
   assert.equal(w.routines.inbox.check("Grok Bot").length, 1);
 });
 
+test("a bot's own line counts as it checking in, and never moves a later check-in back (Dev, 2026-11-27)", { skip }, () => {
+  // Dev, 2026-11-27: "all the sudden it says muse is not connected?" — Muse answered mail from its own login and its
+  // card still said "Not checking yet".
+  const w = world();
+  w.routines.run();
+  w.save("k1", KIM, withMail("", { from: "@kim", text: "Anything new?", at: "2026-11-25T12:01:00.000Z" }));
+  assert.deepEqual(w.routines.inbox.checks(), [], "someone else's line is not the bot checking in");
+  w.at("2026-11-25T12:05:00.000Z");
+  w.save("k1", KIM, withMail(w.notes.get("k1").text, { from: "grok-bot", text: "Nothing yet.", at: "2026-11-25T12:05:00.000Z" }));
+  assert.deepEqual(w.routines.inbox.checks(), [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:05:00.000Z") }]);
+  w.at("2026-11-25T12:20:00.000Z");
+  w.routines.inbox.check("Grok Bot");
+  w.routines.inbox.seen("Grok Bot", Date.parse("2026-11-25T12:10:00.000Z"));
+  assert.deepEqual(w.routines.inbox.checks(), [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:20:00.000Z") }]);
+});
+
 test("a bot's answer in the routine's own note clears that routine", { skip }, () => {
   const w = world();
   w.routines.run();
@@ -226,6 +242,21 @@ test("a first check-in, or the first after six hours, is answered with the full 
   assert.equal(await answer(now - 5 * 60 * 1000), "Nothing new. Check again in 5 minutes.");
 });
 
+// Dev, 2026-11-27: Muse ran its 5-minute job and still read "Not checking yet": an app connected before check existed
+// drops the argument. The bot's own orient for itself counts; anyone else orienting for it never does.
+test("a bot orienting for itself checks in, even without check; anyone else records nothing", async () => {
+  const asked = [];
+  const store = orientStore(async (bot) => (asked.push(bot), { items: [] }));
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "muse", name: "Muse" }]), true);
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "grok-bot", name: "Grok Bot" }]), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => []), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => { throw new Error("down"); }), false);
+  assert.deepEqual(asked, ["Muse"]);
+  // A flag sent as text is still a check.
+  const out = text(await toolOrient(store, "team", RULES, {}, { for: "Muse", check: "true" }));
+  assert.equal(out, "Nothing new. Check again in 5 minutes.");
+});
+
 test("a check where the workspace isn't on its object says so", async () => {
   const out = text(await toolOrient(orientStore(async () => null), "team", RULES, {}, { for: "Grok Bot", check: true }));
   assert.match(out, /Check-ins aren't available in this workspace yet/);
@@ -245,14 +276,15 @@ test("the object client asks ws.bots.check at the reader's clearance", async () 
   assert.equal(await unserved.check("Grok Bot"), null);
 });
 
-test("the setup prompt tells a bot with no webhook to check every 5 minutes, and a webhook bot not", () => {
-  const areas = [{ folder: AREA, title: "Scorecard", modes: [] }];
-  const polling = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "mail" });
+test("what every bot keeps says to check every 5 minutes, a webhook bot's too (Dev, 2026-11-27)", () => {
+  const polling = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "mail" });
   assert.match(polling, /every 5 minutes/i);
   assert.match(polling, /orient \{ for: "Grok Bot", check: true \}/);
   assert.match(polling, /on a timer that survives/);
-  const hooked = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "webhook" });
-  assert.doesNotMatch(hooked, /check: true/);
+  const hooked = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "webhook" });
+  // Dev, 2026-11-27: "maybe we should setup both webhook and a lightweight check every 5 minutes".
+  assert.match(hooked, /orient \{ for: "Grok Bot", check: true \}/);
+  assert.match(hooked, /Keep it even though you have a webhook/);
 });
 
 // ---- through the real object ----

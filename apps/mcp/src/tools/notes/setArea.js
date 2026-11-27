@@ -29,6 +29,7 @@ import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
 import { toolBindBot, toolSetupBot } from "./botBind.js";
 import { areaPulse } from "./areaPulse.js";
+import { makeMailNote } from "./mailNoteMade.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
 const { botCardPaths, botShortName, parseWorksInEntry, worksInLine } = areaRoutines;
@@ -156,9 +157,13 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   // A bot's whole setup in one call, from its own main chat (`botBind.js` `toolSetupBot`); it takes no area.
   if (args?.setup_bot !== undefined) return await toolSetupBot(store, scope, rules, overrides, args.setup_bot);
   if (args?.bind_bot !== undefined && (args.area === undefined || args.area === null || args.area === "")) return await toolBindBot(store, scope, rules, overrides, args.bind_bot);
-  const area = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
+  // A webhook is the bot's, not an area's, so saving or testing one alone needs no area (Dev, 2026-11-27: the setup
+  // prompt is only "connect, then setup_bot", whose answer hands the webhook step with no area to name).
+  const hookOnly = (args?.webhook !== undefined || args?.test_webhook !== undefined) && Object.keys(args).every((key) => ["webhook", "test_webhook", "context", "area"].includes(key));
+  const named = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
+  const jobs = named || hookOnly ? await factJobs(store) : null;
+  const area = named || (hookOnly ? (jobs?.jobs?.areas ?? "areas") : "");
   if (!area) return toolError('invalid: area is the area\'s folder. Pass it like "areas/finance".');
-  const jobs = await factJobs(store);
   const root = jobs?.jobs?.areas ?? area.split("/")[0];
   if (area !== root && !area.startsWith(`${root}/`)) return toolError(`invalid: ${area} is not under the areas folder (${root}/). Pass an area under ${root}/, as orient { area } lists them.`);
   const done = [];
@@ -231,6 +236,14 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const wrote = await change(store, scope, rules, overrides, `${area}/about.md`, seat, { create: area !== root && args.create === true });
     if (wrote.error) return toolError(wrote.error);
     done.push(wrote.unchanged ? `${area}: already so` : `${area}: set ${seat.map(([key]) => key).filter((key) => key !== "metric" && key !== "target" && key !== "helper").join(", ")}`);
+    // The bot that now holds the area gets its mail note there at once, so its first routine answer has somewhere to
+    // land (Dev, 2026-11-27; `mailNoteMade.js`). Tex reads its mail another way.
+    const seated = seat.find(([key, value]) => (key === "owner" || key === "delegate") && typeof value === "string" && isBot(value) && value.toLowerCase() !== "tex");
+    if (seated !== undefined) {
+      const mailPath = `${area}/mail/${mailJoinName(seated[1])}.md`;
+      const made = await makeMailNote(store, scope, rules, overrides, mailPath);
+      if (made === "made") done.push(`${mailPath}: made`);
+    }
   }
 
   // A bot: its card, and its name on the agents list.

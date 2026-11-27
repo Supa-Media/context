@@ -10,6 +10,7 @@
  *  1. `checkedNames` without the own/under/label check → "a name said to the room is nobody's" fails.
  *  2. `checkedNames` not skipping a kept name → "a name already kept is never replaced" fails.
  *  3. `nameGuestsFromChat` without the recent-unnamed check → "a chat whose guests are all named asks no model" fails.
+ *  5. `withLabels` returning the lines unchanged → "a guest's first text, kept before the chat's people were read" fails.
  *  4. `guestNamesSetup` returning `{ effort: "low" }` (thinking on) → "it asks with thinking off" fails. In the Lab,
  *     thinking on spent the answer's 300 tokens and two passes over a chat that named its guest found nothing.
  */
@@ -17,7 +18,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { checkedNames, guestNamesSetup, nameGuestsFromChat, readNames, renderLines, saysName } from "../../../packages/tex/gateway/agent/guestNamePass.js";
+import { checkedNames, guestHashes, guestNamesSetup, nameGuestsFromChat, openGuests, readNames, renderLines, saysName } from "../../../packages/tex/gateway/agent/guestNamePass.js";
 import { guestNameEntry } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
 
 const DIEGO = "guest-1a2b";
@@ -124,4 +125,62 @@ test("a draft that wires the step sets its model and effort; with no such step, 
   assert.deepEqual(guestNamesSetup(undefined), { model: "anthropic/claude-haiku-5-5", effort: "low", thinking: "off" });
   const draft = { models: { "haiku-5-5": "anthropic/claude-haiku-5-5" }, nodes: [{ id: "guestNames", model: "haiku-5-5", effort: "medium" }] };
   assert.deepEqual(guestNamesSetup(draft), { model: "anthropic/claude-haiku-5-5", effort: "medium" });
+});
+
+test("a guest's first text, kept before the chat's people were read, is theirs by their number", async () => {
+  const phone = "+15555550142";
+  const hashes = await guestHashes([{ who: KEMI, phone }, { who: "tunde", phone: "+15555550100" }]);
+  assert.equal(hashes.size, 1, "members are never labels");
+  const [who] = hashes.keys();
+  const first = line("k1", { kind: "person", who }, "I can do breakfast saturday");
+  const reply = line("k2", member("tunde"), "Kemi you're a legend", { replyTo: "k1" });
+  const ledger = memoryLedger([first, reply]);
+  const out = await nameGuestsFromChat({
+    ledger,
+    chat: "group:abc",
+    config: { stub: true },
+    words: { "guest-names": "Find the names." },
+    hashes,
+    request: async () => ({ text: `{"names":[{"guest":"${KEMI}","name":"Kemi","line":"k2"}]}` }),
+  });
+  assert.deepEqual(out, { outcome: "done", found: 1, kept: 1 });
+  assert.equal(ledger.kept.find((entry) => entry.kind === "name")?.name, "Kemi");
+});
+
+test("what a guest says about themselves wins over a name someone else gave, and only their own line changes it", async () => {
+  const given = guestNameEntry(DIEGO, "Diego", { by: "tunde", at: 1 });
+  const open = new Set([DIEGO]);
+  const kept = new Map([[DIEGO, "Diego"]]);
+  const lines = [...CHAT, line("m6", guest(DIEGO), "lol it's Dee actually"), line("m7", member("tunde"), "Dieguito you coming?", { replyTo: "m6" })];
+  assert.deepEqual(checkedNames([{ guest: DIEGO, name: "Dee", line: "m6" }], lines, kept, [], open), [{ guest: DIEGO, name: "Dee", by: DIEGO }]);
+  assert.deepEqual(checkedNames([{ guest: DIEGO, name: "Dieguito", line: "m7" }], lines, kept, [], open), [], "someone else can't rename them");
+  assert.deepEqual(checkedNames([{ guest: DIEGO, name: "Dee", line: "m6" }], lines, kept, [], new Set()), [], "a name they gave themselves stays");
+  assert.match(renderLines(lines, kept, open), /\[m6\] Diego \(guest-1a2b\): lol it's Dee actually/);
+  assert.deepEqual([...openGuests([given])], [DIEGO]);
+  assert.deepEqual([...openGuests([given, guestNameEntry(DIEGO, "Dee", { by: DIEGO, at: 2 })])], [], "their own name closes it");
+});
+
+test("a guest named by someone else is read again only when their own recent line names themselves", async () => {
+  const given = guestNameEntry(DIEGO, "Diego", { by: "tunde", at: 1 });
+  const named = guestNameEntry(KEMI, "Kemi", { by: KEMI, at: 1 });
+  let asked = 0;
+  const request = async () => (asked++, { text: '{"names":[{"guest":"guest-1a2b","name":"Dee","line":"m9"}]}' });
+  const quiet = memoryLedger([...CHAT, given, named, line("m8", guest(DIEGO), "sounds good")]);
+  assert.equal((await nameGuestsFromChat({ ledger: quiet, chat: "group:abc", config: { stub: true }, words: { "guest-names": "x" }, request })).outcome, "nobody_unnamed");
+  const said = memoryLedger([...CHAT, given, named, line("m9", guest(DIEGO), "it's Dee btw")]);
+  assert.deepEqual(await nameGuestsFromChat({ ledger: said, chat: "group:abc", config: { stub: true }, words: { "guest-names": "x" }, request }), { outcome: "done", found: 1, kept: 1 });
+  assert.equal(asked, 1);
+});
+
+// A guest's other names are theirs (Dev2, 2026-11-27, "keep all a person's aliases"): no other guest is given one, and
+// a guest can take one of their own back. Sabotage record (2026-11-27): ignoring `aliases` in `checkedNames` fails the
+// second assertion.
+test("a guest may take back a name they went by, and no other guest is given it", () => {
+  const kept = new Map([[DIEGO, "Diego"], [KEMI, "Kemi"]]);
+  const aliases = new Map([[DIEGO, ["Dee"]], [KEMI, []]]);
+  const open = new Set([DIEGO, KEMI]);
+  const lines = [...CHAT, line("m6", guest(DIEGO), "it's Dee, honestly"), line("m7", guest(KEMI), "call me Dee too lol")];
+  assert.deepEqual(checkedNames([{ guest: DIEGO, name: "Dee", line: "m6" }], lines, kept, [], open, aliases), [{ guest: DIEGO, name: "Dee", by: DIEGO }]);
+  assert.deepEqual(checkedNames([{ guest: KEMI, name: "Dee", line: "m7" }], lines, kept, [], open, aliases), [], "Dee is Diego's");
+  assert.deepEqual([...openGuests([guestNameEntry(DIEGO, "Dee", { by: "tunde", at: 1 }), guestNameEntry(DIEGO, "Diego", { by: "tunde", at: 2 })])], [DIEGO]);
 });

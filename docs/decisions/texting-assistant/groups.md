@@ -157,7 +157,16 @@ picked a roster of names kept on the chat itself.
 - When someone here says who a guest is (or the guest says it), Tex calls
   `send` action `name_guest` (`packages/tex/gateway/agent/groupGuestNames.js`) with
   the label and the name. It is kept as a `name` entry in the chat's ledger,
-  the chat's one copy; the newest per guest is that guest's name. Only a
+  the chat's one copy. The newest name a guest gave themselves is their
+  name, or with none the newest anyone gave ("own word wins", Dev2,
+  2026-11-27), and every other name they were given is kept beside it as a
+  name they also go by, shown in the roster and the judge's facts ("keep all
+  a person's aliases", Dev2, 2026-11-27, after seeing how two other
+  assistants keep names); no other guest is given one of them. A member
+  (with an account) goes by their account name, and the other names people
+  here call them are kept the same way, as `name` entries `{member, name}`
+  (`name_guest` with their @handle), shown beside it in the roster and the
+  judge's facts: guests and members are treated alike. Only a
   label in this chat is taken, and the name is cleaned as an account's is
   (`cleanName`).
 - Each group turn reads the names beside its history (`readGroupMemory`), and

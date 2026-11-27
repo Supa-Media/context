@@ -109,8 +109,9 @@ function refreshAsk(name, workspace, card) {
 function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace, routineTest, kind }) {
   const ctx = contextArg(workspace);
   const steps = [];
-  if (webhook) steps.push(relayStep());
-  // A bot with no webhook checks in: its app's guide (`botApps.cjs`).
+  // A webhook bot keeps the 5-minute check-in too, since a webhook call may wait until its person writes in its chat
+  // (Grok, 2026-11-27); a bot with no webhook checks in by its app's guide (`botApps.cjs`).
+  if (webhook) steps.push(relayStep(), ...checkInSteps({ holder, kind, workspace }).slice(0, 2));
   else steps.push(...checkInSteps({ holder, kind, workspace }));
   if (checkPath && !failed && webhook && routineTest === "sent") {
     // The check is answered only through the routine path (the Capabilities bot, 2026-11-27: mail got through while

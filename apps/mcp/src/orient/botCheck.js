@@ -15,6 +15,10 @@
 
 import { withoutTextExtension } from "../../../../packages/shared/src/fileKinds.cjs";
 import { toolError, toolText } from "../tools/results.js";
+import { boundBotsOf } from "../mail/boundBot.js";
+import areaBots from "../../../../packages/shared/src/areaBots.cjs";
+
+const { mailJoinName } = areaBots;
 
 /** A gap this long between check-ins starts a new working session, answered in full. */
 export const FULL_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -50,4 +54,22 @@ export async function botCheckAnswer(store, rawBot, full = null, now = Date.now(
   return toolText(
     [`${items.length} new for ${bot}:`, ...items.map(itemLine), `Read one: fetch { id: "<path>", args: { mail: true } }, or its whole area first: orient { area: "<area>" }. Everything: ${everything}.`].join("\n"),
   );
+}
+
+/**
+ * Records a check-in for `rawBot` when this connection is that bot (bound with `setup_bot`), so `orient { for }` from
+ * the bot itself counts even when its app dropped `check`. Anyone else orienting for a bot records nothing: a person
+ * or Tex reading a bot's areas never makes it look alive. Never throws; what waits is left for the next check.
+ */
+export async function recordCheckIn(store, rawBot, boundOf = boundBotsOf) {
+  const bot = mailJoinName(String(rawBot ?? "").trim());
+  if (bot === "" || typeof store?.objectBots?.check !== "function") return false;
+  try {
+    const bound = await boundOf(store);
+    if (!bound.some((each) => mailJoinName(each.bot) === bot || mailJoinName(each.name ?? "") === bot)) return false;
+    await store.objectBots.check(String(rawBot).trim());
+    return true;
+  } catch {
+    return false;
+  }
 }

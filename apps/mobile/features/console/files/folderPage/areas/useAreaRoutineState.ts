@@ -18,6 +18,8 @@ import { postDataSync } from "../../data/dataSync";
 import { readRoutineState, type RoutineStateNow } from "./areaRoutines";
 
 export const AREA_ROUTINES_PATH = "/files/area-routines";
+/** How often an open page asks again. */
+export const REASK_MS = 60_000;
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
 /** `POST /@slug/files/area-routines` on the gateway that serves `mcpEndpoint`, or null. */
@@ -83,13 +85,20 @@ export function useAreaRoutineState(asking: boolean, again: string): { state: Ro
       return;
     }
     let live = true;
-    void askAreaRoutines({ url, workspaceId, token })
-      .catch(() => null)
-      .then((answer) => {
-        if (live) setState(answer);
-      });
+    const ask = () =>
+      void askAreaRoutines({ url, workspaceId, token })
+        .catch(() => null)
+        .then((answer) => {
+          // A later ask that fails keeps what the last one said, rather than blanking every bot's health.
+          if (live) setState((before) => (answer === null && before !== null && before !== "loading" ? before : answer));
+        });
+    ask();
+    // Asked again every minute while open, so a bot's check-in or answer turns its health green without a reload
+    // (Dev, 2026-11-27: Muse checked in and the Bots page still said "Not checking yet").
+    const timer = setInterval(ask, REASK_MS);
     return () => {
       live = false;
+      clearInterval(timer);
     };
   }, [asking, again, url, workspaceId, token]);
   const run = useCallback(

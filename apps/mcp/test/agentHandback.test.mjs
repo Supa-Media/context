@@ -86,6 +86,7 @@ test("a step only they can take, an offer, a report, or their own to-do is not h
 
 test("an answer that hands the work back gets one more round, once, and an offer can still be checked after it", () => {
   const claims = claimCheck({ question: "YESSSSSSSS" });
+  claims.wrapWeb({ tools: [{ name: "browse" }], call: async () => ({ content: [] }) }); // a turn with a browser, as a texted one has
   const first = "No receipt in it. Forward it to me from Google Payments and I'll make the draft. Want me to forward it to Kansi then?";
   // The email offered with nothing held goes back in the same notice (`checkFindings.js`).
   assert.ok(carries(claims.check(first), HANDBACK_NOTICE));

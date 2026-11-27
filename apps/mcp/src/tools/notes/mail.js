@@ -27,6 +27,7 @@ import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 import { botCardOf } from "./botBind.js";
 import { botFor, boundBotsOf } from "../../mail/boundBot.js";
+import { makeMailNote } from "./mailNoteMade.js";
 
 /** A note in a bot's or an area's mail folder, where every agent line says what it used. */
 const MAIL_FOLDER_NOTE = /(^|\/)mail\/[^/]+$/;
@@ -55,6 +56,14 @@ function unjoinedName(actor) {
 function members(events) {
   return [...new Set(events.filter((event) => event.kind === "joined").map((event) => event.from))];
 }
+
+/** Who a line may go to: everyone who joined, and anyone who has sent mail here (Tex sends without joining). */
+function addressable(events) {
+  return [...new Set(events.filter((event) => event.kind === "joined" || event.kind === "mail").map((event) => event.from))];
+}
+
+/** The texting client: a person's own Tex in their 1:1 texts (`functions/textLinks.ts` `TEXTS_CLIENT_ID`). */
+const TEXTS_CLIENT_ID = "context_texts";
 
 /** The mailbox named by `args.mailbox`, if it is this connection's and on this note. */
 async function mailboxFor(store, args, path) {
@@ -124,7 +133,11 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   if (!Number.isFinite(wait) || wait < 0 || wait > MAX_ASK_WAIT_S) return toolError(`mail.wait is seconds to wait for the answer, at most ${MAX_ASK_WAIT_S}`);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const read = await toolReadNote(store, scope, rules, overrides, args.path);
+    let read = await toolReadNote(store, scope, rules, overrides, args.path);
+    // An area's or a bot's mail note nobody made yet is made by its first line (`mailNoteMade.js`).
+    if (read?.isError && attempt === 0 && /not found/i.test(read?.content?.[0]?.text ?? "") && (await makeMailNote(store, scope, rules, overrides, args.path)) === "made") {
+      read = await toolReadNote(store, scope, rules, overrides, args.path);
+    }
     if (read?.isError) return read;
     const parsed = parseRead(read);
     if (!parsed || !parsed.fields.etag || parsed.fields.kind === "drawing") return toolError("this note cannot carry mail: pick a plain Markdown note (not a drawing), or write one first");
@@ -138,6 +151,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     const bots = await boundBotsOf(store);
     let entry;
     let joined = null;
+    let sentFrom = null;
 
     if (joining) {
       const name = mailName(request.join);
@@ -175,6 +189,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     } else {
       const found = await mailboxFor(store, args, path);
       if (found.error) return toolError(found.error);
+      sentFrom = found.mailbox;
       // Which bot speaks: the one it names (`as`, or the bot its mailbox joined as), else the one whose folder this is,
       // else its only one (`mail/boundBot.js` `botFor`).
       if (request.as !== undefined && !mailName(request.as)) return toolError(`mail.as is the bot this line is from, as a mail name such as "grok-bot"; pass that, then send again`);
@@ -190,7 +205,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       let to = EVERYONE;
       if (request.to !== undefined && request.to !== EVERYONE) {
         to = mailName(request.to);
-        const names = members(events);
+        const names = addressable(events);
         if (!to || !names.includes(to)) {
           return toolError(
             `nobody joined this note's mail as "${request.to}"; send to "${EVERYONE}"` +
@@ -227,6 +242,11 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;
     if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job, device)}`);
+    // A person's own Tex that sends here without joining keeps a mailbox all the same, so a reply to it wakes their Tex
+    // in mail (`mail/deliver.js`). Nothing is written to the note for it; a name another connection holds stays theirs.
+    if (!joined && !sentFrom && entry.from === "tex" && store.actor?.clientId === TEXTS_CLIENT_ID && !store.mailTurn?.job && typeof store.mail?.join === "function") {
+      await store.mail.join(path, "tex").catch(() => null);
+    }
     const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
     const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
     if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);

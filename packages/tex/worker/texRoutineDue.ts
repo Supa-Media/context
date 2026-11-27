@@ -19,6 +19,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from "./routines";
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 import { readMailDelivery } from "./jobMail";
+import { runTexMail } from "./texMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
 import type { TextsBinding } from "./gatewaySession";
@@ -99,6 +100,18 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const response = await job.fetch("https://inbox/job-mail", { method: "POST", body: JSON.stringify(delivery) });
     if (!response.ok) return { taken: false };
     return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
+  }
+
+  /**
+   * Tex in mail (`texMail.ts`): a person's own Tex store's alarm, after a line was sent to their Tex on a note. Runs
+   * every Tex-in-mail run waiting for them; rejects a call that names no person (`TypeError`), and rejects when the
+   * control plane can't be reached, so the alarm tries again.
+   */
+  async texMailDue(call: { owner?: unknown } | null): Promise<{ ran: number }> {
+    const match = typeof call?.owner === "string" ? PERSON_OWNER.exec(call.owner) : null;
+    if (match === null) throw new TypeError("a Tex-in-mail alarm names a person's owner");
+    const deps = this.deps();
+    return { ran: await runTexMail({ fetch: deps.fetch, controlPlaneOrigin: deps.controlPlaneOrigin, workerSecret: deps.workerSecret, gatewayOrigin: deps.gatewayOrigin, log: deps.log }, match[1]!) };
   }
 
   /**

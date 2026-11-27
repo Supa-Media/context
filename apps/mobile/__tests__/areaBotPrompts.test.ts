@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { MODE_MEANINGS, areaPrompt, delegatePrompt, mailJoinName, modeLines, setupPrompt } from "@context/shared/src/areaBots.cjs";
+import { MODE_MEANINGS, areaPrompt, areasPrompt, botMemory, delegatePrompt, mailJoinName, modeLines, setupPrompt } from "@context/shared/src/areaBots.cjs";
 
 const AREA = { bot: "Finance", kind: "grok", whose: "@seyi", workspace: "@supa", area: "areas/operations/finance", title: "Finance", modes: ["Manager", "Doer"] };
 
@@ -90,10 +90,10 @@ describe("a delegate's prompt", () => {
 
   test("an area's delegate acts for its person owner there, and asks them first", () => {
     // The owner, 2026-11-25: "1 delegate per area please".
-    const one = setupPrompt({ bot: "Finance", kind: "grok", whose: "@seyi", workspace: "supa", areas: [{ folder: "areas/finance", title: "Finance", modes: ["Doer"], actsFor: "@shyoh" }] });
+    const one = areaPrompt({ bot: "Finance", kind: "grok", whose: "@seyi", workspace: "supa", area: "areas/finance", title: "Finance", modes: ["Doer"], actsFor: "@shyoh" });
     expect(one).toContain('You act for @shyoh in the area "Finance" (areas/finance) in the Context workspace @supa: @shyoh owns it and you are its delegate.');
     expect(one).toContain("Ask @shyoh before anything this area's approval rules name.");
-    const several = setupPrompt({
+    const several = areasPrompt({
       bot: "Finance",
       kind: "grok",
       whose: "@seyi",
@@ -130,23 +130,72 @@ test("a bot with a card is told to put its own logo there, once", () => {
   expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
 });
 
-test("the setup prompt connects Context first, hands the secret over from the shell, then gives what to keep", () => {
-  // The owner, 2026-11-25: "we cant assume that they have the mcp setup so that should be in every instruction".
-  const one = setupPrompt({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa", areas: [{ folder: "areas/ci", title: "CI/CD", modes: ["Doer"] }], reach: "webhook" });
-  expect(one.indexOf("https://mcp.context.lc/mcp")).toBeLessThan(one.indexOf("header_from_shell"));
-  expect(one).toContain("give me the sign-in link and wait");
-  expect(one).toContain('test_webhook: "Pipeline"');
-  expect(one).toContain('orient { context: "@supa", area: "areas/ci" }');
-  expect(one).not.toContain("avatar:");
-  const several = setupPrompt({ bot: "Pipeline", kind: "grok", whose: "@seyi", areas: [{ folder: "areas/ci" }, { folder: "areas/pr" }], reach: "mail", card: "areas/people/pipeline.md", endpoint: "https://mcp.example.com/mcp" });
-  expect(several).toContain("https://mcp.example.com/mcp");
-  expect(several).toContain('for: "Pipeline"');
-  expect(several).toContain("(areas/pr)");
-  expect(several).not.toContain("header_from_shell");
-  // Its relay routine, picture and check come back from one call, filled in for it (Dev, 2026-11-27: "could we make a
-  // context mcp action that makes it easier?"; `apps/mcp/test/botLogins.test.mjs` holds that answer).
-  expect(one).toContain('manage area { context: "@supa", setup_bot: "Pipeline" }');
-  expect(several).toContain('manage area { setup_bot: "Pipeline" }');
-  expect(one).not.toContain("bind_bot");
-  expect(one).not.toContain("Never write to Context, reply, or send anything from this run.");
+// Every step the bot must take is in the pasted prompt, never only in setup_bot's reply: Muse's app refused that
+// reply's orders as possible prompt injection (2026-11-27). Nothing in it names an area (Dev, 2026-11-27: "we shouldnt
+// have area specific wording as area assignments can change").
+describe("the setup prompt", () => {
+  const prompt = (over: Record<string, unknown> = {}) => setupPrompt({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa", areas: [{ folder: "areas/ci", title: "CI/CD", modes: ["Doer"] }], reach: "webhook", ...over });
+  const steps = (text: string) => text.split("---")[0];
+  test("connects Context first, then runs setup_bot from the main chat", () => {
+    const one = prompt();
+    expect(one).toContain("give me the sign-in link and wait");
+    expect(one.indexOf("https://mcp.context.lc/mcp")).toBeLessThan(one.indexOf('manage area { context: "@supa", setup_bot: "Pipeline" }'));
+    expect(prompt({ endpoint: "https://mcp.example.com/mcp" })).toContain("https://mcp.example.com/mcp");
+  });
+  test("a webhook bot makes its relay routine and hands its webhook over from the shell, with no area", () => {
+    const one = steps(prompt());
+    expect(one).toContain("Never write to Context, reply, or send anything from this run.");
+    expect(one).toContain('manage area { context: "@supa", webhook: { bot: "Pipeline"');
+    expect(one).toContain("header_from_shell");
+    expect(one.indexOf("header_from_shell")).toBeLessThan(one.indexOf("setup_bot"));
+  });
+  // Dev, 2026-11-27: "fix these PLEASE" — a Grok bot's webhook wakes queued until Dev wrote in its chat, so a webhook
+  // bot checks in every 5 minutes as well, and its step says so before setup_bot.
+  test("a webhook bot also makes its 5-minute check-in, before setup_bot", () => {
+    const one = steps(prompt());
+    expect(one).toMatch(/4\. Also make a job in Grok[^\n]*every 5 minutes[^\n]*orient \{ context: "@supa", for: "Pipeline", check: true \}/);
+    expect(one.indexOf("check: true")).toBeLessThan(one.indexOf("setup_bot"));
+  });
+  test("a check-in bot makes its 5-minute job as its own step, before setup_bot", () => {
+    const muse = steps(setupPrompt({ bot: "Muse", kind: "muse", whose: "@seyi", workspace: "@supa", areas: [] }));
+    expect(muse).toMatch(/2\. Make a job in Muse that runs every 5 minutes[^\n]*orient \{ context: "@supa", for: "Muse", check: true \}/);
+    expect(muse.indexOf("check: true")).toBeLessThan(muse.indexOf("setup_bot"));
+    expect(muse).not.toContain("webhook: {");
+  });
+  test("it names no area, and is the same whatever areas the bot holds", () => {
+    expect(prompt()).not.toMatch(/areas\//);
+    expect(prompt()).toBe(prompt({ areas: [] }));
+    expect(prompt()).not.toContain("bind_bot");
+  });
+});
+
+// Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer loop?". What a bot keeps is the same whatever areas
+// it holds, and a check-in bot's says the check-in even when it holds none.
+describe("what a bot keeps in memory", () => {
+  const muse = botMemory({ bot: "Muse", kind: "muse", whose: "@seyi", workspace: "@supa" });
+  test("a check-in bot keeps its 5-minute check-in, and is never told of a webhook", () => {
+    expect(muse).toContain('orient { context: "@supa", for: "Muse", check: true }');
+    expect(muse).toContain("on a timer that survives");
+    expect(muse).toContain("your 5-minute check-in lists the ones waiting for you");
+    expect(muse).toContain("your 5-minute check-in is the one schedule you keep");
+    expect(muse).not.toContain("webhook");
+  });
+  test("a webhook bot keeps its relay and its 5-minute check-in", () => {
+    const grok = botMemory({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa" });
+    expect(grok).toContain("reaches your webhook");
+    expect(grok).toContain("Your webhook routine only relays");
+    expect(grok).toContain('orient { context: "@supa", for: "Pipeline", check: true }');
+    expect(grok).toContain("Keep it even though you have a webhook");
+    expect(grok).toContain("your 5-minute check-in lists the ones waiting for you");
+    expect(grok).toContain("your 5-minute check-in is the one schedule you keep, beside your webhook's relay routine");
+  });
+  test("every bot answers every routine that waits, not only the newest", () => {
+    for (const kept of [muse, botMemory({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa" })]) {
+      expect(kept).toContain("do every one, oldest first");
+      expect(kept).toContain("never only the newest");
+    }
+  });
+  test("it names no area", () => {
+    expect(muse).not.toMatch(/areas\//);
+  });
 });
