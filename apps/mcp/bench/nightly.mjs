@@ -167,6 +167,9 @@ export function whyLines(row) {
   const out = [...seen.values()].slice(0, 4).map((m) => `    - missed ${m.n}×, ${m.kind}: ${clip(m.line, 160)}${m.reason ? ` (judge: ${clip(m.reason)})` : ""}`);
   if (row.toolErrors?.length) out.push(`    - tool errors: ${row.toolErrors.slice(0, 3).map((e) => clip(e, 160)).join("; ")}`);
   if (row.bench?.length) out.push(`    - bench could not stand in for: ${row.bench.slice(0, 4).join(", ")}`);
+  // What the turn did and the background jobs it started: which one wrote a note nobody asked for (core/q6, 2026-11-27).
+  if (row.steps) out.push(`    - first run's steps: ${row.steps}`);
+  if (row.handoff?.jobs) out.push(`    - background jobs run: ${row.handoff.jobs} (${row.handoff.parts} part(s))`);
   return out;
 }
 
