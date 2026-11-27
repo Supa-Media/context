@@ -10,9 +10,11 @@ export default {
   incident:
     "2026-11-14: one of a person's four Gmails failed every live search for an afternoon; Tex guessed which mailboxes it had from the results, wrote the address under the wrong name, and told the person its live search only reached another of their addresses. " +
     "2026-11-16: a vendor's email said only \"Click here to view the report in (pdf) format\", and Tex never saw the address behind it. " +
+    "2026-11-27: a person asked Tex to send a folder to a bot in their team workspace; Tex had to search for the bot, then wrote the work itself instead of mailing the bot. " +
     "2026-11-26: a person whose work Gmail sends as the practice's front-desk group address (Gmail's \"Send mail as\") asked Tex to answer an email as that address; Tex could only send from the mailbox's own address.",
   cause:
     "Nothing told a turn which mailboxes the person has connected, or that one of them was not fine, so the model inferred both from one search's answer. An email's HTML became its words alone, every link's address dropped. " +
+    "Nothing told a turn who holds each area or which bots work in the person's workspaces. " +
     "Nothing read Gmail's send-as list: the control plane took only a mailbox's own address as from, the gateway refused a reply whose from differed from its email's mailbox, and the turn was never told the aliases.",
   path: "1:1 texts that search mail",
   async run() {
@@ -22,6 +24,7 @@ export default {
         { address: "rowan@work.example", state: "ok", lastSyncedAt: Date.now(), tell: false, readOnly: false, sendsAs: ["frontdesk@work.example"] },
         { address: "rowan.home@mail.example", state: "stale", lastSyncedAt: Date.now() - 30 * 60 * 60_000, tell: false, readOnly: false },
       ]);
+      chat.world.bucket.set("areas/growth/about.md", { body: "---\nowner: \"@egress\"\ndelegate: Heron\n---\n\n# Growth\n", etag: "r1" });
       const first = await chat.text("did my cinema ticket come through?", "Let me look.");
       const requests = chat.world.model.requests;
       const body = requests.at(-1) ?? {};
@@ -32,6 +35,7 @@ export default {
       assert.ok(!system.includes("hasn't synced"), "a mailbox's state is never in the cached part");
       assert.match(messages, /rowan\.home@mail\.example hasn't synced for hours/, "the one not fine now is named per text");
       assert.ok(first.shown.includes("rowan@work.example"));
+      assert.match(system, /Bots and areas in their workspaces[\s\S]*`areas\/growth\/` — owner @egress, delegate Heron \(ask Heron first\) · mail `areas\/growth\/mail\/`/, "the turn is told who holds each area and where its mail is");
 
       // An email read live keeps its links' addresses: the body is what the control plane makes of Gmail's message (`gmailMessageToEvent`).
       const vendor = fixtureMessage({
