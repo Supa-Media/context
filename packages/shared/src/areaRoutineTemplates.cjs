@@ -15,7 +15,7 @@
  * one list.
  */
 
-/** The template every area gets, whatever its modes: move the metric, every six hours (named by Dev, 2026-11-27), Dev, 2026-11-27: "it should be at least every 6 hours". */
+/** The template every area gets, whatever its modes: move the metric, every six hours (named by Dev, 2026-11-27: "it should be at least every 6 hours"). */
 const IMPROVE_METRIC = Object.freeze({
   key: "improve-metric-loop",
   mode: null,
@@ -24,15 +24,33 @@ const IMPROVE_METRIC = Object.freeze({
   at: "12am, 6am, 12pm, 6pm",
   on: null,
   title: "Improve metric loop",
+  // Everything a run does, in the note itself, so a person reading it sees the whole job (Dev, 2026-11-27: "where is all
+  // the language about it running in its area, and about using mail to work with other areas"). Facts that change
+  // (the metric now, the seat, the budget, who does heavy lifting) stay in the run brief.
   job: [
-    "Move this area's metric toward its target.",
+    "You hold this area. Every run, move its metric toward its target, working here in this area and leaving everything you do in Context.",
     "",
-    "1. Read the run brief below: the metric's value now, its recent readings and the target.",
-    "2. Pick the one change most likely to move it, given what was tried before (this area's notes and projects say).",
-    "3. Do it, or start it as a project in this area if it takes more than this run.",
-    "4. Answer in the area's mail: what you did, the value now, and what you expect it to do next.",
+    "## Each run",
+    "1. Read the run brief below this note: the metric now and its recent readings, the target, the seat and its modes, the sub-areas, the area above, the attached projects, the budget left and where heavy lifting goes. Don't research what it already says.",
+    "2. Read this area's mail first and answer what other areas asked you. Then read what was tried before: this area's notes and the projects attached here.",
+    "3. Move the open projects here forward before starting anything new.",
+    "4. Pick the one change most likely to move the metric now, and do it the way this area's modes ask (the brief says what each mode asks).",
+    "5. If it takes more than this run, start it as a project in this area: `projects/<name>/` with `area: <this area>` in its about.md, and track it there.",
+    "6. Answer in this area's mail with what you did, the metric now, what you expect it to do next, and `used:` (the share of your week this run took).",
     "",
-    "When the metric has no value (no metric set, or its sheets can't be read), make that the change: say in the area's mail what is missing and who can fix it.",
+    "## Working in this area",
+    "- Keep the work and research in notes in this area or its projects, never only in your own chat, memory or app.",
+    "- Heavy lifting (code changes, long research, big file work) goes through the tool the brief names.",
+    "- Stay within this area's budget; Context holds runs once its share is spent. A run with nothing to move should cost little.",
+    "",
+    "## Working with other areas",
+    "- When another area blocks you, or what you're doing affects it, write in that area's mail (`<that area>/mail/<your name>.md`); its bot is told. Ask Finance whether a spend fits the budget; tell CI-CD when a change makes builds slower or redder.",
+    "- Sub-areas hold their own metrics: help them by mail rather than doing their work.",
+    "- What this area can't settle on its own goes to the area above, in its mail (the brief names its owner). Anything the approval rules name goes to this area's owner first.",
+    "- Talk to other areas and bots only through Context mail, never your own app's messages, tasks or schedules.",
+    "",
+    "## When the metric has no value",
+    "No metric, no target, or sheets that can't be read: make that this run's change. Say in this area's mail what is missing and who can fix it, and ask them in their area's mail.",
   ].join("\n"),
 });
 
