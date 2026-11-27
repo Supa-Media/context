@@ -15,15 +15,15 @@
  * one list.
  */
 
-/** The template every area gets, whatever its modes: move the metric. */
+/** The template every area gets, whatever its modes: move the metric, every six hours (named by Dev, 2026-11-27), Dev, 2026-11-27: "it should be at least every 6 hours". */
 const IMPROVE_METRIC = Object.freeze({
-  key: "improve-your-metric",
+  key: "improve-metric-loop",
   mode: null,
   folder: "daily",
-  name: "improve-your-metric",
-  at: "9am",
+  name: "improve-metric-loop",
+  at: "12am, 6am, 12pm, 6pm",
   on: null,
-  title: "Improve your metric",
+  title: "Improve metric loop",
   job: [
     "Move this area's metric toward its target.",
     "",

@@ -193,16 +193,16 @@ describe("drafts", () => {
 
 describe("pulse checks", () => {
   test("write the templates the modes ask for, keep any already there, and resume one a pulse paused", () => {
-    expect(pulseTitles(["Manager"])).toEqual(["Improve your metric", "Manager loop"]);
+    expect(pulseTitles(["Manager"])).toEqual(["Improve metric loop", "Manager loop"]);
     const plan = pulsePlan(AREA, ["Manager", "Doer"], [
-      note("areas/finance/routines/daily/improve-your-metric.md", { at: "8am" }),
+      note("areas/finance/routines/daily/improve-metric-loop.md", { at: "8am" }),
       note("areas/finance/routines/daily/manager-loop.md", { paused: "yes", template: "manager-loop" }),
     ]);
     expect(plan.resume).toEqual(["areas/finance/routines/daily/manager-loop.md"]);
     expect(plan.create.map((one) => one.path)).toEqual(["areas/finance/routines/daily/ship-the-next-item.md"]);
     expect(plan.create[0]!.text).toContain("# Ship the next item");
     // A paused note no template made is the person's: left alone.
-    expect(pulsePlan(AREA, [], [note("areas/finance/routines/daily/improve-your-metric.md", { paused: "true" })])).toEqual({ create: [], resume: [] });
+    expect(pulsePlan(AREA, [], [note("areas/finance/routines/daily/improve-metric-loop.md", { paused: "true" })])).toEqual({ create: [], resume: [] });
   });
 });
 

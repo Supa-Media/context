@@ -139,24 +139,26 @@ test("pulse writes the area's routines from its modes, keeps a routine already t
   const { store, text } = await world({ ...NOTES, "areas/finance/routines/daily/manager-loop.md": "---\nat: 7am\n---\nMy own loop.\n" });
   const run = (args) => toolSetArea(store, "team", RULES, new PrivacyOverrides(), args);
   const on = said(await run({ area: "areas/finance", pulse: true }));
-  assert.match(on, /areas\/finance\/routines\/daily\/improve-your-metric\.md: written \(improve-your-metric\)/);
+  assert.match(on, /areas\/finance\/routines\/daily\/improve-metric-loop\.md: written \(improve-metric-loop\)/);
   assert.match(on, /areas\/finance\/routines\/daily\/ship-the-next-item\.md: written \(doer-ship-next\)/);
   assert.match(on, /manager-loop\.md: kept/);
   assert.doesNotMatch(on, /direction-check/);
   assert.equal(await text("areas/finance/routines/daily/manager-loop.md"), "---\nat: 7am\n---\nMy own loop.\n");
-  const improve = await text("areas/finance/routines/daily/improve-your-metric.md");
-  assert.match(improve, /^---\nat: 9am\ntimezone: America\/New_York\ntemplate: improve-your-metric\n---\n# Improve your metric\n/);
+  const improve = await text("areas/finance/routines/daily/improve-metric-loop.md");
+  assert.match(improve, /^---\nat: 12am, 6am, 12pm, 6pm\ntimezone: America\/New_York\ntemplate: improve-metric-loop\n---\n# Improve metric loop\n/);
+  // Every six hours, as Dev asked (2026-11-27).
+  assert.equal(areaRoutineWhen(areaRoutineOf("areas/finance/routines/daily/improve-metric-loop.md", "areas"), improve), "Every day at 12 am, 6 am, 12 pm and 6 pm");
   // Every template is a routine Context runs.
   for (const template of [templates.IMPROVE_METRIC, ...templates.MODE_TEMPLATES]) {
     const path = templates.templatePath("areas/finance", template);
     assert.equal(typeof areaRoutineNext(areaRoutineOf(path, "areas"), templates.templateText(template), Date.now()).at, "number", path);
   }
   const off = said(await run({ area: "areas/finance", pulse: false }));
-  assert.match(off, /improve-your-metric\.md: paused/);
+  assert.match(off, /improve-metric-loop\.md: paused/);
   assert.doesNotMatch(off, /manager-loop/);
-  assert.match(await text("areas/finance/routines/daily/improve-your-metric.md"), /^paused: "?yes"?$/m);
-  assert.match(said(await run({ area: "areas/finance", pulse: true })), /improve-your-metric\.md: resumed/);
-  assert.doesNotMatch(await text("areas/finance/routines/daily/improve-your-metric.md"), /^paused:/m);
+  assert.match(await text("areas/finance/routines/daily/improve-metric-loop.md"), /^paused: "?yes"?$/m);
+  assert.match(said(await run({ area: "areas/finance", pulse: true })), /improve-metric-loop\.md: resumed/);
+  assert.doesNotMatch(await text("areas/finance/routines/daily/improve-metric-loop.md"), /^paused:/m);
 });
 
 test("one routine runs at several times a day, in order, and says each; a time it can't read is a problem", () => {

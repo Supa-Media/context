@@ -157,13 +157,38 @@ describe("the Routines section", () => {
     await press(one("area-row-areas/finance"));
     const text = strip(one("area-panel-routines").textContent);
     expect(text).toContain("No routines yet. Context sends each one to Grok Bot on time");
-    expect(text).toContain("Adds Improve your metric and Manager loop, from Finance's modes.");
+    expect(text).toContain("Adds Improve metric loop and Manager loop, from Finance's modes.");
     await press(one("area-panel-pulse"));
     await settle();
     expect(files.map((file) => file.split("\n")[0])).toEqual([
-      "create areas/finance/routines/daily/improve-your-metric.md",
+      "create areas/finance/routines/daily/improve-metric-loop.md",
       "create areas/finance/routines/daily/manager-loop.md",
     ]);
+  });
+
+  test("Turn on pulse checks stays beside other routines, and goes once pulse checks run", async () => {
+    windowOf(1440);
+    const files: string[] = [];
+    await mount(host([], { notes: AREAS, files }), LISTING);
+    await press(one("area-row-areas/finance"));
+    await press(one("area-panel-pulse"));
+    await settle();
+    // Manager loop is already there and kept; only the metric loop is new, every six hours.
+    expect(files.map((file) => file.split("\n")[0])).toEqual(["create areas/finance/routines/daily/improve-metric-loop.md"]);
+    expect(files[0]).toContain("at: 12am, 6am, 12pm, 6pm");
+
+    unmountAll();
+    const on: ListNote[] = [...AREAS, { path: "areas/finance/routines/daily/improve-metric-loop.md", properties: { at: "12am, 6am, 12pm, 6pm", template: "improve-metric-loop" }, heading: "Improve metric loop" }];
+    await mount(host([], { notes: on }), LISTING);
+    await press(one("area-row-areas/finance"));
+    expect(all("area-panel-pulse")).toHaveLength(0);
+  });
+
+  test("an area only a person holds has no Routines section", async () => {
+    windowOf(1440);
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(one("area-row-areas/engineering"));
+    expect(all("area-panel-routines")).toHaveLength(0);
   });
 
   test("a second tap before the first lands writes nothing twice", async () => {
@@ -179,7 +204,7 @@ describe("the Routines section", () => {
     });
     await settle();
     expect(files.map((file) => file.split("\n")[0])).toEqual([
-      "create areas/finance/routines/daily/improve-your-metric.md",
+      "create areas/finance/routines/daily/improve-metric-loop.md",
       "create areas/finance/routines/daily/manager-loop.md",
     ]);
   });
