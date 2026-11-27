@@ -536,7 +536,7 @@ export async function keepTextsGrant(
 export async function keepTextsGrantForUser(
   ctx: MutationCtx,
   userId: Id<"users">,
-  args: { hashedAccessToken: string; hashedRefreshToken: string; expiresAt: number; personalWorkspaceId?: Id<"workspaces">; via?: "app" },
+  args: { hashedAccessToken: string; hashedRefreshToken: string; expiresAt: number; personalWorkspaceId?: Id<"workspaces">; via?: "app" | "mail" },
 ): Promise<"linked" | "unlinked"> {
   // "This wasn't me" stops the assistant answering until it is turned back on.
   if (await phoneSignInPaused(ctx, userId)) return "unlinked";
@@ -586,7 +586,8 @@ export async function keepTextsGrantForUser(
   await armDream(ctx, { userId, workspaceId, timeZone: zone, now: Date.now(), texted: true });
   // Check-ins go out as texts, not on the app's chat yet (`docs/decisions/texting-assistant/app-chat.md`): the app's
   // session never starts them for someone who only chats in the app.
-  if (args.via !== "app") await armHeartbeat(ctx, { userId, workspaceId, timeZone: zone, now: Date.now() });
+  // Nor does Tex in mail (`texMail.ts`): a bot's mail is not the person texting.
+  if (args.via === undefined) await armHeartbeat(ctx, { userId, workspaceId, timeZone: zone, now: Date.now() });
   // And tomorrow's housekeeping, likewise restarted (`lib/housekeeping/`).
   await armHousekeeping(ctx, { userId, workspaceId, timeZone: zone, now: Date.now() });
   await recordAudit(ctx, {
@@ -594,7 +595,7 @@ export async function keepTextsGrantForUser(
     actorUserId: userId,
     actorClientId: TEXTS_CLIENT_ID,
     action: "texts.session.opened",
-    details: { scopes: scopes.join(" "), ...(args.via === "app" ? { via: "app" } : {}) },
+    details: { scopes: scopes.join(" "), ...(args.via !== undefined ? { via: args.via } : {}) },
   });
   return "linked";
 }
@@ -624,7 +625,7 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
 
 /** Account deletion: links, pending codes, a setup still owed and Tex's dream, check-in and housekeeping schedules go with the person. */
 export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["phoneLinks", "phoneLinkCodes", "textSetups", "textingStops", "texDreams", "texHeartbeats", "texHousekeeping"] as const) {
+  for (const table of ["phoneLinks", "phoneLinkCodes", "textSetups", "textingStops", "texDreams", "texHeartbeats", "texHousekeeping", "texMailRuns"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))

@@ -162,6 +162,38 @@ Dev2: nothing about a note is polled from afar. The mail stays in the note's Mar
 
 **Simplifying it away costs:** every agent's every call reads a whole note again, and a waiting ask reads it 80 times. That is the polling the 2026-11-06 floods were made of. Tested by `apps/mcp/test/noteMailObject.test.mjs`.
 
+## Tex answers its own mail (2026-11-27)
+
+Dev, 2026-11-27: "I dont think we have a flow where tex is notified whenever a message is sent to it", then "Tex in
+mail should be the same flow as tex in comments I feel, its own mini tex", with its access "the same" as a bot's
+private connection: everything the person can read. Tex mailed the Pablo bot a folder from Dev's chat, Pablo answered
+in the mail asking for Seyi's raw thought, and nobody read it.
+
+- **Tex's mailbox.** A person's own Tex is the mailbox named `tex` that their texting grant (`context_texts`, never a
+  group chat's) joined with no job and no machine (`noteMail.ts` `isTexBox`). Tex sends without joining, as `tex`, so
+  a 1:1 send keeps that mailbox in the control plane with nothing written to the note (`tools/notes/mail.js`), and a
+  reply may name `tex` because anyone who has sent mail on the note can be written to.
+- **Woken by the line.** A line to `tex` or to everyone, from anyone but Tex, is told to the control plane with the
+  sender's token (`/gateway/mail/tex`, `askTexMail`): the sender must reach the note and the mailbox must be a person's
+  own Tex's there. It keeps one waiting run per mailbox and at most 100 an hour (Dev, 2026-11-27: "too restrictive lets do 100"), so two agents answering each other
+  stop. The gateway then sets an alarm in the owner's Tex store, carrying the owner and the mailbox, never the mail
+  (`mail/deliver.js` `wakeTex`).
+- **Run like comments.** The alarm hands the owner to the texting Worker (`TexRoutines.texMailDue`), which claims the
+  runs with the Worker's secret (`/agent-texts/mail-runs/due`, `texMail.ts`): each gets a texting session minted as
+  the person's next text would mint it (linked, not paused, a member who may operate), and the earlier token keeps
+  working for whatever holds it. The gateway's `/tex/mail-run` (`agent/mailRunRoute.js`, node `mailRun`) reads what is
+  new for the mailbox, shows the lines before it as the thread, and answers with `runNoteRun`, the comments' run,
+  with `full`: every tool the person's own connection offers, writes included (Dev, 2026-11-27: "Just give tex private
+  mcp access please, let it do anything no restrictions"). A comment's run still only reads. A step nobody can take back
+  (an email, a handle claim, a vault key's first use) still waits for the person's yes in the tool, checked by the
+  gateway, as non-negotiable 5 holds. The answer is sent back from the same texting grant, so it is signed `tex` on the mailbox it already
+  has. Nobody is texted.
+
+**Simplifying it away costs:** a reply to Tex sits in the note until the person thinks to ask, which is the Pablo
+thread. Running it as the person's chat turn instead would text them for every line a bot sends. Tested by
+`apps/convex/__tests__/noteMail/texMail.test.ts`, `apps/mcp/test/texMail.test.mjs`,
+`apps/mcp/test/noteMail.test.mjs` and `packages/tex/worker/texMail.test.ts`.
+
 ## Tested by
 
 `apps/mcp/test/noteMail.test.mjs` (join, signing, footer, privacy of

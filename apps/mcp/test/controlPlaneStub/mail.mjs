@@ -9,9 +9,13 @@
  */
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,23}$/;
+/** A person's own Tex's mailbox: "tex", joined from their texts by no job or machine (`noteMail.ts` `isTexBox`). */
+const texBox = (row) => row.name === "tex" && !row.jobId && !row.machineId && row.clientId === "context_texts";
 
 export function createMailRoutes(grantForAccessToken, coveredContexts) {
   const mailboxes = new Map();
+  // The Tex-in-mail asks the gateway made (`/gateway/mail/tex`), as `apps/convex/functions/noteMail.ts` `askTexMail` takes them.
+  const texAsks = [];
   const devices = { asks: [], answer: { name: "Claude Code · repo", os: "linux" }, machines: new Map() };
   let counter = 0;
   const view = ({ mailboxId, workspaceId, path, name, readThrough }) => ({ mailboxId, workspaceId, path, name, readThrough });
@@ -43,6 +47,8 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
     const row = {
       mailboxId: `mb_${(++counter).toString(16).padStart(16, "0")}`,
       grantId: grant.grantId,
+      clientId: grant.clientId,
+      ownerWorkspaceId: grant.workspaceId,
       workspaceId: body.workspaceId,
       path: body.path,
       name: body.name,
@@ -81,18 +87,25 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
       const grant = await grantForAccessToken(body.accessToken);
       const reach = grant ? coveredContexts(grant).some((entry) => entry.workspaceId === body.workspaceId) : false;
       if (!reach) return { mailboxes: [] };
-      const rows = [...mailboxes.values()].filter((row) => row.workspaceId === body.workspaceId && row.path === body.path && (row.jobId || row.machineId));
+      const rows = [...mailboxes.values()].filter((row) => row.workspaceId === body.workspaceId && row.path === body.path && (row.jobId || row.machineId || texBox(row)));
       return {
-        mailboxes: rows.map(({ mailboxId, name, jobId, machineId, grantId }) => ({
+        mailboxes: rows.map(({ mailboxId, name, jobId, machineId, grantId, ...row }) => ({
           mailboxId,
           name,
-          ...(jobId ? { jobId } : { machineId, machineWorkspaceId: devices.machines.get(machineId)?.workspaceId }),
+          ...(jobId ? { jobId } : machineId ? { machineId, machineWorkspaceId: devices.machines.get(machineId)?.workspaceId } : texBox({ name, ...row }) ? { texChat: true } : {}),
           own: grantId === grant.grantId,
         })),
       };
     }
+    if (path === "/gateway/mail/tex") {
+      const grant = await grantForAccessToken(body.accessToken);
+      const row = mailboxes.get(body.mailboxId);
+      const ok = grant && row && texBox(row) && row.grantId !== grant.grantId && row.workspaceId === body.workspaceId && row.path === body.path;
+      texAsks.push({ ...body, accessToken: undefined, answered: ok ? row.ownerWorkspaceId : null });
+      return { owner: ok ? row.ownerWorkspaceId : null };
+    }
     return undefined;
   }
 
-  return { handle, mailboxes, devices, joinAnswers };
+  return { handle, mailboxes, devices, joinAnswers, texAsks };
 }

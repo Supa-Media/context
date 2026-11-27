@@ -72,6 +72,7 @@ const entries: LedgerEntry[] = [
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   run("connect", { notes: ["areas/trips/plan.md"], question: "plan the trip", tainted: false, group: false }, { outcome: "connected", notes: 1, links: [{ from: "areas/trips/plan.md", to: "areas/trips/budget.md", why: "the same trip", there: "written", back: "written" }] }),
   run("noteRun", { path: "areas/trips/plan.md", noteText: "Fly out Friday.", anchor: { text: "Friday" }, ask: "make it Saturday", history: [], audience: "only the asker" }, { outcome: "answered", answer: "Changed it to Saturday.", replace: "Saturday", sources: ["areas/trips/plan.md"] }),
+  run("mailRun", { path: "areas/trips/mail/tex.md", ask: "ana: when do we fly?", history: [] }, { outcome: "answered", sent: true }),
   // Search's steps log each run as a node run (Dev2, 2026-11-21): left to right, every workspace at once.
   run("search", { query: "trip", prefix: "", only: null, role: "owner" }, { to: "open", query: "trip", prefix: "", names: [], here: true }),
   run("open", { query: "trip", prefix: "", names: [], here: true }, { query: "trip", prefix: "", several: false, workspaces: [{ name: "@me", here: true }], unreached: [] }),
