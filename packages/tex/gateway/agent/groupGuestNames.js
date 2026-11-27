@@ -85,16 +85,58 @@ export function guestNamesFrom(entries) {
   return names;
 }
 
-/** The chat's guest names from its ledger, newest per guest; none when it can't be read. */
-export async function readGuestNames(ledger, chat) {
-  if (ledger === null || ledger === undefined || typeof ledger.read !== "function") return [];
+/** A handle, as a chat's people are named (`groupNames.js` `namesOf`). */
+const HANDLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/**
+ * Another name a member goes by, as a ledger entry `{member, name, by?}`. Guests and members are treated alike (Dev2,
+ * 2026-11-27): a member is named by their account, and the other names people here call them are kept beside it, as a
+ * guest's are ("i go by shyoh, sayo, victor, boss").
+ */
+export function memberNameEntry(member, name, { by = "", turn = null, at = Date.now() } = {}) {
+  const said = typeof by === "string" ? by.replace(/[^a-z0-9-]/g, "").slice(0, MAX_BY) : "";
+  return { v: 1, id: newId(), at, kind: "name", ...(turn ? { turn } : {}), member, name, ...(said ? { by: said } : {}), text: `@${member} aka ${name}` };
+}
+
+/** Each member's other names, newest first, from `name` entries: `[{member, aliases}]`. */
+export function memberAliasesFrom(entries) {
+  const sorted = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.kind === "name" && typeof entry.member === "string" && HANDLE.test(entry.member));
+  sorted.sort((a, b) => (Number(b?.at) || 0) - (Number(a?.at) || 0));
+  const byMember = new Map();
+  for (const entry of sorted) {
+    const name = cleanName(entry.name);
+    if (name === "") continue;
+    if (!byMember.has(entry.member)) {
+      if (byMember.size >= MAX_NAMES) continue;
+      byMember.set(entry.member, []);
+    }
+    const aliases = byMember.get(entry.member);
+    if (aliases.length < MAX_ALIASES && !aliases.some((alias) => alias.toLowerCase() === name.toLowerCase())) aliases.push(name);
+  }
+  return [...byMember].map(([member, aliases]) => ({ member, aliases }));
+}
+
+/** The judge's facts: the other names each member here goes by, as data. */
+export function memberAliasFacts(aliases) {
+  const kept = (Array.isArray(aliases) ? aliases : []).filter((entry) => entry.aliases.length > 0);
+  return kept.length === 0 ? [] : [JSON.stringify({ also_called: Object.fromEntries(kept.map(({ member, aliases: also }) => [`@${member}`, also])) })];
+}
+
+/** The chat's names from its ledger, one read: each guest's (`guestNamesFrom`) and each member's other names. */
+export async function readChatNames(ledger, chat) {
+  if (ledger === null || ledger === undefined || typeof ledger.read !== "function") return { guests: [], members: [] };
   try {
     const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["name"], limit: MAX_READ });
-    return guestNamesFrom(read?.entries ?? []);
+    return { guests: guestNamesFrom(read?.entries ?? []), members: memberAliasesFrom(read?.entries ?? []) };
   } catch (error) {
     console.log(JSON.stringify({ event: "group_guest_names_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
-    return [];
+    return { guests: [], members: [] };
   }
+}
+
+/** The chat's guest names from its ledger, newest per guest; none when it can't be read. */
+export async function readGuestNames(ledger, chat) {
+  return (await readChatNames(ledger, chat)).guests;
 }
 
 /**
@@ -242,6 +284,31 @@ export function withNewName(names, guest, name) {
   return [{ guest, name, ...(aliases.length > 0 ? { aliases } : {}) }, ...list.filter((entry) => entry.guest !== guest)];
 }
 
+const NO_NAME = "Not kept: give the name as a person would say it, letters only.";
+const UNWRITTEN = "Not kept: the chat's record couldn't be written just now. Call them by that name in your answer anyway.";
+
+/** The handle of someone here with an account that `said` names ("@sayo", "sayo"), or "". */
+function memberFor(group, said) {
+  const handle = typeof said === "string" ? said.trim().replace(/^@/, "").toLowerCase() : "";
+  return HANDLE.test(handle) && Array.isArray(group?.people) && group.people.includes(handle) ? handle : "";
+}
+
+async function keepMemberName(group, ledger, member, said) {
+  const name = cleanName(said);
+  if (name === "") return text(NO_NAME, true);
+  try {
+    await ledger.append(group.key, [memberNameEntry(member, name, { by: group.from || group.asker || "" })]);
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_guest_name_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return text(UNWRITTEN, true);
+  }
+  const list = Array.isArray(group.memberAliases) ? group.memberAliases : [];
+  const old = list.find((entry) => entry.member === member)?.aliases ?? [];
+  group.memberAliases = [{ member, aliases: [name, ...old.filter((alias) => alias.toLowerCase() !== name.toLowerCase())].slice(0, MAX_ALIASES) }, ...list.filter((entry) => entry.member !== member)];
+  console.log(JSON.stringify({ event: "group_member_alias_kept" }));
+  return text(JSON.stringify({ kept: true, member: `@${member}`, also_called: name }));
+}
+
 /**
  * The tool for one group turn, or null outside a group chat: `group` is the turn's (`groupTurn.js`) and `ledger` the
  * chat's own ledger (`store.texLedger(group.key)`), which keeps the name.
@@ -254,30 +321,33 @@ export function guestNameTool({ group, ledger }) {
       description:
         "Keep the name of someone in this chat you know only by their number, once someone here says who they are " +
         "(\"that's my brother Sam\"), or they say it themselves. From then on the chat's list, its lines and who tagged you name them, with their number. " +
-        "A new name for the same guest becomes their name, and the old one is kept as another name they go by; a name they gave themselves stays their name.",
+        "A new name for the same guest becomes their name, and the old one is kept as another name they go by; a name they gave themselves stays their name. " +
+        "For someone here with an account (their @handle), it keeps another name they go by (\"call me boss\") beside their account name.",
       inputSchema: {
         type: "object",
         properties: {
-          guest: { type: "string", description: "Their number as the chat's list shows it, or the label a line shows for someone with no number." },
+          guest: { type: "string", description: "Their number as the chat's list shows it, the label a line shows for someone with no number, or the @handle of someone with an account." },
           name: { type: "string", description: "The name the chat gave them, as a person would say it (\"Sam\", \"Sam Rivers\")." },
         },
         required: ["guest", "name"],
       },
     },
     call: async (args) => {
+      const member = memberFor(group, args?.guest);
+      if (member !== "") return keepMemberName(group, ledger, member, args?.name);
       const guest = guestLabelFor(group, args?.guest);
       const here = (Array.isArray(group.guests) ? group.guests : []).map((label) => guestShown("", numberOf(group, label), label));
       if (!GUEST.test(guest)) {
         return text(`Not kept: ${typeof args?.guest === "string" && args.guest.trim() ? args.guest.trim().slice(0, 40) : "that"} isn't someone here without an account. They are ${here.length > 0 ? here.join(", ") : "none"}.`, true);
       }
       const name = cleanName(args?.name);
-      if (name === "") return text("Not kept: give the name as a person would say it, letters only.", true);
+      if (name === "") return text(NO_NAME, true);
       const by = group.from || group.asker || "";
       try {
         await ledger.append(group.key, [guestNameEntry(guest, name, { by })]);
       } catch (error) {
         console.log(JSON.stringify({ event: "group_guest_name_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
-        return text("Not kept: the chat's record couldn't be written just now. Call them by that name in your answer anyway.", true);
+        return text(UNWRITTEN, true);
       }
       group.guestNames = withNewName(group.guestNames, guest, name);
       console.log(JSON.stringify({ event: "group_guest_named" }));

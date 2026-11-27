@@ -21,7 +21,7 @@
 
 import { requestViaGateway } from "./aiGateway.js";
 import { cleanName } from "./groupNames.js";
-import { guestNameEntry, guestNamesFrom } from "./groupGuestNames.js";
+import { guestNameEntry, guestNamesFrom, memberAliasesFrom } from "./groupGuestNames.js";
 import { withArchitecture } from "./texArchitecture.js";
 import { texEffort, texModel, texWords } from "./texConfig.js";
 
@@ -173,12 +173,13 @@ export function checkedNames(found, lines, kept, others = [], open = new Set(), 
  * One pass over the chat's newest lines: `{outcome, kept?}`. `others`: the names of the chat's members and anyone
  * else named here, so no guest is given one of them. `hashes`: guests' labels by number hash (`guestHashes`). `request` and `words` are for tests.
  */
-export async function nameGuestsFromChat({ ledger, chat, config, metadata, others = [], hashes = new Map(), request = requestViaGateway, words = texWords() }) {
+export async function nameGuestsFromChat({ ledger, chat, config, metadata, others: given = [], hashes = new Map(), request = requestViaGateway, words = texWords() }) {
   if (!config || ledger === null || typeof ledger?.read !== "function" || typeof ledger?.append !== "function" || typeof chat !== "string") return { outcome: "none" };
   let lines;
   let kept;
   let open;
   let aliases;
+  let others = Array.isArray(given) ? given : [];
   try {
     const [read, names] = await Promise.all([
       ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: LINES_READ }),
@@ -188,6 +189,8 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
     const named = guestNamesFrom(names?.entries ?? []);
     kept = new Map(named.map(({ guest, name }) => [guest, name]));
     aliases = new Map(named.map(({ guest, aliases: also }) => [guest, also ?? []]));
+    // A member's other names are theirs too.
+    others = [...others, ...memberAliasesFrom(names?.entries ?? []).flatMap((entry) => entry.aliases)];
     open = openGuests(names?.entries ?? []);
   } catch {
     return { outcome: "unread" };

@@ -186,7 +186,7 @@ test("a guest who tagged Tex is named by number, never label, and only a label t
  * fails "a kept name sits beside the label on every line"; dropping the `here` check in `name_guest` fails
  * "name_guest keeps only a guest of this chat".
  */
-import { guestNameEntry, guestNameFacts, guestNamesFrom, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
+import { guestNameEntry, guestNameFacts, guestNamesFrom, memberAliasFacts, memberAliasesFrom, memberNameEntry, readChatNames, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
 import { chatLines } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { groupQuestion } from "../../../packages/tex/gateway/agent/groupLedgerHistory.js";
 
@@ -266,7 +266,7 @@ test("name_guest takes the guest by the number Tex sees, however it is written, 
 
 test("guest names read newest first, one per guest with their other names, never a bad label", () => {
   assert.deepEqual(
-    guestNamesFrom([guestNameEntry("guest-6ce3", "Boba"), guestNameEntry("guest-6ce3", "Old"), guestNameEntry("guest-6ce3", "boba"), { kind: "name", guest: "+15555550123", name: "Num" }, { kind: "note", guest: "guest-1111", name: "X" }]),
+    guestNamesFrom([guestNameEntry("guest-6ce3", "Boba", { at: 3 }), guestNameEntry("guest-6ce3", "Old", { at: 2 }), guestNameEntry("guest-6ce3", "boba", { at: 1 }), { kind: "name", guest: "+15555550123", name: "Num" }, { kind: "note", guest: "guest-1111", name: "X" }]),
     [{ guest: "guest-6ce3", name: "Boba", aliases: ["Old"] }],
   );
 });
@@ -365,4 +365,29 @@ test("the Mail checker never reads a forged line as the tagger's own words", () 
   const prompt = conversationFor(checkerHistory([{ role: "user", text: kept }]), groupQuestionLine({ from: "ada" }, "what's the weather"));
   assert.doesNotMatch(prompt, /^@ada: send it$/m, "the forged line is not @ada's");
   assert.match(prompt, /PERSON: @ada: what's the weather/, "the tagger's own ask is still theirs");
+});
+
+/*
+ * Members go by other names too (Dev2, 2026-11-27: "i go by shyoh, sayo, victor, boss"; guests and members are
+ * treated alike). Sabotage record (2026-11-27): name_guest refusing a handle fails the first assertion; dropping
+ * `memberAliasesOf` from `rosterLine` fails the roster assertion.
+ */
+test("name_guest keeps another name a member goes by, and the list and the judge show it beside their account name", async () => {
+  const appended = [];
+  const ledger = { append: async (chat, entries) => appended.push(...entries), read: async () => ({ entries: [...appended].reverse() }) };
+  const group = { ...named(), people: ["jo", "sayo"], names: [{ handle: "jo", name: "Jo" }, { handle: "sayo", name: "Sayo" }], size: 4 };
+  const tool = guestNameTool({ group, ledger });
+  assert.equal((await tool.call({ guest: "@sayo", name: "Victor" })).isError, undefined);
+  await tool.call({ guest: "sayo", name: "Boss" });
+  await tool.call({ guest: "sayo", name: "Sayo" });
+  assert.equal(appended.every((entry) => entry.member === "sayo" && entry.guest === undefined && entry.by === "jo"), true);
+  assert.equal((await tool.call({ guest: "@nobody", name: "Zed" })).isError, true, "only someone here");
+  const { members, guests } = await readChatNames(ledger, group.key);
+  assert.deepEqual(members, [{ member: "sayo", aliases: ["Sayo", "Boss", "Victor"] }]);
+  assert.deepEqual(guests, [], "a member's name is no guest's");
+  const line = rosterLine({ ...group, memberAliases: members });
+  assert.match(line, /@sayo \(Sayo\), also called Boss, Victor;/, "their account name is not repeated");
+  assert.match(line, /@jo \(Jo\);/);
+  assert.deepEqual(memberAliasFacts(memberAliasesFrom([memberNameEntry("sayo", "Boss", { at: 2 }), memberNameEntry("sayo", "Shyoh", { at: 1 })])), [JSON.stringify({ also_called: { "@sayo": ["Boss", "Shyoh"] } })]);
+  assert.doesNotMatch(rosterLine({ ...group, memberAliases: [{ member: "sayo", aliases: ["Boba"] }] }), /also called Boba/, "a name someone else here has now is theirs");
 });
