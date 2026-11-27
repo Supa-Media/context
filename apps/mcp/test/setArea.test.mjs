@@ -414,3 +414,17 @@ test("a bot's logo that another bot's card already shows is refused, and a card 
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Socials", avatar: { data: WHITE_PNG } } })).isError, undefined);
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } })).isError, undefined);
 });
+
+// The pasted setup prompt names no area (Dev, 2026-11-27: "area assignments can change"), so a webhook alone is saved
+// and tested with none; anything else still needs one.
+test("a webhook is saved and tested with no area, and nothing else is", async () => {
+  const { store, hookCalls } = await world({ "areas/finance/about.md": FINANCE });
+  const saved = await run(store, { webhook: { bot: "Finance", address: "https://bot.example.com/hook" } });
+  assert.equal(saved.isError, undefined, said(saved));
+  const tested = await run(store, { test_webhook: "Finance" });
+  assert.equal(tested.isError, undefined, said(tested));
+  assert.deepEqual(hookCalls.map((call) => call.action), ["set", "test"]);
+  const owner = await run(store, { owner: "@seyi", webhook: { bot: "Finance", address: "https://bot.example.com/hook" } });
+  assert.equal(owner.isError, true);
+  assert.match(said(owner), /area is the area's folder/);
+});

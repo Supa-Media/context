@@ -28,7 +28,9 @@ export declare function areaPrompt(input: {
   /** The area's person owner, when the bot is the area's delegate rather than its owner. */
   actsFor?: string;
 }): string;
-export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; card?: string }): string;
+export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; card?: string; reach?: ReachKind | string | null }): string;
+/** What every bot keeps in memory, the same whatever areas it holds; a check-in bot's keeps its 5-minute check-in. */
+export declare function botMemory(input: { bot: string; kind?: string; whose?: string; workspace?: string; reach?: ReachKind | string | null }): string;
 
 export interface OwnedArea {
   folder: string;
@@ -43,8 +45,9 @@ export declare function setupPrompt(input: {
   kind?: string;
   whose?: string;
   workspace?: string;
-  areas: readonly OwnedArea[];
-  reach?: ReachKind;
+  /** No longer read: the prompt names no area. */
+  areas?: readonly OwnedArea[];
+  reach?: ReachKind | string | null;
   /** The bot's card, when it has no logo yet: it is told to put its own there. */
   card?: string;
   /** The MCP address, https://mcp.context.lc/mcp by default. */

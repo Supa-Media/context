@@ -59,12 +59,14 @@ async function show(reach: string | undefined, options: { me?: string; checkedAt
 }
 
 describe("a bot's setup on its page", () => {
-  test("one prompt covers every area it owns or acts in, with their modes", async () => {
+  test("one prompt sets it up, naming no area, since which areas it holds changes", async () => {
     await show("webhook");
     const text = strip(one("bot-setup-prompt-text").textContent);
     expect(text).toContain("https://mcp.context.lc/mcp");
-    expect(text).toContain("(areas/finance)");
-    expect(text).toContain("(areas/engineering, for @sayo, who owns it)");
+    // Dev, 2026-11-27: "we shouldnt have area specific wording as area assignments can change".
+    expect(text).not.toContain("areas/finance");
+    expect(text).not.toContain("areas/engineering");
+    expect(text).toContain('orient { context: "@acme", for: "Pipeline" }');
     expect(text).toContain("Manager:");
     // A webhook bot hands its secret over from its own shell.
     expect(text).toContain('header_from_shell: "Authorization"');

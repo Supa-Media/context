@@ -13,7 +13,7 @@ import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 import { objectFirstBots } from "../src/store/objectBots.js";
 import { toolOrient } from "../src/orient/tool.js";
-import { botCheckAnswer, FULL_AFTER_MS } from "../src/orient/botCheck.js";
+import { botCheckAnswer, FULL_AFTER_MS, recordCheckIn } from "../src/orient/botCheck.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
 import { WorkspaceStore } from "../src/workspaceStore.js";
 import { durableSqlite } from "./durableSqlite.mjs";
@@ -226,6 +226,21 @@ test("a first check-in, or the first after six hours, is answered with the full 
   assert.equal(await answer(now - 5 * 60 * 1000), "Nothing new. Check again in 5 minutes.");
 });
 
+// Dev, 2026-11-27: Muse ran its 5-minute job and still read "Not checking yet": an app connected before check existed
+// drops the argument. The bot's own orient for itself counts; anyone else orienting for it never does.
+test("a bot orienting for itself checks in, even without check; anyone else records nothing", async () => {
+  const asked = [];
+  const store = orientStore(async (bot) => (asked.push(bot), { items: [] }));
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "muse", name: "Muse" }]), true);
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "grok-bot", name: "Grok Bot" }]), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => []), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => { throw new Error("down"); }), false);
+  assert.deepEqual(asked, ["Muse"]);
+  // A flag sent as text is still a check.
+  const out = text(await toolOrient(store, "team", RULES, {}, { for: "Muse", check: "true" }));
+  assert.equal(out, "Nothing new. Check again in 5 minutes.");
+});
+
 test("a check where the workspace isn't on its object says so", async () => {
   const out = text(await toolOrient(orientStore(async () => null), "team", RULES, {}, { for: "Grok Bot", check: true }));
   assert.match(out, /Check-ins aren't available in this workspace yet/);
@@ -245,13 +260,12 @@ test("the object client asks ws.bots.check at the reader's clearance", async () 
   assert.equal(await unserved.check("Grok Bot"), null);
 });
 
-test("the setup prompt tells a bot with no webhook to check every 5 minutes, and a webhook bot not", () => {
-  const areas = [{ folder: AREA, title: "Scorecard", modes: [] }];
-  const polling = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "mail" });
+test("what a bot with no webhook keeps says to check every 5 minutes, and a webhook bot's not", () => {
+  const polling = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "mail" });
   assert.match(polling, /every 5 minutes/i);
   assert.match(polling, /orient \{ for: "Grok Bot", check: true \}/);
   assert.match(polling, /on a timer that survives/);
-  const hooked = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "webhook" });
+  const hooked = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "webhook" });
   assert.doesNotMatch(hooked, /check: true/);
 });
 

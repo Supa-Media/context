@@ -156,9 +156,13 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   // A bot's whole setup in one call, from its own main chat (`botBind.js` `toolSetupBot`); it takes no area.
   if (args?.setup_bot !== undefined) return await toolSetupBot(store, scope, rules, overrides, args.setup_bot);
   if (args?.bind_bot !== undefined && (args.area === undefined || args.area === null || args.area === "")) return await toolBindBot(store, scope, rules, overrides, args.bind_bot);
-  const area = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
+  // A webhook is the bot's, not an area's, so saving or testing one alone needs no area (Dev, 2026-11-27: the setup
+  // prompt is only "connect, then setup_bot", whose answer hands the webhook step with no area to name).
+  const hookOnly = (args?.webhook !== undefined || args?.test_webhook !== undefined) && Object.keys(args).every((key) => ["webhook", "test_webhook", "context", "area"].includes(key));
+  const named = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
+  const jobs = named || hookOnly ? await factJobs(store) : null;
+  const area = named || (hookOnly ? (jobs?.jobs?.areas ?? "areas") : "");
   if (!area) return toolError('invalid: area is the area\'s folder. Pass it like "areas/finance".');
-  const jobs = await factJobs(store);
   const root = jobs?.jobs?.areas ?? area.split("/")[0];
   if (area !== root && !area.startsWith(`${root}/`)) return toolError(`invalid: ${area} is not under the areas folder (${root}/). Pass an area under ${root}/, as orient { area } lists them.`);
   const done = [];
