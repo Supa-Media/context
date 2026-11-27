@@ -25,7 +25,9 @@
  *     /robots.txt      -> allow everything, plain text (icons.ts)
  *     /llms.txt        -> the agent index, plain text (agentDocs.ts)
  *     /grokbot.md, /claude.md -> the setup guides, markdown
- *     /agents, /claude -> those guides as HTML, from the same source
+ *     /agents, /grokbot, /claude -> those guides as HTML, from the same source
+ *     /llms-full.txt, /agents.md -> the agent primer (agentPrimer.ts)
+ *     / with Accept: text/markdown -> the agent primer, not the app
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags; everyone else gets the Expo web app on EAS
  *                         Hosting, path unchanged
@@ -72,6 +74,7 @@ import {
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
 import { noteCardLinkFrom, signedNoteLinkFrom, type SignedNoteLink } from "./noteLinkCards";
 import { agentDocFor, type AgentDocName } from "./agentDocs";
+import { prefersMarkdown } from "./agentPrimer";
 import { downloadFor } from "./download";
 import { PAGE_VIEWER_PREFIX } from "./pageViewer";
 export { downloadResponse } from "./download";
@@ -223,7 +226,7 @@ function isConvexPath(pathname: string): boolean {
  * it can only ever *add* the preview branch. Omit it and every request routes
  * as it did before previews existed.
  */
-export function route(url: URL, userAgent?: string | null): RouteDecision {
+export function route(url: URL, userAgent?: string | null, accept?: string | null): RouteDecision {
   const { hostname, pathname, search } = url;
 
   // Checked before the path rules on purpose: one canonical origin for the app
@@ -292,6 +295,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // guide. Tex's hosts are a different front door and do not serve these.
   const agentDoc = tex ? null : agentDocFor(pathname);
   if (agentDoc !== null) return { kind: "agent-doc", doc: agentDoc };
+  // The homepage, for an agent that asked for Markdown rather than HTML: the
+  // primer, not an app whose words arrive with its JavaScript. A browser never
+  // names text/markdown, so it is untouched. Ahead of the crawler check: an
+  // agent that says what it reads gets that, whatever its User-Agent.
+  if (!tex && pathname === "/" && prefersMarkdown(accept)) return { kind: "agent-doc", doc: "agents-md" };
 
   // A download link pasted into Slack is still a download link: ahead of the
   // crawler check, so the unfurler is sent to the file rather than a card.

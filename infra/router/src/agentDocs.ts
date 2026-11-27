@@ -1,23 +1,36 @@
 /**
  * Public agent docs, served by the router (no auth, no Expo shell).
  *
- * `/grokbot.md` and `/claude.md` are the sources. `/agents` and `/claude` are
- * those files rendered as HTML, so the page and the markdown cannot drift.
- * `/llms.txt` is the index. Tex hosts do not serve these: tex.lc is a
+ * `/agents.md` (the primer, `agentPrimer.ts`), `/grokbot.md` and `/claude.md`
+ * are the sources. `/agents`, `/grokbot` and `/claude` are those files
+ * rendered as HTML, so the page and the markdown cannot drift. `/llms.txt` is
+ * the index and `/llms-full.txt` is all three in one file. Tex hosts do not serve these: tex.lc is a
  * different front door.
  */
 
 import { MCP_ENDPOINT } from "./agentFront";
+import { AGENTS_MARKDOWN, GUIDE_ORIGIN, LLMS_TEXT } from "./agentPrimer";
 
-export const GUIDE_ORIGIN = "https://context.lc";
+export { AGENTS_MARKDOWN, GUIDE_ORIGIN, LLMS_TEXT };
 
-export type AgentDocName = "llms" | "grok-md" | "claude-md" | "agents" | "claude";
+export type AgentDocName =
+  | "llms"
+  | "llms-full"
+  | "agents-md"
+  | "grok-md"
+  | "claude-md"
+  | "agents"
+  | "grokbot"
+  | "claude";
 
 const PATHS: ReadonlyMap<string, AgentDocName> = new Map([
   ["/llms.txt", "llms"],
+  ["/llms-full.txt", "llms-full"],
+  ["/agents.md", "agents-md"],
   ["/grokbot.md", "grok-md"],
   ["/claude.md", "claude-md"],
   ["/agents", "agents"],
+  ["/grokbot", "grokbot"],
   ["/claude", "claude"],
 ]);
 
@@ -181,24 +194,8 @@ One Claude login does not hold two Context accounts.
 Claude Code stores one sign-in per server URL. Adding \`${MCP_ENDPOINT}\` twice under two names does not make two Context accounts. \`--scope project\` writes \`.mcp.json\`, so the team shares the address. Each person still runs \`/mcp\` and signs in as themselves. The approval page is whoever is signed in at context.lc, so sign out before the next person approves.
 `;
 
-export const LLMS_TEXT = `# Context
-
-> Shared Markdown notes for a person and the AI tools they use. An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.
-
-Context does not charge for an account. A new address joins the waitlist. One connection reaches every workspace that account belongs to, addressed as @name.
-
-## Guides
-
-- [Grok Bot](${GUIDE_ORIGIN}/grokbot.md): set up Context in Grok Bot
-- [Claude](${GUIDE_ORIGIN}/claude.md): set up Context in Claude and Claude Code
-
-## Pages
-
-- [Grok Bot guide](${GUIDE_ORIGIN}/agents): the same Grok Bot guide as a page
-- [Claude guide](${GUIDE_ORIGIN}/claude): the same Claude guide as a page
-- [Privacy](${GUIDE_ORIGIN}/privacy): what Context stores
-- [Terms](${GUIDE_ORIGIN}/terms): the terms of use
-`;
+/** The primer and both setup guides, for an agent that reads one file. */
+export const LLMS_FULL_TEXT = [AGENTS_MARKDOWN, CLAUDE_MARKDOWN, GROK_MARKDOWN].join("\n---\n\n");
 
 function escapeHtml(value: string): string {
   return value
@@ -347,21 +344,40 @@ function textResponse(body: string, type: string): Response {
   });
 }
 
+const MARKDOWN = "text/markdown; charset=utf-8";
+
+function docResponse(doc: AgentDocName): Response {
+  switch (doc) {
+    case "llms":
+      return textResponse(LLMS_TEXT, "text/plain; charset=utf-8");
+    case "llms-full":
+      return textResponse(LLMS_FULL_TEXT, "text/plain; charset=utf-8");
+    case "agents-md": {
+      // Also the homepage for an agent that asked for Markdown (`route.ts`), so
+      // a cache keeps it apart from the app's HTML at the same address.
+      const response = textResponse(AGENTS_MARKDOWN, MARKDOWN);
+      response.headers.set("Vary", "Accept");
+      return response;
+    }
+    case "grok-md":
+      return textResponse(GROK_MARKDOWN, MARKDOWN);
+    case "claude-md":
+      return textResponse(CLAUDE_MARKDOWN, MARKDOWN);
+    case "agents":
+      return htmlResponse(renderGuideHtml(AGENTS_MARKDOWN, { path: "/agents", markdownPath: "/agents.md" }));
+    case "grokbot":
+      return htmlResponse(renderGuideHtml(GROK_MARKDOWN, { path: "/grokbot", markdownPath: "/grokbot.md" }));
+    case "claude":
+      return htmlResponse(renderGuideHtml(CLAUDE_MARKDOWN, { path: "/claude", markdownPath: "/claude.md" }));
+  }
+}
+
 /** The bytes for one doc. GET and HEAD only. */
 export function agentDocResponse(doc: AgentDocName, method: string): Response {
   if (method !== "GET" && method !== "HEAD") {
     return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   }
-  const full =
-    doc === "llms"
-      ? textResponse(LLMS_TEXT, "text/plain; charset=utf-8")
-      : doc === "grok-md"
-        ? textResponse(GROK_MARKDOWN, "text/markdown; charset=utf-8")
-        : doc === "claude-md"
-          ? textResponse(CLAUDE_MARKDOWN, "text/markdown; charset=utf-8")
-          : doc === "agents"
-            ? htmlResponse(renderGuideHtml(GROK_MARKDOWN, { path: "/agents", markdownPath: "/grokbot.md" }))
-            : htmlResponse(renderGuideHtml(CLAUDE_MARKDOWN, { path: "/claude", markdownPath: "/claude.md" }));
+  const full = docResponse(doc);
   if (method === "HEAD") return new Response(null, { status: 200, headers: full.headers });
   return full;
 }
