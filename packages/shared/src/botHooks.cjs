@@ -21,10 +21,11 @@
  * "Cursor" without the facts the main chat had (Dev, 2026-11-26).
  *
  * An area's routine that came due says which routine, never its words; the bot
- * reads the note and answers in the area's mail:
+ * reads the note, does its job and answers where `answer_in` says (the area's mail, under its mail name):
  *   {"type":"routine","workspace":"@supa","bot":"grok-bot","from":"context",
  *    "area":"areas/operations/Scorecard",
- *    "note":"areas/operations/Scorecard/routines/weekly/score-every-area.md","at":"…"}
+ *    "note":"areas/operations/Scorecard/routines/weekly/score-every-area.md",
+ *    "answer_in":"areas/operations/Scorecard/mail/grok-bot.md","at":"…"}
  */
 
 const { RELAY_PROMPT } = require("./botRelay.cjs");
@@ -67,8 +68,20 @@ function openArgs(workspace) {
   return `{ context: ${JSON.stringify(handle.startsWith("@") ? handle : `@${handle}`)}, `;
 }
 
-/** What the run that gets a call is told: relay only (`botRelay.cjs`), and where to read. Never the message. */
-function hookInstructions({ type, workspace, note }) {
+/** Where a call's answer goes: the mail note itself, or for a routine its area's mail under the bot's mail name. */
+function answerIn({ type, area, note, bot, answer_in: given }) {
+  if (type === "mail") return note;
+  if (type !== "routine") return "";
+  if (typeof given === "string" && given !== "") return given;
+  return `${area}/mail/${bot}.md`;
+}
+
+/**
+ * What the run that gets a call is told: the relay's prompt (`botRelay.cjs`), where to read, and the job the call
+ * asks for in so many words, so a bot whose prompt is out of date still knows a routine is work, not mail (the
+ * Capabilities bot, 2026-11-27: a routine wake was read as mail with nothing to answer, and dropped). Never the message.
+ */
+function hookInstructions({ type, workspace, note, area, bot, answer_in }) {
   const args = openArgs(workspace);
   if (type === "test") return `This is a test call from Context to check your webhook works; there is nothing to relay. ${RELAY_PROMPT}`;
   // Only a relay (Dev, 2026-11-26: "Make the webhook routine a pure relay that wakes the main bot, never a
@@ -77,7 +90,12 @@ function hookInstructions({ type, workspace, note }) {
   // A routine's note comes back with its run brief after it (the metric now, the seat, the budget left): the bot's
   // main chat reads that, never the call, so the brief is worked out at its clearance (`orient/routineBrief.js`).
   const brief = type === "routine" ? " It comes back with its run brief after the note: the area, its metric worked out now, its budget left and where heavy lifting goes." : "";
-  return `${RELAY_PROMPT} The note: ${JSON.stringify(note)}; read it with ${read}.${brief}`;
+  const where = JSON.stringify(answerIn({ type, area, note, bot, answer_in }));
+  const job =
+    type === "routine"
+      ? ` The job: this is a routine, not mail. Do what the routine note says now, then answer in ${where} with write ${args}action: "mail", path: ${where}, args: { text, used: <whole percent of your week> } }.`
+      : ` The job: answer the new mail in that same note with write ${args}action: "mail", path: ${where}, args: { text } }.`;
+  return `${RELAY_PROMPT} The note: ${JSON.stringify(note)}; read it with ${read}.${brief}${job}`;
 }
 
 /** The body a call carries, with only the fields it may: no message, no address, nothing else. */
@@ -87,6 +105,7 @@ function hookPayload(input) {
   if (out.type !== "test") {
     out.area = String(input.area ?? "");
     out.note = String(input.note ?? "");
+    out.answer_in = answerIn({ ...out, answer_in: input.answer_in });
   }
   out.at = new Date(input.at ?? Date.now()).toISOString();
   out.instructions = hookInstructions(out);

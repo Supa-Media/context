@@ -386,6 +386,7 @@ export const callBotHook = internalAction({
       from: v.string(),
       area: v.optional(v.string()),
       note: v.optional(v.string()),
+      answer_in: v.optional(v.string()),
     }),
   },
   returns: outcome,

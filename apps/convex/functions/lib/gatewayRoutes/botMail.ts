@@ -35,7 +35,7 @@ export async function gatewayBotMailHandler(ctx: ActionCtx, body: Record<string,
  * `POST /gateway/bots/hook` — an agent setting, testing or listing a bot's webhook (`manage area`), behind both proofs:
  * the gateway's secret and the person's own access token, cleared as an editor of the workspace their grant names.
  * `{ action: "list" }` → `{ hooks }`; `{ action: "set", bot, address, header?, signingKey? }` → `{ host, headerEnds,
- * keyMade }`; `{ action: "test", bot }` → `{ ok, status }`. A refusal is `{ error }` in words a person can act on. No
+ * keyMade }`; `{ action: "test", bot, routine? }` → `{ ok, status }` (`routine: true` sends a routine wake whose job is the bot's setup check). A refusal is `{ error }` in words a person can act on. No
  * answer ever carries an address, a header's value or a key.
  */
 export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
@@ -67,7 +67,13 @@ export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string,
         workspaceId: cleared.workspaceId,
         bot: name,
         actorUserId: cleared.actorUserId,
-        payload: { type: "test", workspace: allowed.workspace, bot: name, from: allowed.from },
+        // `routine: true` is setup's test routine (`apps/mcp/src/tools/notes/botBind.js` `toolSetupBot`): a real routine
+        // wake whose job is to answer the bot's own setup check, so setup passes only when a routine gets done. It
+        // names only that bot's check note, never a path the caller chose.
+        payload:
+          body.routine === true
+            ? { type: "routine", workspace: allowed.workspace, bot: name, from: "context", area: `bots/${name}`, note: `bots/${name}/mail/context.md`, answer_in: `bots/${name}/mail/context.md` }
+            : { type: "test", workspace: allowed.workspace, bot: name, from: allowed.from },
       }),
     );
   }
