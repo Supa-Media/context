@@ -22,13 +22,15 @@
  *   it, with no cap, as cards always did.
  */
 
-const { cadenceFromFolder, nextRunAt, routineSettings, wallClock, describeSchedule } = require("./routines.cjs");
+const { cadenceFromFolder, frontMatter, nextRunAt, parseTime, routineSettings, wallClock, describeSchedule } = require("./routines.cjs");
 const { isNotePath, withoutTextExtension } = require("./fileKinds.cjs");
 
 /** The folder in an area that holds its routines. */
 const AREA_ROUTINES_FOLDER = "routines";
 /** The zone a routine with no `timezone:` runs in, as Tex's routines default to. */
 const DEFAULT_ROUTINE_ZONE = "America/New_York";
+/** The most times one routine runs in a day (`at: 9am, 1pm, 5pm`). */
+const MAX_ROUTINE_TIMES = 12;
 /** The most routines one workspace's areas run: a week's runs stay a handful of calls. */
 const MAX_AREA_ROUTINES = 100;
 /**
@@ -119,17 +121,60 @@ function areaRoutineOf(path, areasRoot) {
 }
 
 /**
+ * An area routine's `at:` when it names several times (`at: 9am, 1pm, 5pm` or `at: [9am, 1pm]`), so one note runs
+ * several times a day (decided by the owner, 2026-11-27; `docs/decisions/app-and-console/area-routines.md`):
+ * `{times, text}` with `text` the note without its `at:` line, so the rest of its front matter reads as before; null
+ * for one time or none. A time that can't be read is a problem, never left out.
+ */
+function routineTimes(text) {
+  const raw = frontMatter(typeof text === "string" ? text : "").at;
+  if (typeof raw !== "string") return null;
+  const items = raw.replace(/^\s*\[|\]\s*$/g, "").split(",").map((item) => item.trim().replace(/^["']|["']$/g, "")).filter((item) => item !== "");
+  if (items.length < 2) return null;
+  const times = [];
+  const problems = [];
+  for (const item of items) {
+    const time = parseTime(item);
+    if (time === null) problems.push(`"${item}" in "at: ${raw}" isn't a time. Write them like at: 9am, 1pm, 5pm.`);
+    else if (!times.some((seen) => seen.hour === time.hour && seen.minute === time.minute)) times.push(time);
+  }
+  if (times.length > MAX_ROUTINE_TIMES) problems.push(`A routine runs at most ${MAX_ROUTINE_TIMES} times a day. Name fewer times in at:, or use a folder like every-2-hours.`);
+  times.sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
+  // Only the leading front matter's `at:` line goes; the job below it is untouched.
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  let end = lines.slice(1).findIndex((line) => line.trim() === "---" || line.trim() === "...");
+  end = end < 0 ? lines.length : end + 1;
+  const kept = lines.filter((line, at) => !(at > 0 && at < end && /^at\s*:/i.test(line)));
+  return { times, problems, text: kept.join("\n") };
+}
+
+/**
  * When an area routine next runs after `afterMs`: `{at, problems, settings}`. `at` is null for a paused one, one done,
- * one whose folder is no schedule, and one whose front matter can't be read (each problem a sentence).
+ * one whose folder is no schedule, and one whose front matter can't be read (each problem a sentence). A routine whose
+ * `at:` names several times runs at the soonest of them; `settings.times` lists them.
  */
 function areaRoutineNext(routine, text, afterMs) {
   if (!routine || routine.cadence === null) {
     return { at: null, problems: [`"${routine?.folder ?? ""}" isn't a schedule. Use hourly, daily, weekly, monthly or a name like every-2-weeks.`], settings: null };
   }
-  const { settings, problems } = routineSettings(typeof text === "string" ? text : "", routine.cadence);
+  const several = routineTimes(text);
+  if (several !== null && (routine.cadence.unit === "minute" || routine.cadence.unit === "hour" || routine.cadence.unit === "once")) {
+    return { at: null, problems: [`Several times in at: only apply to a routine that runs daily, weekly or monthly; "${routine.folder}" already runs through the day.`], settings: null };
+  }
+  const { settings, problems } = routineSettings(several === null ? (typeof text === "string" ? text : "") : several.text, routine.cadence);
+  if (several !== null) problems.push(...several.problems);
   if (problems.length > 0) return { at: null, problems, settings };
   if (settings.paused || settings.done) return { at: null, problems: [], settings };
-  const at = nextRunAt(routine.cadence, settings, settings.timeZone ?? DEFAULT_ROUTINE_ZONE, afterMs);
+  const zone = settings.timeZone ?? DEFAULT_ROUTINE_ZONE;
+  if (several !== null) {
+    let soonest = null;
+    for (const time of several.times) {
+      const at = nextRunAt(routine.cadence, { ...settings, at: time }, zone, afterMs);
+      if (typeof at === "number" && (soonest === null || at < soonest)) soonest = at;
+    }
+    return { at: soonest, problems: [], settings: { ...settings, at: several.times[0], times: several.times } };
+  }
+  const at = nextRunAt(routine.cadence, settings, zone, afterMs);
   return { at: typeof at === "number" ? at : null, problems: [], settings };
 }
 
@@ -137,12 +182,26 @@ function areaRoutineNext(routine, text, afterMs) {
 function areaRoutineWhen(routine, text) {
   if (!routine || routine.cadence === null) return "";
   try {
-    const { settings, problems } = routineSettings(typeof text === "string" ? text : "", routine.cadence);
-    if (problems.length > 0) return "";
-    return typeof describeSchedule === "function" ? describeSchedule(routine.cadence, settings) : "";
+    const several = routineTimes(text);
+    const { settings, problems } = routineSettings(several === null ? (typeof text === "string" ? text : "") : several.text, routine.cadence);
+    if (problems.length > 0 || (several !== null && several.problems.length > 0)) return "";
+    if (typeof describeSchedule !== "function") return "";
+    if (several === null) return describeSchedule(routine.cadence, settings);
+    // "Every day at 9 am, 1 pm and 5 pm": the first time's words, with every time named.
+    const words = several.times.map((time) => clockWords(time));
+    const first = describeSchedule(routine.cadence, { ...settings, at: several.times[0] });
+    const all = words.length === 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+    return first.includes(words[0]) ? first.replace(words[0], all) : `${first} (${all})`;
   } catch {
     return "";
   }
+}
+
+/** `{hour: 13, minute: 30}` → "1:30 pm", as routines' own words say a time. */
+function clockWords(at) {
+  const hour = at.hour % 12 === 0 ? 12 : at.hour % 12;
+  const minute = at.minute === 0 ? "" : `:${String(at.minute).padStart(2, "0")}`;
+  return `${hour}${minute} ${at.hour < 12 ? "am" : "pm"}`;
 }
 
 /** One `works_in:` entry, `areas/operations/Scorecard · 20%` → `{area, cap: 20}`; a bare area has no cap. Null when unreadable. */
@@ -208,6 +267,7 @@ function mailOnlyText() {
 function routinesText(where) {
   return (
     `Your recurring jobs are the area's routines, notes in ${where}routines/<how often>/<name>.md. Context runs them on time and sends each one to you (to your webhook as type "routine", naming the routine note, and orient lists the ones waiting for you); never set up a routine of your own for them. ` +
+    "Fetch the routine note: its run brief comes after it, with the area, its metric worked out now, its budget left and where heavy lifting goes, so a run needs no research. " +
     `Do the job, then answer in the area's mail, saying how much of your weekly usage it took: write { action: "mail", path: "${where}mail/<your name>.md", args: { text, used: <whole percent> } }. ` +
     "An area may cap how much of your week it spends; once its share is used, Context holds its routines and mail pings until Monday."
   );
@@ -219,6 +279,8 @@ module.exports = {
   PEOPLE_FOLDER,
   DEFAULT_ROUTINE_ZONE,
   MAX_AREA_ROUTINES,
+  MAX_ROUTINE_TIMES,
+  routineTimes,
   cardSlug,
   botsHome,
   legacyBotsFolder,

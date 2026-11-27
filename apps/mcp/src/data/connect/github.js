@@ -27,7 +27,7 @@
 
 import { cellText } from "../../sheets/csv.js";
 import { appJson } from "./appFetch.js";
-import { GITHUB_API, githubAppOf, githubHeaders, installationRepos, installationToken } from "./githubApp.js";
+import { GITHUB_API, REACH_AGAIN, githubAppOf, githubHeaders, installationRepos, installationToken, withinReach } from "./githubApp.js";
 
 const NAME = "GitHub";
 const DAY_MS = 86_400_000;
@@ -330,8 +330,10 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
   if (!minted.ok) return failedOf(minted);
   const listed = await installationRepos({ token: minted.token, fetcher });
   if (!listed.ok) return failedOf(listed);
+  const reached = withinReach(kept, listed.repos);
+  if (reached === null) return failedOf({ refused: true, said: REACH_AGAIN });
   const picked = Array.isArray(kept.repos) ? new Set(kept.repos) : null;
-  const repos = listed.repos.filter((repo) => picked === null || picked.has(repo.name)).slice(0, MAX_REPOS);
+  const repos = reached.filter((repo) => picked === null || picked.has(repo.name)).slice(0, MAX_REPOS);
   const floor = now - GITHUB_DAYS * DAY_MS;
   const span = (dataset) => spans[dataset] ?? { newestMs: Number.NaN, oldestMs: Number.NaN };
   const out = { "pull-requests": { rows: [], more: false }, deploys: { rows: [], more: false }, "workflow-runs": { rows: [], more: false } };

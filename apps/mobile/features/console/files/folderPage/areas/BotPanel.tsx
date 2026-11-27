@@ -11,7 +11,7 @@
 
 import { worksInLine } from "@context/shared/src/areaRoutines.cjs";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -25,8 +25,8 @@ import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
 import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 import { checkHealth, firstMailNote, type Thread } from "./areaMail";
-import { botMailNote, mailOfBot, refreshAskFor, routinesOfBot, type Bot, type Conversation } from "./bots";
-import { withMail } from "../../../mailPage/MailThread";
+import { botMailNote, mailOfBot, routinesOfBot, type Bot, type Conversation } from "./bots";
+import { noteStarted, refreshBot, refreshedThisSession, refreshesVersion, startedMail, subscribeRefreshes } from "./refreshBot";
 
 export interface BotPanelProps {
   bot: Bot;
@@ -72,7 +72,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
   const health = checkHealth(check, [bot.slug, mailJoinName(bot.name)]);
   const routines = routinesOfBot(bot, root, notes);
   const mine = me === undefined ? null : botMailNote(bot, me);
-  const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine);
+  const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine || startedMail(mine));
   const canWrite = canEdit && create !== undefined && me !== undefined && mine !== null;
   const editsCaps = canEdit && bot.mine;
   // A conversation opens in Agent Mail where the console has it, else as its note (Dev2, 2026-11-26).
@@ -102,46 +102,27 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
   // Refresh mails the bot its setup again and stays here (Dev, 2026-11-26: "clicking on refresh here keeps you on
   // the page"): a line added to the reader's mail with it, or that mail started. It can go again any time, and says
   // when it last went (Dev, 2026-11-26: "show the last time it was refreshed, and also allow it to send more than once").
-  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
+  // When it last went is this bot's own: what this session sent it, else the newest Refresh in its mail (Dev2,
+  // 2026-11-27: refreshing one bot showed the others as refreshed too, from one time kept for the whole panel).
+  useSyncExternalStore(subscribeRefreshes, refreshesVersion, refreshesVersion);
   const [refreshing, setRefreshing] = useState(false);
-  const lastRefreshed = [refreshedAt, ...mail.map((each) => threads.get(each.path)?.refreshedAt ?? null)]
+  const lastRefreshed = [refreshedThisSession(bot.slug) ?? null, ...mail.map((each) => threads.get(each.path)?.refreshedAt ?? null)]
     .filter((at): at is string => typeof at === "string" && !Number.isNaN(Date.parse(at)))
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const refresh = async () => {
     if (refreshing || !canWrite || mine === null || me === undefined || create === undefined) return;
+    if (hasMine && io === undefined) return openMail(mine);
     setRefreshing(true);
     try {
-      await sendRefresh(mine, me, create);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-  const sendRefresh = async (mine: string, me: string, create: (path: string, text: string) => Promise<unknown>) => {
-    const text = refreshAskFor(bot.name, workspace);
-    try {
-      if (hasMine) {
-        if (io === undefined) return openMail(mine);
-        for (let attempt = 0; ; attempt += 1) {
-          const note = await io.read(mine);
-          const next = withMail(note.text, me, text);
-          if ("error" in next) return setProblem(next.error);
-          try {
-            await io.write(mine, next.text, note.etag);
-            break;
-          } catch (error) {
-            if (attempt >= 1) throw error;
-          }
-        }
-      } else {
-        const note = firstMailNote(bot.name, me, text);
-        if ("error" in note) return setProblem(note.error);
-        await create(mine, note.text);
-        setSent(mine);
+      const sentNow = await refreshBot(bot, { me, ...(workspace === undefined ? {} : { workspace }), exists: hasMine, create, ...(io === undefined ? {} : { io }) });
+      if ("error" in sentNow) return setProblem(sentNow.error);
+      if (sentNow.started) {
+        noteStarted(sentNow.path);
+        setSent(sentNow.path);
       }
       setProblem(null);
-      setRefreshedAt(new Date().toISOString());
-    } catch {
-      setProblem("That didn't send. Try again.");
+    } finally {
+      setRefreshing(false);
     }
   };
 

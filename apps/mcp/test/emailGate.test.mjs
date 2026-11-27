@@ -54,7 +54,7 @@ import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP
 import { emailCaller, DEFAULT_EMAIL_CALLERS } from "../src/tools/emailGate.js";
 import { helperCallersOf } from "../../../packages/tex/gateway/agent/production.js";
 import { conversationFor, readVerdict } from "../../../packages/tex/gateway/agent/mailChecker.js";
-import { checkerHistory, groupMemoryPath, keepGroupExchange } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { checkerHistory, groupMemoryPath, groupQuestionLine, keepGroupExchange } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { emailCopy, readEmail } from "../src/tools/email.js";
 import { TEXTED_ASK_CAP, textedAsk } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
@@ -647,6 +647,10 @@ export async function runEmailGateChecks(check) {
   check(
     "the Mail checker never reads a group's other voices as the person",
     !checked.includes("mallory@example.com") && checked.includes("PERSON: @ada: what did we decide?") && checked.includes("ASSISTANT: Friday at six."),
+  );
+  check(
+    "a group's newest ask is labeled with its tagger, as the kept ones are",
+    conversationFor(checkerHistory(kept), groupQuestionLine(chat, "go ahead")).endsWith("PERSON: @ada: go ahead"),
   );
   check(
     "the checker labels who said what",

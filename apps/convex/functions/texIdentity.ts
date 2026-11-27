@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import { askerIdentityHandler, texterIdentityHandler } from "./lib/texIdentity/identity";
+import { texterIdentityHandler } from "./lib/texIdentity/identity";
 import { texterGroupsHandler } from "./lib/texIdentity/groups";
 import { memberCardsHandler } from "./lib/texIdentity/cards";
 import { workspaceHoldersHandler } from "./lib/texIdentity/holders";
@@ -21,13 +21,6 @@ export const forGateway = internalQuery({
   args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
   returns: identityValidator,
   handler: texterIdentityHandler,
-});
-
-/** Who tagged Tex in a group chat, for their own ask of their personal Tex (`lib/texIdentity/identity.ts`). */
-export const askerForGateway = internalQuery({
-  args: { hashedAccessToken: v.string() },
-  returns: identityValidator,
-  handler: askerIdentityHandler,
 });
 
 /** The group chats the grant's own person is in, for their 1:1 Tex (`lib/texIdentity/groups.ts`). */

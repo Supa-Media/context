@@ -6,6 +6,7 @@
  */
 
 import { conversationFromLedger } from "./ledgerConversation.js";
+import { saidBy } from "./groupSaid.js";
 import { CHAT_PREFACE, trimGroupTurns } from "./groupTurn.js";
 import { keptTurn } from "./conversation.js";
 import { copyGroupPageIn } from "./groupPageCopy.js";
@@ -27,7 +28,8 @@ export function groupQuestion(texts, said, guestNames = []) {
     const who = typeof entry.from?.name === "string" && entry.from.name.trim() ? entry.from.name.trim().replace(/^@*/, "") : "";
     // A guest by the name the chat gave them, beside their label (`groupGuestNames.js`).
     const name = who === "" ? "Someone" : named.has(who) ? `@${who} (${named.get(who)})` : `@${who}`;
-    return `${name}: ${said[i]}`;
+    // Every line under the speaker's own label (`groupSaid.js`): a line of theirs never reads as another member's.
+    return saidBy(name, said[i]);
   });
   if (texts.length === 1 && texts[0].backfill === "page") return lines[0];
   let ask = lines.length - 1;

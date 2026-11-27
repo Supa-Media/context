@@ -60,7 +60,41 @@ const CALL = /(?<![\w$.])(?:path\.)?(?:join|resolve)\(\s*(__dirname|import\.meta
 // import runs too. A path handed to readFileSync is read as text and stops there.
 const IMPORT = /(?:\bfrom\s*|(?:^|\n)\s*import\s*|\brequire\(\s*|\bimport\(\s*|\bjest\.(?:mock|requireActual)\(\s*)["'](\.{1,2}\/[^"'\n]+)["']/g;
 
+// A workspace package imported by name: `from "@context/obsidian-runtime"`, `import("@context/meetings/recorder")`,
+// `require(...)`, `jest.mock(...)`. The first two segments are the package name; the rest is a path inside it.
+const BARE = /(?:\bfrom\s*|(?:^|\n)\s*import\s*|\brequire\(\s*|\bimport\(\s*|\bjest\.(?:mock|requireActual)\(\s*)["'](@context\/[\w.-]+)(?:\/[^"'\n]*)?["']/g;
+
 const literals = (args) => [...args.matchAll(/"([^"\n]*)"|'([^'\n]*)'/g)].map((m) => m[1] ?? m[2]);
+
+// Package name -> its folder, read from each workspace manifest (apps/, packages/, infra/, plugins/), so
+// `@context/convex` maps to apps/convex. A name no manifest declares is an error, not a guess.
+const manifestDirs = new Map();
+function workspaceDirs(root) {
+  if (manifestDirs.has(root)) return manifestDirs.get(root);
+  const byName = new Map();
+  for (const parent of ["apps", "packages", "infra", "plugins"]) {
+    if (!existsSync(join(root, parent))) continue;
+    for (const entry of readdirSync(join(root, parent), { withFileTypes: true })) {
+      const manifest = join(root, parent, entry.name, "package.json");
+      if (!entry.isDirectory() || !existsSync(manifest)) continue;
+      const { name } = JSON.parse(readFileSync(manifest, "utf8"));
+      if (name) byName.set(name, `${parent}/${entry.name}`);
+    }
+  }
+  manifestDirs.set(root, byName);
+  return byName;
+}
+
+/** The folder of every workspace package a file imports by its bare name. */
+function barePackageDirs(source, root) {
+  const dirs = new Set();
+  for (const [, name] of source.matchAll(BARE)) {
+    const dir = workspaceDirs(root).get(name);
+    if (dir === undefined) throw new Error(`imports ${name} by name, but no workspace package.json under apps/, packages/, infra/ or plugins/ declares it`);
+    dirs.add(dir);
+  }
+  return dirs;
+}
 
 /** The outside paths one file imports as modules (a subset of what it names). */
 export function importedOutsidePaths(file, source, root = ROOT) {
@@ -113,10 +147,15 @@ export function namedOutsidePaths(file, source, root = ROOT) {
   // A directory the file also reads files under is a base it joins onto
   // (`const root = join(__dirname, "../../convex/functions")`), not a scan.
   const named = [...out];
-  return named
-    .filter((path) => !path.endsWith("/**") || !named.some((other) => other !== path && other.startsWith(path.slice(0, -2))))
-    .filter((path) => !(path in NOT_READS))
-    .sort();
+  // A bare package import is its whole folder, added after the base-directory rule below: that rule
+  // drops a folder a file only joins onto, and an imported package is never a base.
+  const packages = [...barePackageDirs(source, root)].filter((dir) => !inside(dir)).map((dir) => `${dir}/**`);
+  return [
+    ...named
+      .filter((path) => !path.endsWith("/**") || !named.some((other) => other !== path && other.startsWith(path.slice(0, -2))))
+      .filter((path) => !(path in NOT_READS)),
+    ...packages,
+  ].filter((path, i, all) => all.indexOf(path) === i).sort();
 }
 
 /** The app's source files, repo-relative, skipping what jest never runs. */
@@ -201,6 +240,11 @@ export function selfTest() {
     ['fs.readdirSync(join(__dirname, "../../../.github/workflows"))', [".github/workflows/**"]],
     ['const evil = "../../etc/passwd";', []],
     ['import { a } from "../features/x";', []],
+    ['import { x } from "@context/obsidian-runtime";', ["packages/obsidian-runtime/**"]],
+    ['const fake = await import("@context/desktop-bridge/fake");', ["packages/desktop-bridge/**"]],
+    ['jest.mock("@context/meetings/recorder", () => ({}));', ["packages/meetings/**"]],
+    ['import { api } from "@context/convex/_generated/api";', ["apps/convex/**"]],
+    ['import { x } from "@context/lab/app/page";', []],
   ];
   for (const [source, expected] of cases) {
     const actual = namedOutsidePaths(file, source);
@@ -208,6 +252,11 @@ export function selfTest() {
       throw new Error(`namedOutsidePaths(${JSON.stringify(source)}) gave ${JSON.stringify(actual)}`);
     }
   }
+  expectFailure(
+    "a bare import no workspace package declares",
+    () => namedOutsidePaths(file, 'import { x } from "@context/no-such-package";'),
+    "no-such-package",
+  );
   expectFailure(
     "a read the mobile filter does not watch",
     () => assertReadsWatched(["packages/tex/gateway/agent/ledger.js"], new Set(["apps/mobile/**"])),

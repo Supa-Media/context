@@ -420,6 +420,7 @@ test/workspaceRouting.test.mjs
 test/backupBehind.test.mjs
 test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
+test/mcpNoteLinks.test.mjs
 test/texTiming.test.mjs
 test/texVersion.test.mjs
 test/workspaceTree.test.mjs
@@ -820,6 +821,7 @@ test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
 test/dataSyncBackground.test.mjs
 test/dataSyncUsage.test.mjs
+test/areaRoutineBrief.test.mjs
 test/areaRoutines.test.mjs
 test/stickerLook.test.mjs
 test/blankFields.test.mjs

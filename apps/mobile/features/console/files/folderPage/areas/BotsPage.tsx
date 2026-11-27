@@ -23,6 +23,7 @@ import { threadOf, type Thread } from "./areaMail";
 import { botsOf, conversationsOf, type Bot } from "./bots";
 import { botsFolder } from "./seat";
 import { AnyBotPanel } from "./LiveBotPanel";
+import { AnyRefreshAll } from "./RefreshAll";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
 import type { OwnerSearch } from "../../owners";
@@ -124,6 +125,9 @@ export function BotsPage(props: BotsPageProps) {
   }
   return (
     <View style={styles.page} testID="areas-bots-view">
+      {canEdit && create !== undefined && me !== undefined && bots.length > 0 ? (
+        <AnyRefreshAll bots={bots} notes={notes} me={me} create={create} {...(workspace === undefined ? {} : { workspace })} {...(workspaceId === undefined ? {} : { workspaceId })} />
+      ) : null}
       {bots.length === 0 ? (
         <Text variant="treeMeta" style={styles.muted}>
           {addBot === undefined ? "No bots yet." : "No bots yet. Add one below, then give it an area from that area's Owner menu."}

@@ -74,7 +74,10 @@ function hookInstructions({ type, workspace, note }) {
   // Only a relay (Dev, 2026-11-26: "Make the webhook routine a pure relay that wakes the main bot, never a
   // responder"): the run that gets this call reads and wakes the bot's main chat, which answers in the note itself.
   const read = type === "mail" ? `fetch ${args}id: ${JSON.stringify(note)}, args: { mail: true } }` : `fetch ${args}id: ${JSON.stringify(note)} }`;
-  return `${RELAY_PROMPT} The note: ${JSON.stringify(note)}; read it with ${read}.`;
+  // A routine's note comes back with its run brief after it (the metric now, the seat, the budget left): the bot's
+  // main chat reads that, never the call, so the brief is worked out at its clearance (`orient/routineBrief.js`).
+  const brief = type === "routine" ? " It comes back with its run brief after the note: the area, its metric worked out now, its budget left and where heavy lifting goes." : "";
+  return `${RELAY_PROMPT} The note: ${JSON.stringify(note)}; read it with ${read}.${brief}`;
 }
 
 /** The body a call carries, with only the fields it may: no message, no address, nothing else. */

@@ -1,0 +1,67 @@
+# Staff's one-off text to every person with a 1:1 chat with Tex
+# (packages/tex/worker/notice.ts). Run by hand only. The words are the
+# input's own; no wording lives in the code.
+#
+# Without `send` it is a dry run: the Worker counts who would be told, by
+# line, and texts nobody. With `send` each such phone gets the text once per
+# `key`, in the 1:1 chat that phone itself started; a second run with the same
+# key tells nobody twice. Group chats are never reached. The job prints
+# counts, never a phone.
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "The text, exactly as it should arrive"
+        required: true
+      key:
+        description: "A short name for this notice (lowercase, digits, dashes); one text per person per key"
+        required: true
+      lines:
+        description: "Comma-separated lines to text: photon, sendblue, whapi, linq"
+        required: true
+        default: "photon,sendblue,whapi"
+      send:
+        description: "Text them for real (unticked = dry run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tell-texters-notice
+  cancel-in-progress: false
+
+env:
+  WORKER_NAME: context-agent
+
+jobs:
+  tell:
+    name: Text everyone a notice
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Call the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+          TEXT: ${{ inputs.text }}
+          KEY: ${{ inputs.key }}
+          LINES: ${{ inputs.lines }}
+          SEND: ${{ inputs.send }}
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          body="$(node -e 'process.stdout.write(JSON.stringify({text: process.env.TEXT, key: process.env.KEY, lines: process.env.LINES.split(",").map(s => s.trim()).filter(Boolean), send: process.env.SEND === "true"}))')"
+          curl --fail-with-body --silent --show-error --max-time 600 \
+            -X POST -H "Authorization: Bearer $AGENT_WORKER_SECRET" -H 'content-type: application/json' \
+            -d "$body" "https://$WORKER_NAME.$sub.workers.dev/notice" | tee /tmp/counts.json
+          echo
+          { echo "### Notice"; echo; echo '```json'; cat /tmp/counts.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

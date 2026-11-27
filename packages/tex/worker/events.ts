@@ -23,8 +23,8 @@ import type { StepRecord } from "./stepEvents";
 export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery" | "step";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
 /** Why a Tex text went: a reply, a progress line, or one Tex sent on its own (a check-in, a routine, a ping, an update, a job, the new number). */
-export type TextSource = "reply" | "progress" | "checkin" | "routine" | "ping" | "update" | "job" | "new_line";
-export const TEXT_SOURCES: ReadonlySet<string> = new Set<TextSource>(["reply", "progress", "checkin", "routine", "ping", "update", "job", "new_line"]);
+export type TextSource = "reply" | "progress" | "checkin" | "routine" | "ping" | "update" | "job" | "new_line" | "notice";
+export const TEXT_SOURCES: ReadonlySet<string> = new Set<TextSource>(["reply", "progress", "checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 export function isTextSource(value: unknown): value is TextSource {
   return typeof value === "string" && TEXT_SOURCES.has(value);
 }

@@ -9,6 +9,7 @@ export function areaToolDefinitions() {
         "person owner in this area), modes, approval rules and its one metric (a metric note's name in the data folder's metrics/, with a " +
         "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
         "bind_bot says this connection is that bot (a bot's own main chat, during its setup); " +
+        "pulse: true writes the area's routines from templates (improve your metric, then one per mode), pulse: false pauses them; " +
         "attach and detach say which projects serve the area. area is needed for everything but bind_bot.",
       inputSchema: {
         type: "object",
@@ -65,6 +66,11 @@ export function areaToolDefinitions() {
             additionalProperties: false,
           },
           test_webhook: { type: "string", description: "A bot's name: send its webhook a signed test call." },
+          pulse: {
+            type: "boolean",
+            description:
+              "true turns on pulse checks: writes this area's routines from templates (improve your metric, then one for each of its modes), keeping any already there; false pauses the ones a template wrote.",
+          },
           bind_bot: {
             type: "string",
             description:

@@ -153,7 +153,7 @@ export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = fal
 }
 
 /** A text Tex sent on its own (`packages/tex/gateway/agent/sentOnItsOwn.js` OWN_SOURCES): it has a note of its own turn. */
-const OWN_SOURCE = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
+const OWN_SOURCE = new Set(["checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 const ownSend = (e: LedgerEntry) => fromKind(e) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SOURCE.has(str(e.source));
 
 /**
