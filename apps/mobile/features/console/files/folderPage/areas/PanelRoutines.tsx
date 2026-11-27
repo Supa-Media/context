@@ -246,53 +246,52 @@ function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRou
   const glyph = routine.problem !== null ? { name: "info" as const, color: colors.crit } : routine.paused ? { name: "pause" as const, color: colors.muted } : { name: "clock" as const, color: colors.muted };
   const next = routine.next == null ? null : clockAt(routine.next, tools.now);
   const sub = `${routine.when}${routine.paused ? " · paused" : next === null ? "" : ` · next ${next}`}`;
+  // Run now sits beside the row, never inside it: a button inside a button is no button on the web.
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={onPress === undefined}
-      role={onPress === undefined ? undefined : "button"}
-      accessibilityLabel={rowLabel(routine, next, tools.budget?.bot ?? null, tools.now)}
-      style={({ hovered }: HoverState) => [styles.row, hovered && onPress !== undefined && styles.hover]}
-      testID={`area-panel-routine-${routine.path}`}
-    >
-      <View style={styles.glyph}>
-        <Icon name={glyph.name} size={14} color={glyph.color} />
-      </View>
-      <View style={styles.rowText}>
-        <View style={styles.rowHead}>
-          <Text variant="tree" style={[styles.name, routine.paused && styles.muted]} numberOfLines={1}>{routine.title}</Text>
-          {routine.mode === null ? null : <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{routine.mode}</Text>}
-          {canRun ? (
-            <Pressable
-              hitSlop={8}
-              role="button"
-              accessibilityLabel={`Run ${routine.title} now`}
-              disabled={running}
-              onPress={(event) => {
-                // The row opens the editor; this press is only Run now.
-                event?.stopPropagation?.();
-                void runIt();
-              }}
-              style={({ hovered }: HoverState) => [styles.run, hovered && !running && styles.runHover]}
-              testID={`area-panel-routine-run-${routine.path}`}
-            >
-              <Text variant="treeMeta" style={[styles.addWord, running && styles.muted]}>{running ? "Running…" : "Run now"}</Text>
-            </Pressable>
-          ) : null}
+    <View style={styles.rowLine}>
+      <Pressable
+        onPress={onPress}
+        disabled={onPress === undefined}
+        role={onPress === undefined ? undefined : "button"}
+        accessibilityLabel={rowLabel(routine, next, tools.budget?.bot ?? null, tools.now)}
+        style={({ hovered }: HoverState) => [styles.row, hovered && onPress !== undefined && styles.hover]}
+        testID={`area-panel-routine-${routine.path}`}
+      >
+        <View style={styles.glyph}>
+          <Icon name={glyph.name} size={14} color={glyph.color} />
         </View>
-        {routine.problem !== null ? (
-          <Text variant="treeMeta" style={styles.crit}>{`Won't run: ${routine.problem}`}</Text>
-        ) : (
-          <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{sub}</Text>
-        )}
-        {routine.problem !== null || routine.last === null ? null : routine.last === undefined ? (
-          <View style={[styles.skeleton, styles.lastSkeleton]} />
-        ) : (
-          <Last last={routine.last} bot={tools.budget?.bot ?? null} now={tools.now} />
-        )}
-        {ranProblem === null ? null : <Text variant="treeMeta" role="alert" style={styles.crit}>{ranProblem}</Text>}
-      </View>
-    </Pressable>
+        <View style={styles.rowText}>
+          <View style={styles.rowHead}>
+            <Text variant="tree" style={[styles.name, routine.paused && styles.muted]} numberOfLines={1}>{routine.title}</Text>
+            {routine.mode === null ? null : <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{routine.mode}</Text>}
+          </View>
+          {routine.problem !== null ? (
+            <Text variant="treeMeta" style={styles.crit}>{`Won't run: ${routine.problem}`}</Text>
+          ) : (
+            <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{sub}</Text>
+          )}
+          {routine.problem !== null || routine.last === null ? null : routine.last === undefined ? (
+            <View style={[styles.skeleton, styles.lastSkeleton]} />
+          ) : (
+            <Last last={routine.last} bot={tools.budget?.bot ?? null} now={tools.now} />
+          )}
+          {ranProblem === null ? null : <Text variant="treeMeta" role="alert" style={styles.crit}>{ranProblem}</Text>}
+        </View>
+      </Pressable>
+      {canRun ? (
+        <Pressable
+          hitSlop={8}
+          role="button"
+          accessibilityLabel={`Run ${routine.title} now`}
+          disabled={running}
+          onPress={() => void runIt()}
+          style={({ hovered }: HoverState) => [styles.run, hovered && !running && styles.runHover]}
+          testID={`area-panel-routine-run-${routine.path}`}
+        >
+          <Text variant="treeMeta" style={[styles.addWord, running && styles.muted]}>{running ? "Running…" : "Run now"}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -362,13 +361,14 @@ const makeStyles = (colors: Colors) =>
     skeleton: { height: 10, borderRadius: 3, backgroundColor: colors.chipFill },
     lastSkeleton: { width: "48%", marginTop: 4 },
     // The projects list's row, three lines tall.
-    row: { flexDirection: "row", alignItems: "flex-start", gap: space.x2, paddingVertical: 6, paddingHorizontal: space.x1, marginHorizontal: -space.x1, borderRadius: radii.sm },
+    row: { flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", gap: space.x2, paddingVertical: 6, paddingHorizontal: space.x1, marginHorizontal: -space.x1, borderRadius: radii.sm },
     hover: { backgroundColor: colors.chipFill },
     glyph: { width: 16, alignItems: "center", paddingTop: 3 },
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     name: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     // "+ Attach a project"'s link, at the end of the row's first line.
-    run: { flexShrink: 0, paddingHorizontal: space.x1, borderRadius: radii.sm },
-    runHover: { backgroundColor: colors.surface },
+    rowLine: { flexDirection: "row", alignItems: "flex-start", gap: space.x1 },
+    run: { flexShrink: 0, marginTop: 6, paddingVertical: 2, paddingHorizontal: space.x1, borderRadius: radii.sm },
+    runHover: { backgroundColor: colors.chipFill },
   });

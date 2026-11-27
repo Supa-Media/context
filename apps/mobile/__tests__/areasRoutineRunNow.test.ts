@@ -81,6 +81,8 @@ describe("Run now", () => {
     await press(one("area-row-areas/finance"));
     const button = one(`area-panel-routine-run-${DAILY}`);
     expect(button.getAttribute("aria-label")).toBe("Run Manager loop now");
+    // Beside the row, never inside its button: a button in a button breaks the page on the web.
+    expect(one(`area-panel-routine-${DAILY}`).contains(button)).toBe(false);
     await press(button);
     await press(button);
     expect(runs).toEqual([DAILY]);
