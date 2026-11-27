@@ -36,6 +36,12 @@ function resolveEasProjectId() {
   return "YOUR_EAS_PROJECT_ID";
 }
 
+/** `APP_VERSION` when it is a plain x.y.z, else 1.0.0. */
+function appVersion() {
+  const version = process.env.APP_VERSION;
+  return typeof version === "string" && /^\d+\.\d+\.\d+$/.test(version) ? version : "1.0.0";
+}
+
 module.exports = ({ config }) => {
   // Read fresh on every call rather than once at module load — Node caches
   // this module, and both this file's own tests and expo's tooling call the
@@ -46,7 +52,13 @@ module.exports = ({ config }) => {
     ...config,
     name: process.env.APP_ENV === "staging" ? "Context Staging" : "Context",
     slug: "context",
-    version: "1.0.0",
+    /**
+     * The version App Store Connect sees. Apple closes a version once one of its builds is approved and refuses any
+     * later build of it (ITMS-90186, ITMS-90062: build 18 at 1.0.0, 2026-11-27), so `deploy-mobile-native.yml` sets
+     * `APP_VERSION` to `1.0.<its run number>`, one higher on every dispatch. Local runs and tests read 1.0.0. The
+     * runtime version below is pinned apart from this, so a new version never strands an install's updates.
+     */
+    version: appVersion(),
     scheme: "context",
     orientation: "portrait",
     icon: "./assets/icon.png",
