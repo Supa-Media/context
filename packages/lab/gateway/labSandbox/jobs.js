@@ -149,6 +149,18 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBo
 }
 
 /**
+ * The private asides a turn handed someone's own 1:1 (`sandboxInboxes` keeps each `/cross-aside`): to whom, by the name the
+ * test chat knows them by, what about, and whether it is a calendar clash. Never texted from a test chat.
+ */
+export function asidesOf(crossOut, phones) {
+  const whoOf = new Map([...(phones ?? new Map()).entries()].map(([who, phone]) => [phone, who]));
+  return (Array.isArray(crossOut) ? crossOut : [])
+    .filter((out) => out?.path === "/cross-aside" && out.body && typeof out.body === "object")
+    .slice(0, 4)
+    .map(({ body }) => ({ to: whoOf.get(body.asker) ?? "someone", what: String(body.what ?? "").slice(0, 300), ...(body.calendar === true ? { calendar: true } : {}), ...(Array.isArray(body.texts) && body.texts.length > 0 ? { link: true } : {}) }));
+}
+
+/**
  * Runs every job this text's turn started, each to its end or `JOB_LIMIT_MS`, its passes through the job node of the
  * test chat's graph (`config`, the draft over main's). `drain` runs the chat object's own work a pass handed it (a
  * job's report turn) before the next pass. `book` is the text's steps (`steps.js`): each pass is a step under the step

@@ -49,7 +49,7 @@ import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
 import { hold, lineOf, rowLine } from "./line.js";
-import { boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { asidesOf, boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
 import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
@@ -380,18 +380,6 @@ export function inboundOf({ about, row, rows, address, sentHandles, chat = null 
   return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: row.id, text: String(row.text ?? ""), ...files, ...(replyTo ? { replyTo } : {}) } };
 }
 
-
-/**
- * The private asides a turn handed someone's own 1:1 (`jobs.js` keeps each `/cross-aside`): to whom, by the name the
- * test chat knows them by, what about, and whether it is a calendar clash. Never texted from a test chat.
- */
-export function asidesOf(crossOut, phones) {
-  const whoOf = new Map([...(phones ?? new Map()).entries()].map(([who, phone]) => [phone, who]));
-  return (Array.isArray(crossOut) ? crossOut : [])
-    .filter((out) => out?.path === "/cross-aside" && out.body && typeof out.body === "object")
-    .slice(0, 4)
-    .map(({ body }) => ({ to: whoOf.get(body.asker) ?? "someone", what: String(body.what ?? "").slice(0, 300), ...(body.calendar === true ? { calendar: true } : {}), ...(Array.isArray(body.texts) && body.texts.length > 0 ? { link: true } : {}) }));
-}
 
 /** Picture types a test chat keeps and serves (`pages.js`): never one that can carry a script. */
 const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
