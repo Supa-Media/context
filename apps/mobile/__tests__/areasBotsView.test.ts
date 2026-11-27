@@ -35,6 +35,7 @@ import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
 import { BOT_CHECK_MS, checkHealth, firstMailNote, threadOf } from "../features/console/files/folderPage/areas/areaMail";
 import { resetAppearanceForTests } from "../features/design/appearance";
+import { resetRefreshes } from "../features/console/files/folderPage/areas/refreshBot";
 import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
@@ -62,7 +63,10 @@ const AREAS: FolderListing = {
 const BOTS: FolderListing = { path: "bots", folderDefault: "team", entries: [entry("folder", "bots/grok-bot")], truncated: false, manifestUsable: true };
 const GROK: FolderListing = { path: "bots/grok-bot", folderDefault: "team", entries: [entry("file", "bots/grok-bot/about.md")], truncated: false, manifestUsable: true };
 
-beforeEach(() => forgetViews());
+beforeEach(() => {
+  forgetViews();
+  resetRefreshes();
+});
 afterEach(unmountAll);
 
 async function typeInto(input: HTMLElement, value: string) {
@@ -184,6 +188,44 @@ describe("The bots folder", () => {
     expect(all("bot-panel")).toHaveLength(1);
     expect(strip(one("bot-panel-refresh").textContent)).toBe("Refresh");
     expect(strip(one("bot-panel-refreshed").textContent)).toMatch(/^Refreshed \d{1,2}:\d{2}/);
+  });
+
+  test("Refresh on one bot says it went for that bot only, not for the next one opened", async () => {
+    // Dev2, 2026-11-27: "refreshing one of my bots, updates the text for other bots to show they are refreshed as well
+    // even though they aren't".
+    windowOf(1440);
+    const files: string[] = [];
+    await mount(host([], { notes: NOTES, bodies: BODIES, files }), BOTS);
+    await settle();
+    await press(one("areas-bot-Grok Bot"));
+    await settle();
+    await press(one("bot-panel-refresh"));
+    await settle();
+    expect(all("bot-panel-refreshed")).toHaveLength(1);
+    await press(one("areas-bot-Socials"));
+    await settle();
+    expect(strip(one("bot-panel").textContent)).toContain("Socials");
+    expect(all("bot-panel-refreshed")).toHaveLength(0);
+    // Back on Grok Bot, it still says when its own Refresh went.
+    await press(one("areas-bot-Grok Bot"));
+    await settle();
+    expect(all("bot-panel-refreshed")).toHaveLength(1);
+  });
+
+  test("Refresh all mails every bot listed its setup, and each one's panel then says it went", async () => {
+    // Dev2, 2026-11-27: "also maybe a refresh all button?"
+    windowOf(1440);
+    const files: string[] = [];
+    await mount(host([], { notes: NOTES, bodies: BODIES, files }), BOTS);
+    await settle();
+    await press(one("bots-refresh-all"));
+    await settle();
+    expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n"))).toBe(true);
+    expect(files.some((line) => line.startsWith("create areas/bots/socials/mail/seyi.md\n"))).toBe(true);
+    expect(strip(one("bots-refresh-all-said").textContent)).toBe("Refreshed 2 bots");
+    await press(one("areas-bot-Socials"));
+    await settle();
+    expect(all("bot-panel-refreshed")).toHaveLength(1);
   });
 
   test("a bot answers when a line under its own name follows Context's setup check, read from that mail", () => {
