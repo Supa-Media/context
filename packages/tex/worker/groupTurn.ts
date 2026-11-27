@@ -20,6 +20,7 @@ import { addEvent, kindOf, markStale, renderTranscript, waitingAsks, type TexEve
 import { chatEvents } from "./chatRead";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
+import { decideStep, logStep } from "./stepEvents";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
@@ -109,28 +110,28 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
   // The chat's ledger key: where its verdict is kept, and how its day is read when this object holds no token.
   const ledgerKey = look !== undefined ? undefined : await sha256Hex(`${newest.line}:${newest.groupId}`);
   const byLedger = ledgerKey !== undefined && deps.texts?.binding !== undefined ? { binding: deps.texts.binding, ledger: ledgerKey } : undefined;
-  const decision = await decide(
-    deps,
-    {
-      chat: newest.groupId,
-      line: newest.line,
-      sender: newest.from,
-      style,
-      // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
-      transcript: look ?? renderTranscript(await chatEvents(storage, newest.groupId, undefined, byLedger), { names: await keptNames(storage) }),
-      candidates,
-      running,
-      // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
-      waitingAsks: look !== undefined ? [] : await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
-      newest: candidates.at(-1) ?? "",
-      // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
-      ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
-      ...(settle ? { settle: true as const } : {}),
-      // The stickers people used here, which Decide may react with; none on a first look (nothing of the chat is kept).
-      ...(look === undefined ? await stickersAsk(storage) : {}),
-    },
-    running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
-  );
+  const asked = {
+    chat: newest.groupId,
+    line: newest.line,
+    sender: newest.from,
+    style,
+    // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
+    transcript: look ?? renderTranscript(await chatEvents(storage, newest.groupId, undefined, byLedger), { names: await keptNames(storage) }),
+    candidates,
+    running,
+    // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
+    waitingAsks: look !== undefined ? [] : await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
+    newest: candidates.at(-1) ?? "",
+    // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
+    ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
+    ...(settle ? { settle: true as const } : {}),
+    // The stickers people used here, which Decide may react with; none on a first look (nothing of the chat is kept).
+    ...(look === undefined ? await stickersAsk(storage) : {}),
+  };
+  const decision = await decide(deps, asked, running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS);
+  // Decide's step, as a person's own chat keeps it (`inboxTurn.ts`): the Lab's run card and the app's step log read it.
+  // A first look keeps nothing of the chat, so it keeps no step either.
+  if (look === undefined) await logStep(storage, newest.groupId, decideStep(asked, decision), deps.now());
   // Codes only: the act and its why, or why the judge could not answer.
   console.log(
     JSON.stringify({
