@@ -64,6 +64,23 @@ describe("app.config.js reads EAS_PROJECT_ID from the environment", () => {
     expect(() => require("../app.config.js")({ config: {} })).not.toThrow();
   });
 
+  test("the App Store version comes from the native workflow's APP_VERSION, and only a plain x.y.z", () => {
+    const saved = process.env.APP_VERSION;
+    try {
+      process.env.APP_VERSION = "1.0.18";
+      expect(require("../app.config.js")({ config: {} }).version).toBe("1.0.18");
+      // The runtime stays pinned, so a new version never strands an install's over-the-air updates.
+      expect(require("../app.config.js")({ config: {} }).runtimeVersion).toBe("1.0.0");
+      process.env.APP_VERSION = "1.0.18; rm -rf";
+      expect(require("../app.config.js")({ config: {} }).version).toBe("1.0.0");
+      delete process.env.APP_VERSION;
+      expect(require("../app.config.js")({ config: {} }).version).toBe("1.0.0");
+    } finally {
+      if (saved === undefined) delete process.env.APP_VERSION;
+      else process.env.APP_VERSION = saved;
+    }
+  });
+
   test("preserves the build number resolved by EAS remote versioning", () => {
     const config = require("../app.config.js")({ config: { ios: { buildNumber: "42" } } });
     expect(config.ios.buildNumber).toBe("42");
