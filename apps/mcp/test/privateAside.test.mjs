@@ -95,3 +95,41 @@ test("the turn wraps the vault watch inside the private links, so the watch sees
   await withVaultWatch(ledger, withPrivateLinks(member, ledger, minted))("vault_add_link", { site: "instacart.com" });
   assert.equal(ledger.vaultLinks, undefined, "the other way round, nothing is watched");
 });
+
+// Dev2, 2026-11-27, choosing that a check-in's calendar clash goes to the calendar's own person privately: the room
+// reads a shared calendar as free or busy only, so whether a busy time is the plan is asked of its owner alone.
+// Sabotage: let `calendarAside` take any handle and "only someone whose calendar is shared here" fails.
+test("a calendar clash goes to the calendar's own person only, on a check-in with no tagger too", async () => {
+  const checkIn = { key: "c3".repeat(32), people: ["shyoh", "seyi"], calendar: [{ handle: "shyoh", address: "s@example.com" }] };
+  const ledger = {};
+  const tool = privateAsideTool({ group: checkIn, ledger });
+  const sent = await tool.call({ what: "The chat plans Saturday 3 PM; your calendar is busy 2 to 6 PM then.", to: "@shyoh" });
+  assert.equal(sent.isError, undefined);
+  assert.deepEqual(JSON.parse(said(sent)), { texted_privately: "@shyoh", about: "shared_calendar", when: "right after your answer" });
+  assert.deepEqual(ledger.asides, [{ what: "The chat plans Saturday 3 PM; your calendar is busy 2 to 6 PM then.", texts: [], to: "shyoh", calendar: true }]);
+  // Only someone whose calendar is shared here.
+  const other = await tool.call({ what: "x", to: "seyi" });
+  assert.equal(other.isError, true);
+  assert.deepEqual(JSON.parse(said(other)), { sent: false, status: "no_calendar_of_theirs_shared_here", calendars_shared_by: ["@shyoh"] });
+  assert.equal(ledger.asides.length, 1);
+  // Without a `to`, a check-in has nobody who tagged it to text.
+  assert.equal((await tool.call({ what: "x" })).isError, true);
+});
+
+test("their own 1:1 run is told the clash as data, and that the group sees only free or busy", () => {
+  const event = crossChatOf(
+    { event: "chat_answer", crossChat: { id: "xabcdefghij", from: "a group chat they're in", what: "The chat plans Saturday 3 PM; busy then.", state: "aside", texts: [], calendar: true, key: "d".repeat(64) } },
+    { chatTurn: true, job: null },
+  );
+  assert.equal(event.calendar, true);
+  assert.match(crossChatQuestion(event), /"event":"calendar_check_from_group"/);
+  const prompt = crossChatPrompt(event);
+  const facts = JSON.parse(prompt.trim()).calendar_check_from_group;
+  assert.deepEqual(facts, {
+    group: "a group chat they're in",
+    chat: "d".repeat(64),
+    what_the_group_check_in_found: "The chat plans Saturday 3 PM; busy then.",
+    the_group_sees_your_calendar_as: "free or busy only",
+    your_own_calendar: "readable here in full",
+  });
+});

@@ -81,12 +81,15 @@ export function crossChatOf(body, { chatTurn, job }) {
   const key = typeof value.key === "string" && KEY.test(value.key) ? value.key : "";
   // An answer held from a group (`roomCheck.js`): its draft, for the asker alone.
   const held = value.state === "aside" && value.held === true;
-  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}), ...(key ? { key } : {}), ...(held ? { held: true } : {}) };
+  // A calendar clash a group's check-in asks of the calendar's own person (`privateAside.js` `calendarAside`).
+  const calendar = value.state === "aside" && !held && value.calendar === true;
+  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}), ...(key ? { key } : {}), ...(held ? { held: true } : {}), ...(calendar ? { calendar: true } : {}) };
 }
 
 /** The question an ask's or an answer's run is asked: the gateway's own line, kept in the history as Tex by itself. */
 export function crossChatQuestion(event) {
   if (event.kind === "answer" && event.held === true) return `(${JSON.stringify({ event: "held_from_group", group: event.from, ...(event.key ? { chat: event.key } : {}) })})`;
+  if (event.kind === "answer" && event.calendar === true) return `(${JSON.stringify({ event: "calendar_check_from_group", group: event.from, ...(event.key ? { chat: event.key } : {}) })})`;
   if (event.kind === "answer" && event.state === "aside") return `(Not a text from them. Tex in ${event.from} needs this from them here, not in front of the group: "${event.what}")`;
   if (event.kind === "ask") return `(Not a text from anyone here. Tex in ${event.from} asks you${event.do ? " to do something" : ""}: "${event.what}")`;
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
@@ -113,6 +116,7 @@ export function crossChatPrompt(event, { group = null } = {}) {
     );
   }
   if (event.state === "aside" && event.held === true) return heldPrompt(event);
+  if (event.state === "aside" && event.calendar === true) return calendarPrompt(event);
   if (event.state === "aside") return asidePrompt(event);
   const how =
     event.state === "answered"
@@ -155,6 +159,15 @@ function heldPrompt(event) {
     facts = event.what;
   }
   return `\n\n${JSON.stringify({ held_from_group: { group: event.from, ...(event.key ? { chat: event.key } : {}), facts, draft: event.texts } })}`;
+}
+
+/**
+ * A group's check-in found that what the chat plans may clash with this person's calendar, shared there only as free
+ * or busy (Dev2, 2026-11-27), in their own 1:1, where their whole calendar can be read: the facts, as data. What to
+ * text them, and whether to pass a correction back, is the model's own.
+ */
+function calendarPrompt(event) {
+  return `\n\n${JSON.stringify({ calendar_check_from_group: { group: event.from, ...(event.key ? { chat: event.key } : {}), what_the_group_check_in_found: event.what, the_group_sees_your_calendar_as: "free or busy only", your_own_calendar: "readable here in full" } })}`;
 }
 
 /** A chat named by its group key or its name, from the person's groups (`{ key, name }`); null when none or several fit. */

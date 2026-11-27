@@ -45,7 +45,7 @@ export type CrossState = "answered" | "refused" | "timeout" | "aside";
 /** What a chat's turn is started with (`chat_ask` or `chat_answer`), as the gateway reads it (`crossChatOf`). */
 export type CrossEvent =
   | { kind: "ask"; id: string; from: string; what: string; do: boolean; strangers?: boolean; key?: string; reply: string }
-  | { kind: "answer"; id: string; from: string; what: string; state: CrossState; texts: string[]; why?: string; key?: string; held?: true };
+  | { kind: "answer"; id: string; from: string; what: string; state: CrossState; texts: string[]; why?: string; key?: string; held?: true; calendar?: true };
 
 /** Where the asking chat's answer-run is queued: a 1:1 by code, or a group as its asker's tag. */
 type Back = { kind: "one"; chatId: string; from: string; channel?: "simulator" } | { kind: "group"; groupId: string; line: string; from: string };
@@ -225,7 +225,14 @@ export function crossFields(event: CrossEvent | undefined): { event?: "chat_ask"
  * with state `aside`, which texts them there. Only the message's own sender is ever texted: the gateway names no one.
  */
 /** `held`: an answer held from the group because someone there can't open what it carries (`packages/tex/gateway/agent/roomCheck.js`): its draft goes to the asker alone. */
-export type Aside = { what: string; texts: string[]; held?: true };
+/**
+ * `to`: a calendar clash a group's check-in found goes to the calendar's own person, by handle (Dev2, 2026-11-27: the
+ * room sees a shared calendar only as free or busy, so whether it is the event the chat means is asked of its owner
+ * alone). The Worker texts them only when the handle is someone in the chat now, resolved here from the chat's own
+ * people, never a number the gateway names. `calendar` marks it so their own Tex is told what it is about.
+ */
+export type Aside = { what: string; texts: string[]; held?: true; to?: string; calendar?: true };
+const HANDLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const MAX_ASIDES = 2;
 
 /** The answer's `asides`, read strictly. */
@@ -238,21 +245,35 @@ export function readAsides(value: unknown): Aside[] {
     if (what === "") continue;
     const held = aside?.held === true;
     const texts = (Array.isArray(aside?.texts) ? aside!.texts : []).filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 2).map((text) => text.trim().slice(0, held ? MAX_TEXT : 1_200));
-    asides.push({ what, texts, ...(held ? { held: true as const } : {}) });
+    const to = typeof aside?.to === "string" && HANDLE.test(aside.to) ? aside.to : "";
+    const calendar = to !== "" && aside?.calendar === true;
+    asides.push({ what, texts, ...(held ? { held: true as const } : {}), ...(calendar ? { to, calendar: true as const } : {}) });
   }
   return asides;
 }
 
 /** Hand each aside to the tagger's own 1:1. "sent" when every one was queued there; else why not, for the group's fixed line. */
-export async function sendAsides(deps: CrossDeps, message: Pick<GroupMessage, "groupId" | "line" | "from">, asides: Aside[]): Promise<"sent" | "no_1to1" | "unreached"> {
+export async function sendAsides(
+  deps: CrossDeps,
+  message: Pick<GroupMessage, "groupId" | "line" | "from">,
+  asides: Aside[],
+  phoneOf: (handle: string) => string | null = () => null,
+): Promise<"sent" | "no_1to1" | "unreached"> {
   if (asides.length === 0) return "sent";
   const key = await sha256Hex(`${message.line}:${message.groupId}`);
   let outcome: "sent" | "no_1to1" | "unreached" = "sent";
   for (const aside of asides) {
     const id = `x${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
     let taken = "unreached";
+    // The sender, or a calendar's own person who is in the chat now; a handle nobody here has reaches no one.
+    const to = aside.to === undefined ? message.from : phoneOf(aside.to);
+    if (to === null) {
+      log("aside", id, { outcome: "not_here" });
+      outcome = "unreached";
+      continue;
+    }
     try {
-      const response = await deps.call(message.from, "/cross-aside", { id, what: aside.what, texts: aside.texts, ...(aside.held ? { held: true } : {}), key, asker: message.from, from: "a group chat they're in" });
+      const response = await deps.call(to, "/cross-aside", { id, what: aside.what, texts: aside.texts, ...(aside.held ? { held: true } : {}), ...(aside.calendar ? { calendar: true } : {}), key, asker: to, from: "a group chat they're in" });
       taken = response.ok ? (((await response.json().catch(() => null)) as { outcome?: string } | null)?.outcome ?? "unreached") : "unreached";
     } catch {
       taken = "unreached";
@@ -265,14 +286,14 @@ export async function sendAsides(deps: CrossDeps, message: Pick<GroupMessage, "g
 
 /** `/cross-aside` in the tagger's own 1:1 object: queue the aside as a run of this chat's own. */
 export async function takeCrossAside(storage: InboxStorage, body: unknown, now: number): Promise<"queued" | "no_1to1" | "bad"> {
-  const aside = body as { id?: unknown; what?: unknown; texts?: unknown; held?: unknown; key?: unknown; asker?: unknown; from?: unknown } | null;
+  const aside = body as { id?: unknown; what?: unknown; texts?: unknown; held?: unknown; calendar?: unknown; key?: unknown; asker?: unknown; from?: unknown } | null;
   if (!aside || typeof aside.id !== "string" || !ID.test(aside.id) || typeof aside.asker !== "string" || !E164.test(aside.asker)) return "bad";
   const [read] = readAsides([{ what: aside.what, texts: aside.texts, held: aside.held }]);
   const from = line(aside.from, 80);
   if (read === undefined || from === "") return "bad";
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (!chat || typeof chat.chatId !== "string" || chat.chatId === "") return log("aside_no_1to1", aside.id), "no_1to1";
-  const event: CrossEvent = { kind: "answer", id: aside.id, from, what: read.what, state: "aside", texts: read.texts, ...(read.held ? { held: true as const } : {}), ...(typeof aside.key === "string" && KEY.test(aside.key) ? { key: aside.key } : {}) };
+  const event: CrossEvent = { kind: "answer", id: aside.id, from, what: read.what, state: "aside", texts: read.texts, ...(read.held ? { held: true as const } : {}), ...(aside.calendar === true ? { calendar: true as const } : {}), ...(typeof aside.key === "string" && KEY.test(aside.key) ? { key: aside.key } : {}) };
   await queueByCode(storage, { kind: "message", eventId: `cross-aside:${aside.id}`, chatId: chat.chatId, from: aside.asker, messageId: "", text: read.what, event: "chat_answer", crossChat: event, ...(chat.channel === "simulator" ? { channel: "simulator" as const } : {}) }, now);
   log("aside_taken", aside.id);
   return "queued";

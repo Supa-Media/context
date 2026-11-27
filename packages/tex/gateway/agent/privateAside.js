@@ -17,7 +17,8 @@
  *
  * Each aside is handed to the texting Worker with the answer (`asides`), which starts a run in the asker's own 1:1
  * (`packages/tex/worker/crossChat.ts` `sendAsides`), framed by `crossChatPrompt` as a cross-chat answer with state
- * `aside`. Only the tagger is ever texted: the Worker sends to the message's own sender, never a name the model gives.
+ * `aside`. Only the tagger is ever texted, but for one case: a calendar clash goes to the calendar's own person, a
+ * handle whose calendar is shared here, which the Worker resolves among the chat's people now (`calendarAside`).
  * Decision: `docs/decisions/texting-assistant/private-asides.md`.
  */
 
@@ -80,6 +81,24 @@ export function holdForAsker(ledger, group, draft, facts) {
   return keep(ledger, { what: clip(facts, MAX_WHAT), texts: [words], held: true });
 }
 
+/** Whose calendars are shared with this chat, by handle: the only people a calendar aside may go to (`to`). */
+function calendarOwners(group) {
+  return [...new Set((Array.isArray(group?.calendar) ? group.calendar : []).map((row) => row?.handle).filter((handle) => typeof handle === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(handle)))];
+}
+
+/**
+ * A calendar clash, for the calendar's own person alone (Dev2, 2026-11-27, choosing that a check-in's clash goes to
+ * the calendar's owner privately): the room reads a shared calendar only as free or busy, so whether a busy time is
+ * the plan the chat means is asked of its owner, whose own Tex reads it whole. Only a handle whose calendar is shared
+ * here; the Worker texts them only while they are in the chat (`packages/tex/worker/crossChat.ts`). Answers facts.
+ */
+function calendarAside(group, ledger, handle, what) {
+  const owners = calendarOwners(group);
+  if (!owners.includes(handle)) return text(JSON.stringify({ sent: false, status: "no_calendar_of_theirs_shared_here", calendars_shared_by: owners.map((h) => `@${h}`) }), true);
+  if (!keep(ledger, { what, texts: [], to: handle, calendar: true })) return text(JSON.stringify({ sent: false, status: "aside_limit_reached", limit: MAX_ASIDES }), true);
+  return text(JSON.stringify({ texted_privately: `@${handle}`, about: "shared_calendar", when: "right after your answer" }));
+}
+
 /**
  * The `text_privately` tool for one group chat turn, or null on any other turn. `ledger` is the turn's egress ledger;
  * the aside is kept as `ledger.asides` for the Worker.
@@ -96,11 +115,16 @@ export function privateAsideTool({ group, ledger }) {
         "Here, say only that you'll text them; never ask for it or give the steps in this chat.",
       inputSchema: {
         type: "object",
-        properties: { what: { type: "string", description: "What you need from them and what it's for, in a sentence." } },
+        properties: {
+          what: { type: "string", description: "What you need from them and what it's for, in a sentence." },
+          to: { type: "string", description: "calendar clash: its owner's handle" },
+        },
         required: ["what"],
       },
     },
     call: async (args) => {
+      const to = typeof args?.to === "string" ? args.to.trim().replace(/^@/, "").toLowerCase() : "";
+      if (to !== "") return calendarAside(group, ledger, to, clip(args?.what, MAX_WHAT));
       if (!canAside(group)) return text(GUEST_ASIDE_REFUSAL, true);
       const what = clip(args?.what, MAX_WHAT);
       if (what === "") return text("Not sent: say what you need from them, in a sentence.", true);

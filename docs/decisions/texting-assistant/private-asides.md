@@ -26,7 +26,23 @@ good." Someone who isn't on Context is told to create an account first.
 - **A guest is refused, by code** (`canAside`): no link is made, and Tex tells them in one line to text it on their
   own to set up an account first.
 
+## A calendar clash goes to the calendar's own person
+
+Decided by the owner, 2026-11-27 (option B: "the check-in reads the full calendar, but details go only to the
+calendar's owner"). A group reads a calendar shared with it only as free or busy
+([asker-reach](./asker-reach.md)), so when a check-in sees a busy time that may clash with what the chat plans, it
+asks the calendar's own person alone: `text_privately` with `to`, their handle. The gateway takes only a handle whose
+calendar is shared with the chat (`calendarAside`), and the Worker texts them only while that handle is one of the
+chat's people now, resolved from the chat's own list (`phoneOf`), never a number the gateway names. A handle nobody
+here has reaches no one, never the sender in its place. Their own Tex is told the clash as data
+(`calendar_check_from_group`), reads their whole calendar there, and answers them.
+
 ## What a simplification would cost
+
+Letting `to` name anyone, or falling back to the sender when the handle is not in the chat, lets a group's turn text
+a stranger's 1:1 or the wrong person (`privateAside.test.mjs` "a calendar clash goes to the calendar's own person
+only", `privateAsides.test.ts` "a calendar clash goes to the calendar's own person").
+
 
 Handing the vault link back to the model lets it paste the link and the steps into the group. Letting the gateway
 name who is texted lets a turn text anyone's 1:1. Wrapping the vault watch outside the private links leaves a save
