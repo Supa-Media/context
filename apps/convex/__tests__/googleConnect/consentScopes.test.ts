@@ -104,11 +104,21 @@ async function agentAsked(row: { products: Array<"gmail" | "calendar" | "chat">;
 }
 
 describe("exactly what each client is asked for", () => {
-  test("the standard client is asked for identity and the owned calendar read, and nothing else", async () => {
+  test("with no agent client, a connect asks the standard client for identity and the owned calendar read, and nothing else", async () => {
     for (const globals of GLOBALS) {
       deployment(globals);
+      vi.stubEnv("GOOGLE_AGENT_OAUTH_CLIENT_ID", "");
       expect(new Set(await standardAsked())).toEqual(new Set(STANDARD));
       expect(new Set(await standardAsked({ gmail: true, calendar: false, chat: true }))).toEqual(new Set(IDENTITY_SCOPES));
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("with an agent client, a connect is one consent to it, for exactly the agent's scopes (Dev, 2026-11-27)", async () => {
+    for (const globals of GLOBALS) {
+      deployment(globals);
+      expect(new Set(await standardAsked())).toEqual(new Set(AGENT));
+      expect(new Set(await standardAsked({ gmail: false, calendar: true, chat: false }))).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_SCOPE]));
       vi.unstubAllEnvs();
     }
   });

@@ -187,7 +187,9 @@ Both live in the onboarding skill (`@context-lc ai/production/skills/onboarding.
 verified Context and calls going on unsafe. Met cold, that reads as a scam and
 people stop; so the Gmail page under its button (since 2026-10-20, in place of
 the ready text), `connect_google`'s answer and the skill all say it's expected
-and to tap Advanced, then Go to Context.
+and to tap Advanced, then Go to Context. **Retired 2026-11-27** (Dev: "we
+already have our google approval"): Google verified the app, so no warning is
+said; the Gmail page says to tick Select all, then Continue.
 
 Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that
@@ -219,11 +221,12 @@ all".
   ready text still asks somebody set up by text for Gmail, and `connect_google`
   still answers when they ask. Bringing an offer back means one that never
   holds the reply.
-- **The two screens, said and shown.** Google has not verified Context, so it
-  warns first, and its permissions page lets a box be left unticked, which
-  leaves Tex unable to do that part. `connect_google`'s result and the ready
-  text both say: tap Advanced, then Go to Context (unsafe), then tick Select
-  all and Continue. Both send a picture of the two screens, drawn rather than
+- **The one page, said and shown (Dev, 2026-11-27).** Google has verified
+  Context, so no warning comes first, and a connect is one consent screen for
+  everything ([google-clients](../communications/google-clients.md)). Its
+  permissions page lets a box be left unticked, which leaves Tex unable to do
+  that part, so `connect_google`'s result and the ready text both say: tick
+  Select all and Continue. Both send a picture of that page alone, drawn rather than
   screenshotted and labelled as a guide, served by the router at
   `/og/google-connect.png` beside the app the link opens
   (`infra/router/og-google-connect.source.html`, rendered by

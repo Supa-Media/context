@@ -48,7 +48,7 @@ function idToken(claims: Record<string, unknown>): string {
 }
 
 /** Google's token endpoint: records which client asked (and every revoke), answers as told. */
-function tokenEndpoint(answer: { refused?: boolean; sub?: string } = {}) {
+function tokenEndpoint(answer: { refused?: boolean; sub?: string; scope?: string } = {}) {
   const asked: Array<{ grantType: string | null; clientId: string | null }> & { revokes?: number } = [];
   asked.revokes = 0;
   const realFetch = globalThis.fetch;
@@ -67,7 +67,7 @@ function tokenEndpoint(answer: { refused?: boolean; sub?: string } = {}) {
         access_token: `access-for-${form.get("client_id")}`,
         refresh_token: "agent-refresh-token-not-real",
         expires_in: 3600,
-        scope: "https://www.googleapis.com/auth/gmail.readonly",
+        scope: answer.scope ?? "https://www.googleapis.com/auth/gmail.readonly",
         id_token: idToken({ sub: answer.sub ?? "example-google-account-id", email: "person@example.invalid" }),
       }),
       { headers: { "content-type": "application/json" } },
@@ -316,12 +316,11 @@ describe("allowing AI access", () => {
   });
 });
 
-describe("a standard connect", () => {
-  test("completes with ai: false, so the app does not go on to AI access by itself", async () => {
-    configure({ active: false });
+describe("a connect", () => {
+  async function connectEverything() {
     vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
     vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
-    tokenEndpoint();
+    const google = tokenEndpoint({ scope: agentScopesFor(["gmail", "calendar", "chat"]).join(" ") });
     const { t, owner, workspaceId } = await personalScenario();
     const started = await withSession(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
       workspaceId,
@@ -331,11 +330,46 @@ describe("a standard connect", () => {
     const state = new URL(started.authorizeUrl).searchParams.get("state") as string;
     const done = await t.action(api.functions.googleConnect.completeGoogleConnect, {
       state,
-      code: "standard-code",
+      code: "connect-code",
       completionSecret: started.completionSecret,
     });
     await drainScheduled(t);
+    const rows = await t.run((ctx) => ctx.db.query("googleConnections").collect());
+    return { t, workspaceId, done, google, started, rows };
+  }
+
+  test("is one consent to the agent client, and both roles read its one grant (Dev, 2026-11-27)", async () => {
+    configure({ active: true });
+    const { t, workspaceId, done, google, started, rows } = await connectEverything();
+    expect(new URL(started.authorizeUrl).searchParams.get("client_id")).toBe(AGENT_ID);
     expect(done).toEqual({ workspaceId, ai: false });
+    // The code was exchanged with the client it was issued to.
+    expect(google.map((ask) => ask.clientId)).toEqual([AGENT_ID]);
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.standardClient).toBe("agent");
+    expect(row.agentGrant?.encryptedRefreshToken).toBe(row.encryptedRefreshToken);
+
+    // Nothing asks for AI access again.
+    const owner = row.boundBy as Id<"users">;
+    const asks = await withSession(t, owner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId });
+    expect(asks.map((ask) => ask.aiAccess)).toEqual(["granted"]);
+
+    // Both roles refresh with the agent client: the person's own (Meetings view) and AI's.
+    await t.run((ctx) => ctx.db.patch(row._id, { accessTokenExpiresAt: 0, agentGrant: { ...row.agentGrant!, accessTokenExpiresAt: 0 } }));
+    expect(await mint(t, row._id, "standard")).toMatchObject({ kind: "minted", accessToken: `access-for-${AGENT_ID}` });
+    expect(await mint(t, row._id, "agent")).toMatchObject({ kind: "minted", accessToken: `access-for-${AGENT_ID}` });
+    expect(google.filter((ask) => ask.grantType === "refresh_token").map((ask) => ask.clientId)).toEqual([AGENT_ID, AGENT_ID]);
+  });
+
+  test("asks the standard client, as before, while no agent client is set up", async () => {
+    configure({ active: false, agentClient: false });
+    const { workspaceId, done, google, started, rows } = await connectEverything();
+    expect(new URL(started.authorizeUrl).searchParams.get("client_id")).toBe(STANDARD_ID);
+    expect(done).toEqual({ workspaceId, ai: false });
+    expect(google.map((ask) => ask.clientId)).toEqual([STANDARD_ID]);
+    expect(rows[0]?.standardClient).toBeUndefined();
+    expect(rows[0]?.agentGrant).toBeUndefined();
   });
 });
 

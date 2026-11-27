@@ -100,6 +100,13 @@ export const googleTables = {
      * made before, which keeps the route it had.
      */
     consentPlan: v.optional(v.literal("split")),
+    /**
+     * `agent`: the grant in the fields above was issued to the AGENT client,
+     * because the connect asked for everything on one consent screen (Dev,
+     * 2026-11-27). It refreshes with that client, and `agentGrant` holds the
+     * same grant for AI. Absent: issued to the standard client.
+     */
+    standardClient: v.optional(v.literal("agent")),
     agentGrant: v.optional(
       v.object({
         encryptedRefreshToken: v.string(),
@@ -615,6 +622,8 @@ export const googleTables = {
     ),
     attachmentRetentionDays: v.optional(v.number()),
     attachmentRetentionForever: v.optional(v.boolean()),
+    /** `agent`: the consent was asked of the agent client, one screen for everything (2026-11-27). */
+    client: v.optional(v.literal("agent")),
     expiresAt: v.number(),
     createdAt: v.number(),
   })

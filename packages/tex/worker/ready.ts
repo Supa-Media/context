@@ -36,14 +36,14 @@ export const READY_GIVE_UP_MS = 20 * 60_000;
 
 export const READY_COPY = {
   // Gmail first, a personal one, which becomes their main email (Dev2, 2026-10-20).
-  // Google's unverified-app warning and its permissions page are said here too,
-  // with a picture of both after the link (the owner, 2026-10-23: "prepare them
+  // Google's permissions page is said here too, with a picture of it after the
+  // link (no unverified-app warning since Google verified the app, Dev 2026-11-27) (the owner, 2026-10-23: "prepare them
   // for the unsafe screen ... send them a picture ... make sure they also click
   // select all").
   ready:
     "You're good to go! Next, connect your personal Gmail, the one you check most. It becomes your main email on Context, and I'll get to know you from it. Open the link below and tap Connect Gmail.",
   guide:
-    "Google will warn that it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context (unsafe). On the next page tick Select all and tap Continue, so I can do everything for you. Here's what it looks like:",
+    "On Google's page, tick Select all and tap Continue, so I can do everything for you. Here's what it looks like:",
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
@@ -138,7 +138,7 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
   }
 }
 
-/** The picture of Google's two screens, served beside the app the link opens (`infra/router`, `/og/google-connect.png`). */
+/** The picture of Google's permissions page, served beside the app the link opens (`infra/router`, `/og/google-connect.png`). */
 export function guideUrl(link: string): string {
   return new URL("/og/google-connect.png", link).href;
 }

@@ -76,7 +76,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { standardScopesFor } from "./lib/googleConnect/aiScopes";
+import { agentScopesFor, standardScopesFor } from "./lib/googleConnect/aiScopes";
 // eslint-disable-next-line import/extensions
 import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
 import {
@@ -109,7 +109,7 @@ import * as backfill from "./lib/googleConnect/backfill";
 import * as syncTokens from "./lib/googleConnect/syncTokens";
 import * as validators from "./lib/googleConnect/validators";
 import { validateLoginHint } from "./lib/googleConnect/loginHint";
-import { googleClientRole } from "./lib/googleConnect/clients";
+import { googleClientFor, googleClientRole } from "./lib/googleConnect/clients";
 import { mintAccessToken } from "./lib/googleConnect/mintTokens";
 import { refreshTexting } from "./lib/textingRefresh";
 
@@ -274,7 +274,10 @@ export const startGoogleConnect = action({
     const attachmentMode = validateAttachmentMode(args.attachmentMode);
     const attachmentRetentionDays = validateAttachmentRetentionDays(args.attachmentRetentionDays);
 
-    const clientId = requireGoogleClientId();
+    // One consent screen for everything (Dev, 2026-11-27): once the agent client is set
+    // up, the connect asks it alone, for the person's own use and AI's together.
+    const agent = googleClientFor("agent");
+    const clientId = agent?.clientId ?? requireGoogleClientId();
     const { verifier, challenge } = await createPkcePair();
     const state = randomOpaqueToken(STATE_BYTES);
     const completionSecret = randomOpaqueToken(STATE_BYTES);
@@ -284,6 +287,7 @@ export const startGoogleConnect = action({
     });
 
     await ctx.runMutation(internal.functions.googleConnect.parkAttempt, {
+      ...(agent === null ? {} : { client: "agent" as const }),
       hashedState: await hashToken(state),
       hashedCompletion: await hashToken(completionSecret),
       encryptedVerifier,
@@ -305,7 +309,7 @@ export const startGoogleConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(products),
+        scopes: agent === null ? standardScopesFor(products) : agentScopesFor(products),
         loginHint: validateLoginHint(args.loginHint),
       }),
     };
@@ -426,6 +430,7 @@ export const consumeGoogleAttemptAndExchange = internalMutation({
     if (attempt.hashedCompletion !== args.hashedCompletion) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.googleConnect.exchangeAndBindGoogle, {
+      ...(attempt.client === "agent" ? { client: "agent" as const } : {}),
       workspaceId: attempt.workspaceId,
       boundBy: attempt.startedBy,
       encryptedVerifier: attempt.encryptedVerifier,
@@ -520,8 +525,11 @@ export const exchangeAndBindGoogle = internalAction({
   args: validators.exchangeAndBindGoogleArgs,
   returns: validators.exchangeAndBindGoogleReturns,
   handler: async (ctx, args): Promise<null> => {
-    const clientId = requireGoogleClientId();
-    const clientSecret = readGoogleClientSecret();
+    // A consent asked of the agent client is exchanged with it: a code is bound to its client.
+    const agent = args.client === "agent" ? googleClientFor("agent") : null;
+    if (args.client === "agent" && agent === null) return null;
+    const clientId = agent?.clientId ?? requireGoogleClientId();
+    const clientSecret = agent === null ? readGoogleClientSecret() : agent.clientSecret;
     const keyset = requireKeyset();
     const context = { workspaceId: args.workspaceId as string };
     const verifier = await decryptSecret(args.encryptedVerifier, keyset, context);
@@ -591,6 +599,19 @@ export const exchangeAndBindGoogle = internalAction({
         workspaceId: args.workspaceId,
         boundBy: args.boundBy,
         address: tokens.address,
+        googleAccountId: tokens.googleAccountId,
+        scopes: tokens.scopes,
+        encryptedRefreshToken,
+        encryptedAccessToken,
+        accessTokenExpiresAt: tokens.expiresAt,
+      });
+    }
+
+    if (agent !== null) {
+      // One grant, issued to the agent client: the row's own fields refresh with that client,
+      // and AI reads the same grant as its agent grant, so nothing asks for AI access again.
+      await ctx.runMutation(internal.functions.googleClients.adoptOneConsent, {
+        workspaceId: args.workspaceId,
         googleAccountId: tokens.googleAccountId,
         scopes: tokens.scopes,
         encryptedRefreshToken,

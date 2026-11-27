@@ -8,7 +8,7 @@ import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles } from "../../design/theme";
 import { useGoogleStart } from "../../console/google/useGoogleStart";
 import { GoogleMark } from "./GoogleMark";
-import { GMAIL_SERVICES, googleWarning, rememberGmailFirst, type GmailFirstMode } from "./gmailFirst";
+import { GMAIL_SERVICES, googleTip, rememberGmailFirst, type GmailFirstMode } from "./gmailFirst";
 import { makeGmailStyles } from "./gmailStyles";
 
 export const GMAIL_FIRST_TITLE = "Connect your personal Gmail";
@@ -100,7 +100,7 @@ export function GmailFirstScreen({
             />
           </View>
           <Text variant="foot" style={styles.foot}>
-            {googleWarning(width < 700)}
+            {googleTip(width < 700)}
           </Text>
           {google.state.kind === "failed" ? (
             <View style={styles.error}>

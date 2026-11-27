@@ -52,7 +52,8 @@ describe("the ready text", () => {
     expect(READY_COPY.ready).toContain("personal Gmail");
     expect(READY_COPY.ready).toContain("main email");
     expect(READY_COPY.ready).not.toContain("asks for an email");
-    expect(READY_COPY.guide).toContain("Advanced");
+    // Google verified the app, so no warning is said any more (Dev, 2026-11-27).
+    expect(READY_COPY.guide).not.toContain("Advanced");
     expect(READY_COPY.guide).toContain("Select all");
   });
 

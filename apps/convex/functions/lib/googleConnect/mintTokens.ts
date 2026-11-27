@@ -21,6 +21,7 @@ type ConnectionTokens = {
   accessTokenExpiresAt?: number;
   disconnectedAt?: number;
   consentPlan?: "split";
+  standardClient?: "agent";
   agentGrant?: { encryptedRefreshToken: string; encryptedAccessToken?: string; accessTokenExpiresAt?: number };
 };
 
@@ -53,7 +54,8 @@ export async function mintAccessToken(
     };
   }
 
-  const client = googleClientFor(grant);
+  // A row connected on one consent holds a grant issued to the agent client in its own fields too.
+  const client = googleClientFor(grant === "standard" && connection.standardClient === "agent" ? "agent" : grant);
   if (client === null) return { kind: "refused", why: "no_client" };
   const refreshToken = await decryptSecret(tokens.encryptedRefreshToken, keyset, context);
   let refreshed;

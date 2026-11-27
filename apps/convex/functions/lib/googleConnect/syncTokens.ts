@@ -23,6 +23,7 @@ export const getConnectionForSyncReturns = v.union(
     accessTokenExpiresAt: v.optional(v.number()),
     disconnectedAt: v.optional(v.number()),
     consentPlan: v.optional(v.literal("split")),
+    standardClient: v.optional(v.literal("agent")),
     agentGrant: v.optional(
       v.object({
         encryptedRefreshToken: v.string(),
@@ -46,6 +47,7 @@ export async function getConnectionForSyncHandler(
     accessTokenExpiresAt: connection.accessTokenExpiresAt,
     disconnectedAt: connection.disconnectedAt,
     ...(connection.consentPlan === "split" ? { consentPlan: "split" as const } : {}),
+    ...(connection.standardClient === "agent" ? { standardClient: "agent" as const } : {}),
     ...(connection.agentGrant
       ? {
           agentGrant: {
