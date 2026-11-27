@@ -113,5 +113,231 @@
   "label": "pass",
   "by": "Dev2",
   "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "canyon-satin-grain-lark",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "bramble-camp-prairie-maple",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "cocoa-nickel-candle-loom",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "cocoa-nickel-candle-loom",
+  "line": "ask Lena for the date or time",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "canyon-satin-grain-lark",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "anchor-marsh-acorn-seal",
+  "line": "every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "brick-air-nectar-zinc",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "poppy-fig-pine-petal",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "meadow-mist-zinc-elm",
+  "line": "add a heading, summary or section she didn't ask for",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "bramble-camp-prairie-maple",
+  "line": "pick 10 am",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "cocoa-nickel-candle-loom",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "canyon-satin-grain-lark",
+  "line": "ask Lena for Puttery's address or which email she means",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "pigeon-pepper-walnut-snow",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "anchor-marsh-acorn-seal",
+  "line": "ask Lena to forward it herself",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday",
+  "id": "focus-onyx-eagle-solar",
+  "line": "reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "grape-lily-plum-north",
+  "line": "say there is no record of it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "bolt-panda-chess-willow",
+  "line": "every claim it makes to have sent, saved, added or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "cello-bell-snow-gold",
+  "line": "list Eggshell as open on Sunday",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26",
+  "note": "passes, though naming Eggshell at all was not needed"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "dew-beach-north-cable",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "harp-drum-orchid-panda",
+  "line": "every claim it makes to have sent, saved, added or set something matches what its tools did; an answer that claims none keeps it",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "noble-belt-loom-bubble",
+  "line": "tell Lena to text Tex one-to-one or ask her which email address is hers",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "grape-lily-plum-north",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "grape-lily-plum-north",
+  "line": "say it covers ingredients and drinks together",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "cello-bell-snow-gold",
+  "line": "give a rough price for each place it names",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "ash-jewel-torch-honey",
+  "line": "finish the ask: name The Pantry (by Riverside Park, near her) here, or text Lena privately with it",
+  "label": "fail",
+  "by": "Dev2",
+  "labelled": "2026-11-26",
+  "note": "if Tex doesn't know where she lives it should ask her privately first; if it does, name the spots"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "harp-drum-orchid-panda",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "noble-belt-loom-bubble",
+  "line": "post Lena's booking reference or anything else from her email in the group beyond what the ask needs",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
+ },
+ {
+  "test": "everyday-groups",
+  "id": "fern-camp-house-satin",
+  "line": "reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first",
+  "label": "pass",
+  "by": "Dev2",
+  "labelled": "2026-11-26"
  }
 ]
