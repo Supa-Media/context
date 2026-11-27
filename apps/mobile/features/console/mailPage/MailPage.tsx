@@ -88,9 +88,15 @@ export function MailPage({
           Gathering mail…
         </Text>
       ) : state.status === "unavailable" ? (
-        <Text variant="treeMeta" style={styles.muted} testID="mail-unavailable">
-          Mail can't be gathered for this workspace yet. Each area's and bot's mail is still on its own page.
-        </Text>
+        state.retrying ? (
+          <Text variant="treeMeta" style={styles.muted} testID="mail-retrying">
+            Mail is taking longer than usual to load. Trying again…
+          </Text>
+        ) : (
+          <Text variant="treeMeta" style={styles.muted} testID="mail-unavailable">
+            Mail can't be gathered for this workspace yet. Each area's and bot's mail is still on its own page.
+          </Text>
+        )
       ) : shown.length === 0 ? (
         <Text variant="treeMeta" style={styles.muted} testID="mail-empty">
           {view === "all" ? "No mail yet." : view === "bots" ? "No mail with a bot yet." : view === "areas" ? "No area mail yet." : "No note has mail yet."}

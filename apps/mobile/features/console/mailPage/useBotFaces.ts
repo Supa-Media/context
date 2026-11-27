@@ -12,6 +12,7 @@ import type { Face } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
 import { avatarOf, botCardOf, isPersonName, type Conversation } from "./model";
 import { isClaudeApp } from "../faces/ClaudeFace";
+import { isContextSender } from "../faces/ContextFace";
 import { splitApp } from "@context/shared/src/mail.cjs";
 import type { MailNoteIO } from "./MailThread";
 
@@ -68,6 +69,8 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
     (name: string, app?: string | null): Face => {
       if (isPersonName(name)) return { kind: "person", name };
       const card = cards.get(cardSlug(name));
+      // Context's own mail (its setup checks) is drawn as Context, unless a bot's card is named that.
+      if (card === undefined && isContextSender(name, app)) return { kind: "context" };
       const signed = splitApp(app ?? null);
       if (card === undefined && isClaudeApp(signed.app)) return { kind: "claude", owner: signed.owner };
       const read = io.picture;
