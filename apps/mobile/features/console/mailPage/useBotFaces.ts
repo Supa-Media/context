@@ -6,7 +6,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { knownAvatar, readAvatar, readPicture, type FacePicture } from "../faces/botPictures";
+import { knownAvatar, readAvatar, readPicture, themedCardKey, type FacePicture } from "../faces/botPictures";
+import { useScheme } from "../../design/theme";
 import type { Face } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
 import { avatarOf, botCardOf, isPersonName, type Conversation } from "./model";
@@ -36,13 +37,15 @@ export type FaceOf = ((name: string, app?: string | null) => Face) & {
 export function useBotFaces(conversations: readonly Conversation[], io: MailNoteIO, workspaceId: string): FaceOf {
   const cards = useMemo(() => botCardsOf(conversations), [conversations]);
   const cardsKey = [...cards].map(([bot, card]) => `${bot}=${card}`).join("\n");
-  const cardKey = useCallback((card: string) => `${workspaceId}|${card}`, [workspaceId]);
+  // A card's dark-screen logo is drawn on a dark screen (Dev, 2026-11-27), so what a card names is kept per theme.
+  const scheme = useScheme();
+  const cardKey = useCallback((card: string) => themedCardKey(`${workspaceId}|${card}`, scheme), [workspaceId, scheme]);
   const readLeaf = useCallback(
     (card: string) => readAvatar(cardKey(card), async () => {
       const note = await io.read(card);
-      return note.encrypted === true ? "" : avatarOf(note.text);
+      return note.encrypted === true ? "" : avatarOf(note.text, scheme);
     }),
-    [cardKey, io],
+    [cardKey, io, scheme],
   );
   // Redrawn as each card answers; what this session already knows is drawn from the first frame, and every card is
   // read again each time the page opens, so a logo changed since is drawn (Dev, 2026-11-26: Agent Mail kept drawing a

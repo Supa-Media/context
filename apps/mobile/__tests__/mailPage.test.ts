@@ -58,6 +58,7 @@ import { MailPage } from "../features/console/mailPage/MailPage";
 import { forgetMail, mailNotesAnswer } from "../features/console/mailPage/useMailNotes";
 import { all, one, press, strip, windowOf } from "./projectPage/fixtures";
 import { rowFaces } from "../features/console/mailPage/MailPage";
+import { ThemeProvider } from "../features/design/theme";
 import { noteAvatar, resetBotPictures } from "../features/console/faces/botPictures";
 
 const ROWS: MailNoteRow[] = [
@@ -169,6 +170,11 @@ describe("the thread reads Slack style", () => {
     expect(avatarOf("---\nkind: agent\navatar: logo-3f2a.png\n---\n# Grok Bot\n")).toBe("logo-3f2a.png");
     expect(avatarOf("---\navatar: \"logo.png\"\n---\n")).toBe("logo.png");
     expect(avatarOf("# No front matter\navatar: not-this.png\n")).toBe("");
+    // A dark screen draws the card's dark-screen logo, and the light one where it names none (Dev, 2026-11-27).
+    const both = "---\navatar: black.webp\navatar-dark: white.webp\n---\n";
+    expect(avatarOf(both)).toBe("black.webp");
+    expect(avatarOf(both, "dark")).toBe("white.webp");
+    expect(avatarOf("---\navatar: one.webp\n---\n", "dark")).toBe("one.webp");
     const conversations = conversationsOf(ROWS, "areas", "@seyi");
     const grok = conversations.find((each) => each.path === "bots/grok-bot/mail/seyi.md")!;
     const finance = conversations.find((each) => each.path === "areas/finance/mail/seyi.md")!;
@@ -340,6 +346,41 @@ describe("the page", () => {
     for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     expect(cardReads).toHaveLength(2);
     expect(pictureReads).toHaveLength(1);
+  });
+
+  test("a bot whose card names a dark-screen logo is drawn with it in dark mode and with its own logo in light", async () => {
+    // Dev, 2026-11-27: Grok Bot's white logo vanished on a light screen ("is there a way we can get a light mode and
+    // dark mode image").
+    windowOf(1440);
+    const drawn = async (scheme: "light" | "dark") => {
+      resetBotPictures();
+      const pictureReads: string[] = [];
+      const io = {
+        read: async (path: string) => {
+          const text = path === "bots/grok-bot/about.md" ? "---\nholder: Grok Bot\nbot: grok\navatar: upload-000000000000000b.png\navatar-dark: upload-000000000000000d.png\n---\n" : mockNoteText[path] ?? "# Empty\n";
+          return { text, etag: "e", readOnly: false };
+        },
+        write: async () => ({}),
+        picture: async (_note: string, leaf: string) => (pictureReads.push(leaf), "data:image/png;base64,AAAA"),
+        pictureKey: (leaf: string) => `ws-test|${leaf}`,
+      };
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      roots.push(() => {
+        act(() => root.unmount());
+        container.remove();
+      });
+      const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
+      const fixture = { load: async () => ({ notes: ROWS, complete: true }), io };
+      await act(async () => {
+        root.render(createElement(ThemeProvider, { scheme, children: createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture }) }));
+      });
+      for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+      return pictureReads;
+    };
+    expect(await drawn("dark")).toEqual(["upload-000000000000000d.png"]);
+    expect(await drawn("light")).toEqual(["upload-000000000000000b.png"]);
   });
 
   test("a bot whose card names a new logo is drawn with it the next time the page opens", async () => {

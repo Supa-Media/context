@@ -146,6 +146,30 @@ test("a bot's logo line names a picture the workspace holds", async () => {
   assert.notEqual(await store.get(`.context/assets/images/${avatar}`), null);
 });
 
+// A 1×1 white PNG, a different picture from PNG.
+const WHITE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
+
+// Dev, 2026-11-27: Grok Bot's white logo vanished on a light screen; a black one would on dark.
+test("a bot's dark-screen logo is stored and named on its card's avatar-dark line, beside its avatar", async () => {
+  const { store, props, text } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG }, avatar_dark: { data: WHITE_PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.match(said(result), /with its logo/);
+  const card = await props("bots/finance/about.md");
+  const light = String(card.avatar);
+  const dark = String(card["avatar-dark"]);
+  assert.match(dark, /^upload-[0-9a-f]{16}\.(png|webp|jpe?g)$/);
+  assert.notEqual(dark, light);
+  assert.notEqual(await store.get(`.context/assets/images/${dark}`), null);
+  assert.doesNotMatch(await text("bots/finance/about.md"), /!\[/);
+  // Set alone later, the dark one leaves the light one as it was.
+  await run(store, { area: "areas/finance", bot: { name: "Finance", avatar_dark: { data: PNG } } });
+  const after = await props("bots/finance/about.md");
+  assert.equal(String(after.avatar), light);
+  assert.equal(String(after["avatar-dark"]), light);
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar_dark: {} } })).isError, true);
+});
+
 // Tex Quality, 2026-11-26: its card says "Tex Quality · Tex reply quality" in bots/tex-quality/.
 const TQ_CARD = "---\nholder: Tex Quality · Tex reply quality\nkind: agent\nbot: claude\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n";
 
