@@ -457,6 +457,14 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // answer and what was said since, so the model decides (Dev2, 2026-11-26: a repeat after the chat had answered it
       // was dropped in code and Tex said nothing). A redelivered webhook is still answered once (`gseen`).
       entries = ownTurn(choice.answer);
+      // Somebody else's untagged line the answer covered is context the asker's turn reads (`ownTurn` `contextUntil`),
+      // never a turn of its own: left queued, it was judged again alone and ran beside the answer, a second text and a
+      // second job for one ask (launch-day rehearsal, 2026-11-27; Dev2 picked keeping it as chat context). It is
+      // already one of the chat's lines (`acceptGroup`). A line that tags, names or replies to Tex (`callsTex`) keeps its own turn, and so does anything
+      // sent before the asker's first line, as before.
+      const own = new Set(entries.map(([key]) => key));
+      const asked = choice.answer.findIndex(([key]) => own.has(key));
+      for (const [key, item] of asked < 0 ? [] : choice.answer.slice(asked + 1)) if (!own.has(key) && item.soft === true && item.force !== true && !callsTex(item.message.text || item.message.heard || "", item.message.replyTo !== undefined)) await storage.delete(key);
       // The go only for exactly the messages it started on; quiet, or any other set, stops it and the drain goes on as before.
       if (early !== null) {
         const go = entries.length > 0 && sameMessages(early.keys, entries.map(([key]) => key));

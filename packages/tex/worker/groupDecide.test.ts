@@ -26,6 +26,7 @@
  *  7. `chooseStyle` not re-queueing the held message → same test fails.
  *  8. the newcomer hold not logging `held_newcomer` → "an answer held for a
  *     newcomer…" fails.
+ * 14. the delete after `ownTurn` in `groupInbox.ts` dropped → "somebody else's untagged aside…" fails.
  *  9. `ask` in `groupTurn.ts` cutting the transcript by `people` again → "decide is
  *     shown the chat's whole log…" fails.
  * 10. `isAsker` true for anyone → "a guest's yes never releases…" fails.
@@ -314,6 +315,25 @@ for (const { name, groupId } of LINES) {
       // Every judging comes before a turn, never beside one.
       expect(w.decided.every((body) => !body.running)).toBe(true);
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
+    });
+
+    // Launch-day rehearsal, 2026-11-27: "Tex find us a cabin" then, from someone else, "not the 17th!!". The answer covered
+    // both, the turn took Ada's and read Bo's as context, but Bo's stayed queued, was judged again alone and ran a second
+    // turn beside the first: two texts, two jobs. Dev2 picked keeping such an aside as chat context. Sabotage: drop the
+    // delete after `ownTurn` in `groupInbox.ts` and this fails.
+    it("somebody else's untagged aside an answer covered is the turn's context, never a turn of its own", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex hi"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("Tex find us a cabin in the poconos"), 10);
+      await acceptGroup(storage, w.message("not the 17th weekend!!", { from: BO }), 11);
+      await drainGroup(storage, w.deps);
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex find us a cabin in the poconos"]);
+      expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "not the 17th weekend!!" }]);
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA]);
+      expect(await storage.list({ prefix: "gpending:" })).toHaveLength(0);
     });
 
     it("somebody the control plane does not know never gets anything run, even inside a decided burst", async () => {
