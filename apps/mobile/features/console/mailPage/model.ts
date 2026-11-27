@@ -14,6 +14,7 @@
 
 import { withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import { botsFolderOfBot, cardSlug } from "../files/folderPage/areas/seat";
+import { helperWords } from "../faces/helperName";
 
 export interface MailLast {
   readonly at: string;
@@ -62,6 +63,9 @@ export const MAIL_VIEWS: readonly { readonly id: MailView; readonly label: strin
 /** `grok-bot` → `Grok Bot`; `@seyi` stays `@seyi`. */
 export function nameOf(slug: string): string {
   if (slug.startsWith("@")) return slug;
+  // A bot's helper is "Claude via Grok Bot", never a bare "Claude" (`faces/helperName.ts`).
+  const helper = helperWords(slug);
+  if (helper !== null) return helper;
   return slug
     .split(/[-_]+/)
     .filter((part) => part !== "")

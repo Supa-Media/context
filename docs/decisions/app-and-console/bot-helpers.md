@@ -50,6 +50,14 @@ Claude by way of grok".
   Code or any agent only as a helper, because a bot's app treats an order in a
   tool's answer as a prompt injection.
 
+- **The app shows them where the bot is.** The bot's panel has a Helpers
+  section under its health: each live helper with its task, status, time and
+  last progress line, the ended ones folded into one line. The Bots page row
+  says "2 helpers working". Agent Mail and the panel's Mail tab name its lines
+  "Claude via Grok Bot" with Claude's mark and the bot's face at its corner.
+  A helper whose time ran out without ending reads stopped from its `ends:`.
+  All of it is read from the helper's note; there is no store of its own.
+
 **What a simplification would cost.** Letting the helper use the bot's own
 connection makes it the bot: its work signs as the bot and nobody can tell the
 bot from its helper. Handing the token back in the tool's answer puts a live
@@ -59,4 +67,6 @@ its app alone ("Claude") is the black box this replaces.
 **Tests.** `apps/mcp/test/botHelpers.test.mjs` (signing, refusals, the claim
 route, the session field, the setup prompt) and
 `apps/convex/__tests__/botHelpers.test.ts` (start, one-time claim, revocation
-with the parent, who may end it, expiry).
+with the parent, who may end it, expiry), and
+`apps/mobile/__tests__/botHelpersView.test.ts` (the panel, the Bots row, the
+name read back from a mail name).

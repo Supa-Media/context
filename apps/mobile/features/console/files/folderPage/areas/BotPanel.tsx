@@ -27,6 +27,9 @@ import { firstMailNote, type Thread } from "./areaMail";
 import { botMailNote, mailOfBot, routinesOfBot, type Bot, type Conversation } from "./bots";
 import { BotSetup } from "./BotSetup";
 import { HealthWord, useBotHealth } from "./botHealth";
+import { BotHelpers } from "./BotHelpers";
+import { helpersOf } from "./botHelpers";
+import { helperOfBot, helperParts, helperWords } from "../../../faces/helperName";
 import { noteStarted, refreshBot, refreshedThisSession, refreshesVersion, startedMail, subscribeRefreshes } from "./refreshBot";
 
 export interface BotPanelProps {
@@ -70,6 +73,10 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
   // Its health, from its webhook's last call or its last check-in, and its routines' answers (`botHealth.tsx`).
   const health = useBotHealth(bot.name, bot.card.reach);
   const routines = routinesOfBot(bot, root, notes);
+  // Its helpers: the sessions it started for deep work, each named "<helper> via <bot>" (`botHelpers.ts`).
+  const helpers = helpersOf(bot, notes);
+  // A mail name that is one of this bot's helpers, named as it is shown ("Claude via Grok Bot"), else null.
+  const helperName = (name: string | null | undefined) => (helperOfBot(helperParts(name), bot.slug) ? helperWords(name, bot.name) : null);
   const mine = me === undefined ? null : botMailNote(bot, me);
   const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine || startedMail(mine));
   const canWrite = canEdit && create !== undefined && me !== undefined && mine !== null;
@@ -158,6 +165,9 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
         </View>
       )}
 
+      {/* What it has working for it now, under how it is doing; absent for a bot that has never had a helper. */}
+      <BotHelpers helpers={helpers} botFace={faceOf(bot.name)} now={Date.now()} open={open} />
+
       <View style={styles.lockRow}>
         <Text variant="treeMeta" style={styles.lock} testID="bot-panel-whose">
           {bot.mine ? "Yours: only you change its setup, where it works and its caps." : `Only ${bot.whose || "its person"} changes its setup, where it works and its caps.`}
@@ -203,7 +213,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
                   {last ? agoLabel(last.at) : ""}
                 </Text>
                 <View style={styles.lineText}>
-                  <Text variant="tree" numberOfLines={1}>{`${last?.from === bot.slug || last?.from === bot.name.toLowerCase().replace(/\s+/g, "-") ? "Wrote" : "Got mail"} in ${each.placeTitle}`}</Text>
+                  <Text variant="tree" numberOfLines={1}>{`${last?.from === bot.slug || last?.from === bot.name.toLowerCase().replace(/\s+/g, "-") ? "Wrote" : helperName(last?.from) !== null ? `${helperName(last?.from)} wrote` : "Got mail"} in ${each.placeTitle}`}</Text>
                   <Text variant="treeMeta" style={styles.muted} numberOfLines={2}>
                     {last?.text ?? ""}
                   </Text>
@@ -258,13 +268,14 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
           ) : (
             mail.map((each) => {
               const last = threads.get(each.path)?.last;
+              const helper = each.mine ? null : helperName(each.sender);
               return (
                 <Pressable key={each.path} onPress={() => openMail(each.path)} style={styles.line} testID={`bot-panel-mail-${each.path}`}>
-                  <OwnerFace face={each.mine ? { kind: "person", name: "You" } : faceOf(each.sender)} size={18} />
+                  <OwnerFace face={each.mine ? { kind: "person", name: "You" } : helper !== null ? { kind: "helper", helper: helper.split(" ")[0]!, via: faceOf(bot.name) } : faceOf(each.sender)} size={18} />
                   <View style={styles.lineText}>
-                    <Text variant="tree" numberOfLines={1}>{`${each.mine ? "You" : each.sender} ↔ ${each.with === null ? "nobody" : label(each.with)}`}</Text>
+                    <Text variant="tree" numberOfLines={1}>{`${each.mine ? "You" : (helper ?? each.sender)} ↔ ${each.with === null ? "nobody" : label(each.with)}`}</Text>
                     <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
-                      {last ? `${last.from}: ${last.text}` : each.placeTitle}
+                      {last ? `${helperName(last.from) ?? last.from}: ${last.text}` : each.placeTitle}
                     </Text>
                   </View>
                 </Pressable>
