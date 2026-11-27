@@ -236,7 +236,7 @@ export async function converse(world, question, person, mode = null, background 
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
-    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, shares: question.shares ?? [], ...(byCode?.options ?? {}) });
+    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, shares: question.shares ?? [], ...(question.screen !== undefined ? { screen: question.screen } : {}), ...(byCode?.options ?? {}) });
     // A group's check-in looks at the fixtures' mail and calendar only, as a one-to-one check-in does (`world.checkIn`).
     const turn = byCode?.options?.cause === "check_in" ? await world.closedForNew(text) : await text();
     totals.ms += turn.ms;
