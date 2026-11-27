@@ -16,7 +16,7 @@
 export const MAX_LISTED_WORKSPACES = 20;
 
 function describe(entry) {
-  const what = entry.kind === "personal" ? (entry.role === "owner" ? "their personal workspace" : "someone's personal workspace") : "shared";
+  const what = entry.kind === "personal" ? (entry.role === "owner" ? "their personal workspace" : entry.askerOwn === true ? "asker's own personal" : "someone's personal workspace") : "shared";
   const reach = entry.canWrite ? "" : ", read only";
   return `${entry.name} (${what}${reach}${entry.current ? ", the default" : ""})`;
 }

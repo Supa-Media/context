@@ -166,6 +166,7 @@ export const resolveGrantByAccessTokenReturns = v.union(
         chatHome: v.optional(v.string()),
         // A home-only group chat's grant (`lib/textGroupHomeOnly.ts`): the one row it reads, the chat's home in the pin.
         homeOnly: v.optional(v.literal(true)),
+        askerOwn: v.optional(v.literal(true)),
       }),
     ),
   }),

@@ -188,6 +188,7 @@ export const nodeAccessTables = {
         setupOnly: v.optional(v.literal(true)),
         chatHome: v.optional(v.string()),
         homeOnly: v.optional(v.literal(true)),
+        askerOwn: v.optional(v.literal(true)),
       }),
     ),
   })

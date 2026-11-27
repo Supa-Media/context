@@ -21,9 +21,23 @@ show it" said by the third person about one of the other two.
 - **A turn nobody asked for reads the chat's reach**, as before: a routine, a check-in, the hello. These speak to the
   whole room unprompted, so they see no more than the least-privileged person here could. `textGroups.reach`, which
   the chat's single-workspace readers use (mail shares, check-ins, routines, `chatWorkspace`), stays the chat's reach.
-- **Never anyone's 1:1 memory.** A personal workspace (a person's mail, calendar, vault, About me and their 1:1 with
-  Tex) is never in reach, the asker's own included, nor is the pinned workspace except as the chat's home row. Tier
-  stays `team` with no granted names and never `context:private`.
+- **Never anyone else's personal workspace.** Somebody else's personal workspace is never in reach, nor is the pinned
+  workspace except as the chat's home row. Tier stays `team` with no granted names and the grant never holds
+  `context:private`.
+- **The asker's own personal notes are in reach on their own ask** (Dev2, 2026-11-26, replacing "the asker's own
+  included" of 2026-11-25: "doesn't make sense for tex being able to read shared workspaces and not personal notes.
+  lets open the floodgates there right now. We will scale back if its an extreme concern"). The case: Sayo asked Tex in
+  a group for the core points of a note in his own personal workspace, and Tex told him to text it on his own. Now a
+  turn an account holder asked for also reads the personal workspace they own (`apps/convex/functions/lib/textGroupReach.ts`
+  `askerOwnPersonal`), on their own grant only (`reachFor: "asker"`), and only while the one person reading still owns
+  it (`liveReach`, `askerOwn`). The row is held as `member`, so the group grant never writes there and never passes for
+  its owner (`role: "owner"` is what opens the texts backup, computers and owner clearance), and it is marked
+  `askerOwn`, which the gateway honours for the group client on a personal row alone by reading that one row at the
+  private tier (`apps/mcp/src/sessionPayload.js`, `apps/mcp/src/session.js` `sessionForContext`). It is not the
+  room's: it is left out of the turn's `reach` (no single-workspace reader runs there) and of `unshared` (the Room check
+  never holds the asker's own notes back from the room they asked in), and the turn is told it as a fact
+  (`groupMail.js` `ownNotesLine`). A routine, a check-in, the hello, a guest's ask and anyone else's tag read none of
+  it. Their mail and vault stay out as before. What is said from it in front of the room is Training's.
 - **The asker's own calendar is the one exception** (Dev2, 2026-11-26). "Tex what was my meeting today about" in a
   group went through the asker's own 1:1 Tex and back, two texts and a minute, because a group turn read no one's
   calendar. Now a turn an account holder asked for also reads every Google calendar they connected, live, on their own
@@ -76,7 +90,11 @@ never feigned ignorance. A code floor comes only if Training keeps oversharing.
   workspaces.
 - Taking the asker from the words, or from anything but the sender's number: anyone in the chat borrows anyone's
   access by naming them.
-- Letting a personal workspace count: a group turn reads someone's 1:1 memory and mail.
+- Letting anyone else's personal workspace count, or the asker's on any grant but their own ask's: a group turn reads
+  someone's 1:1 memory (`textGroupAskerReach.test.ts` "a stored reach keeps a personal workspace only for the asker's
+  own grant").
+- Holding the asker's own personal workspace as its owner: the group grant writes there and passes for the person
+  themselves (`textGroupAskerReach.test.ts` "an ask reads the asker's own personal workspace", `chatReach.test.mjs`).
 - Reading the asker's calendar on any grant but their own ask's: a routine, a check-in or someone else's tag reads it
   (`textGroupCalendar.test.ts` "a turn nobody asked for reads none of the asker's own", "someone else's tag never reads
   it").

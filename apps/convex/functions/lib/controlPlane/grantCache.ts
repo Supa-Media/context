@@ -43,6 +43,7 @@ type WorkspaceRow = {
   setupOnly?: true;
   chatHome?: string;
   homeOnly?: true;
+  askerOwn?: true;
 };
 
 export type GrantRemember = {
@@ -77,6 +78,7 @@ const workspaceValidator = v.object({
   setupOnly: v.optional(v.literal(true)),
   chatHome: v.optional(v.string()),
   homeOnly: v.optional(v.literal(true)),
+  askerOwn: v.optional(v.literal(true)),
 });
 
 export const rememberGrantResolveArgs = {

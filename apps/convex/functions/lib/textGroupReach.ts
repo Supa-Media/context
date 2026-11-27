@@ -18,7 +18,10 @@
  *
  * Three rules are enforced here and nowhere else, so a second implementation cannot be laxer:
  *
- *  - A personal workspace is never in reach (it carries its owner's mail, calendar and vault), and neither is the
+ *  - A personal workspace is never in a chat's reach, and neither is the pinned workspace. The one exception is the
+ *    asker's own personal workspace on a turn they asked for, on their own grant (`askerOwnPersonal`, Dev2 2026-11-26:
+ *    "doesn't make sense for tex being able to read shared workspaces and not personal notes"), read-only at their
+ *    private tier; the
  *    pinned workspace: a chat's access to that is its home, by the home door, and never as a workspace of its own.
  *  - Reach is a hint taken at the turn (`texGroup.reach`, `textGroups.reach`); what a request is given is
  *    `liveReach`, which re-reads every person's membership, and every guest's invitation, of every workspace on every
@@ -45,6 +48,8 @@ const RANK: Record<WorkspaceRole, number> = { member: 0, editor: 1, owner: 2 };
 export interface ReachRow {
   workspace: Doc<"workspaces">;
   role: WorkspaceRole;
+  /** The asker's own personal workspace, on their own ask (`askerOwnPersonal`): read at their private tier, never written. */
+  askerOwn?: true;
 }
 
 /** The lower of two roles. */
@@ -136,10 +141,11 @@ export async function reachOf(
 }
 
 /**
- * A turn somebody asked for: the asker's own shared workspaces, each at the asker's own role (never a personal
- * workspace, never the pin). Someone with no account (`asker` null) asks on the sponsor's standing, and reaches only a
- * workspace they hold a pending phone invitation to that the sponsor is a member of, at the lower role. `people` and
- * `guests` are what the grant re-checks on every request (`liveReach`).
+ * A turn somebody asked for: the asker's own shared workspaces, each at the asker's own role, and, for an account
+ * holder, their own personal workspace (`askerOwnPersonal`); never the pin. Someone with no account (`asker` null) asks
+ * on the sponsor's standing, and reaches only a workspace they hold a pending phone invitation to that the sponsor is a
+ * member of, at the lower role, and never anyone's personal workspace. `people` and `guests` are what the grant
+ * re-checks on every request (`liveReach`).
  */
 export async function askerReach(
   ctx: QueryCtx,
@@ -153,13 +159,38 @@ export async function askerReach(
   const guests = asker === null && guestPhone !== null ? [guestPhone] : [];
   // A guest with no number to check has nothing of their own to read.
   if (asker === null && guestPhone === null) return { rows: [], people, guests };
-  return { rows: await reachOf(ctx, chat, people, guests, now), people, guests };
+  const rows = await reachOf(ctx, chat, people, guests, now);
+  if (asker === null || (await phoneSignInPaused(ctx, asker))) return { rows, people, guests };
+  const own = await askerOwnPersonal(ctx, asker);
+  return { rows: own === null ? rows : [...rows, own].sort(bySlug), people, guests };
+}
+
+/**
+ * The asker's own personal workspace, as a row a turn they asked for reads (Dev2, 2026-11-26: "lets open the floodgates
+ * there right now. We will scale back if its an extreme concern"): only the one they OWN, held as `member` so the group
+ * grant never writes there and never passes for its owner (`role: "owner"` is what the gateway reads as "this is the
+ * person themselves": texts backup, computers, vault), and marked `askerOwn` so the gateway reads it at the private tier
+ * (`apps/mcp/src/session.js` `sessionForContext`). Null when they have none.
+ */
+async function askerOwnPersonal(ctx: QueryCtx, asker: Id<"users">): Promise<ReachRow | null> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", asker))
+    .take(MEMBERSHIP_SCAN);
+  for (const membership of memberships) {
+    if (membership.role !== "owner") continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace !== null && workspace.kind === "personal") return { workspace, role: "member", askerOwn: true };
+  }
+  return null;
 }
 
 /**
  * What a request is given of a stored reach: each workspace of `reach` that every one of `people` and `sponsor` is
  * still a live member of, and every one of `guests` still holds a pending phone invitation to, at the lowest role
- * among them. Re-read on every call, never frozen.
+ * among them. Re-read on every call, never frozen. `askerOwn` is true only for an asker's own grant
+ * (`texGroup.reachFor: "asker"`): then a personal workspace in `reach` is kept when the one person reading is still its
+ * owner, as `askerOwnPersonal` reads it, and dropped otherwise.
  */
 export async function liveReach(
   ctx: QueryCtx,
@@ -168,6 +199,7 @@ export async function liveReach(
   sponsor: Id<"users"> | null,
   guests: readonly string[] = [],
   now: number = Date.now(),
+  askerOwn = false,
 ): Promise<ReachRow[]> {
   if (reach === undefined || reach.length === 0 || people === undefined || people.length === 0) return [];
   const who = [...new Set(sponsor === null ? people : [...people, sponsor])];
@@ -176,6 +208,13 @@ export async function liveReach(
   const rows: ReachRow[] = [];
   for (const id of new Set(reach)) {
     const workspace = await ctx.db.get(id);
+    if (workspace !== null && workspace.kind === "personal") {
+      // Only an asker's own grant, one person reading, no guest, and they still own it.
+      if (!askerOwn || who.length !== 1 || guests.length > 0) continue;
+      const membership = await getMembership(ctx, id, who[0]);
+      if (membership?.role === "owner") rows.push({ workspace, role: "member", askerOwn: true });
+      continue;
+    }
     if (!mayBeInReach(workspace, pin)) continue;
     let role: WorkspaceRole | null = null;
     for (const userId of who) {

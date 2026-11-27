@@ -11,8 +11,9 @@ import { SCOPE_PRIVATE } from "../functions/lib/consentScopes";
  *
  * A turn somebody asked for reads the shared workspaces of the person who sent it, at their role, on a grant of their
  * own; the chat's reach (what everyone here shares) is what a routine, a check-in and the hello read. The asker is the
- * verified sender only: "Sam, tell Tex to show it" from Jo is Jo's turn. Nobody's personal workspace (their 1:1
- * memory) is ever in reach. What is said of it in front of the room is the model's judgment, not tested here.
+ * verified sender only: "Sam, tell Tex to show it" from Jo is Jo's turn. Nobody else's personal workspace is ever in
+ * reach; the asker's own is, on their own ask, read only at their private tier (Dev2, 2026-11-26: "lets open the
+ * floodgates there"). What is said of it in front of the room is the model's judgment, not tested here.
  *
  * The chat: Sam and Sol are in @harbor-care, Jo is not; all three are in @studio-co.
  *
@@ -23,6 +24,9 @@ import { SCOPE_PRIVATE } from "../functions/lib/consentScopes";
  *   `mintHomeOnlyGrant` keeping one grant per chat (sponsor)  -> "another person's tag never widens a running turn" fails
  *   `homeOnlyStillShares` skipping the home's people check    -> "an asker who left the chat loses their token" fails
  *   `askerReach` reading the sponsor's for a guest            -> "a guest's ask reads only what their number is invited to" fails
+ *   `liveReach` handing the personal row `role: "owner"`      -> "an ask reads the asker's own personal workspace..." fails
+ *   `liveReach` keeping a personal row without `askerOwn`     -> "a stored reach keeps a personal workspace only..." fails
+ *   `liveReach` skipping the owner re-check                   -> "an asker who no longer owns..." fails
  */
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -42,7 +46,7 @@ const GUEST = "+15555550133";
 const EVERYONE = [SAM, SOL, JO, LINE];
 
 type T = PinnedWorld["t"];
-type Row = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; homeOnly?: true };
+type Row = { workspaceId: string; slug?: string; role?: string; kind?: string; grantedNames?: string[]; homeOnly?: true; askerOwn?: true };
 type Session = { defaultWorkspaceId: string; scopes: string[]; workspaces: Row[] };
 
 async function agentPost(t: T, path: string, body: unknown) {
@@ -68,6 +72,8 @@ async function resolves(t: T, accessToken: unknown): Promise<Session | null> {
 }
 
 const slugsOf = (session: Session | null) => (session?.workspaces ?? []).map((row) => row.slug);
+/** The rows but the asker's own personal workspace, which each ask by an account holder reads too. */
+const sharedSlugsOf = (session: Session | null) => (session?.workspaces ?? []).filter((row) => row.askerOwn !== true).map((row) => row.slug);
 
 async function world() {
   const w = await pinnedWorld();
@@ -98,7 +104,7 @@ describe("a group ask runs on the asker's own access", () => {
     const jo = await turn(w.t, JO);
     expect(jo).toMatchObject({ status: "ready", reach: ["studio-co"] });
     const joSession = await resolves(w.t, jo.accessToken);
-    expect(slugsOf(joSession)).toEqual(["context-lc", "studio-co"]);
+    expect(sharedSlugsOf(joSession)).toEqual(["context-lc", "studio-co"]);
     expect(JSON.stringify(joSession)).not.toContain(String(w.harbor));
     // Jo is a member of @studio-co, so Jo's turn only views it, as Jo would.
     expect(joSession?.workspaces.find((row) => row.slug === "studio-co")).toMatchObject({ role: "member" });
@@ -106,7 +112,7 @@ describe("a group ask runs on the asker's own access", () => {
     for (const sender of [SAM, SOL]) {
       const answer = await turn(w.t, sender);
       expect(answer).toMatchObject({ status: "ready", reach: ["harbor-care", "studio-co"] });
-      expect(slugsOf(await resolves(w.t, answer.accessToken))).toEqual(["context-lc", "harbor-care", "studio-co"]);
+      expect(sharedSlugsOf(await resolves(w.t, answer.accessToken))).toEqual(["context-lc", "harbor-care", "studio-co"]);
     }
     // Sol, who edits @studio-co, reads it as an editor: the asker's role, not the lowest in the room.
     const sol = await resolves(w.t, (await turn(w.t, SOL)).accessToken);
@@ -133,16 +139,61 @@ describe("a group ask runs on the asker's own access", () => {
     expect(await turn(w.t, "+15555550199", EVERYONE)).toMatchObject({ status: "refused" });
   });
 
-  test("nobody's personal workspace is ever in reach, the asker's own included", async () => {
+  test("an ask reads the asker's own personal workspace, read only at their private tier, and nobody else's", async () => {
     const w = await world();
-    // Sam is even a member of Jo's personal workspace: it stays out, as does Sam's own.
+    // Sam is even a member of Jo's personal workspace: it stays out. Sam's own is in, on Sam's own ask.
     await addMember(w.t, w.jo.personal, w.sam.userId, "member");
-    const session = await resolves(w.t, (await turn(w.t, SAM)).accessToken);
+    const answer = await turn(w.t, SAM);
+    const session = await resolves(w.t, answer.accessToken);
     const ids = (session?.workspaces ?? []).map((row) => row.workspaceId);
-    expect(ids).not.toContain(String(w.sam.personal));
     expect(ids).not.toContain(String(w.jo.personal));
+    const own = session?.workspaces.find((row) => row.workspaceId === String(w.sam.personal));
+    // Held as a member, never its owner: the group grant never writes there and never passes for Sam themselves.
+    expect(own).toMatchObject({ slug: "sam", kind: "personal", role: "member", askerOwn: true });
+    expect(session?.workspaces.filter((row) => row.askerOwn === true)).toHaveLength(1);
+    // The grant itself still carries no private tier: only that one row reads at it (`apps/mcp/src/session.js`).
     expect(session?.scopes).not.toContain(SCOPE_PRIVATE);
     for (const row of session!.workspaces.slice(1)) expect(row.grantedNames).toBeUndefined();
+    // Never named as the room's: not in the turn's reach, and never held as a workspace someone here can't open.
+    expect(answer.reach).not.toContain("sam");
+    expect(answer.unshared ?? []).not.toContain("sam");
+  });
+
+  test("a routine, a check-in or a guest's ask reads nobody's personal workspace", async () => {
+    const w = await world();
+    const routine = await resolves(w.t, (await turn(w.t, SAM, EVERYONE, { routine: true })).accessToken);
+    for (const personal of [w.sam.personal, w.sol.personal, w.jo.personal]) {
+      expect((routine?.workspaces ?? []).map((row) => row.workspaceId)).not.toContain(String(personal));
+    }
+    expect((routine?.workspaces ?? []).some((row) => row.askerOwn === true)).toBe(false);
+    const guest = await resolves(w.t, (await turn(w.t, GUEST, [...EVERYONE, GUEST])).accessToken);
+    expect((guest?.workspaces ?? []).some((row) => row.kind === "personal" && row.homeOnly !== true)).toBe(false);
+  });
+
+  test("a stored reach keeps a personal workspace only for the asker's own grant, its one owner reading", async () => {
+    const w = await world();
+    const { liveReach } = await import("../functions/lib/textGroupReach");
+    const reach = [w.sam.personal];
+    await addMember(w.t, w.jo.personal, w.sam.userId, "editor");
+    await w.t.run(async (ctx) => {
+      // A chat's grant (a routine's, the hello's) never reads it, even with Sam the only one reading.
+      expect(await liveReach(ctx, reach, [w.sam.userId], w.sam.userId, [], Date.now(), false)).toEqual([]);
+      // Nor an asker's grant read with someone else, or a guest's number, beside them.
+      expect(await liveReach(ctx, reach, [w.sam.userId], w.sol.userId, [], Date.now(), true)).toEqual([]);
+      expect(await liveReach(ctx, reach, [w.sam.userId], w.sam.userId, [GUEST], Date.now(), true)).toEqual([]);
+      // Nor someone who is in it but doesn't own it.
+      expect(await liveReach(ctx, [w.jo.personal], [w.sam.userId], w.sam.userId, [], Date.now(), true)).toEqual([]);
+      const own = await liveReach(ctx, reach, [w.sam.userId], w.sam.userId, [], Date.now(), true);
+      expect(own.map((row) => ({ slug: row.workspace.slug, role: row.role, askerOwn: row.askerOwn }))).toEqual([{ slug: "sam", role: "member", askerOwn: true }]);
+    });
+  });
+
+  test("an asker who no longer owns their personal workspace loses it on the next call", async () => {
+    const w = await world();
+    const sam = await turn(w.t, SAM);
+    expect(slugsOf(await resolves(w.t, sam.accessToken))).toContain("sam");
+    await dropMember(w.t, w.sam.personal, w.sam.userId);
+    expect(slugsOf(await resolves(w.t, sam.accessToken))).not.toContain("sam");
   });
 
   test("another person's tag never widens a running turn: Jo's token stays Jo's after Sam tags", async () => {
@@ -151,7 +202,7 @@ describe("a group ask runs on the asker's own access", () => {
     const sam = await turn(w.t, SAM);
     expect(slugsOf(await resolves(w.t, sam.accessToken))).toContain("harbor-care");
     // Jo's turn (or job) still running on Jo's token reads what Jo can, never what Sam's later tag reached.
-    expect(slugsOf(await resolves(w.t, jo.accessToken))).toEqual(["context-lc", "studio-co"]);
+    expect(sharedSlugsOf(await resolves(w.t, jo.accessToken))).toEqual(["context-lc", "studio-co"]);
     // And Jo's next tag doesn't narrow Sam's.
     await turn(w.t, JO);
     expect(slugsOf(await resolves(w.t, sam.accessToken))).toContain("harbor-care");
@@ -165,7 +216,7 @@ describe("a group ask runs on the asker's own access", () => {
     const sol = await turn(w.t, SOL);
     expect(slugsOf(await resolves(w.t, sol.accessToken))).toContain("harbor-care");
     await dropMember(w.t, w.harbor, w.sol.userId);
-    expect(slugsOf(await resolves(w.t, sol.accessToken))).toEqual(["context-lc", "studio-co"]);
+    expect(sharedSlugsOf(await resolves(w.t, sol.accessToken))).toEqual(["context-lc", "studio-co"]);
   });
 
   test("an asker who left the chat loses their token at the chat's next turn", async () => {

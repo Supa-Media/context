@@ -79,7 +79,11 @@ export function normalizeSession(raw) {
       throw fail();
     }
     const aliases = [...new Set((entry.aliases ?? []).map((name) => name.toLowerCase()))].filter((name) => name !== slug);
-    return { workspaceId: entry.workspaceId, slug, ...(aliases.length > 0 ? { aliases } : {}), role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(homeOnly ? { homeOnly: true } : {}), ...(chatHome ? { chatHome } : {}) };
+    // A group asker's own personal workspace, on their own ask (`apps/convex/functions/lib/textGroupReach.ts`
+    // `askerOwnPersonal`): read at the private tier (`session.js` `sessionForContext`). Honoured for the group client
+    // alone, on a personal row never held as its owner, so it never reads as the person themselves.
+    const askerOwn = entry.askerOwn === true && clientId === TEXTS_GROUP_CLIENT && kind === "personal" && entry.role !== "owner";
+    return { workspaceId: entry.workspaceId, slug, ...(aliases.length > 0 ? { aliases } : {}), role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(homeOnly ? { homeOnly: true } : {}), ...(chatHome ? { chatHome } : {}), ...(askerOwn ? { askerOwn: true } : {}) };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):

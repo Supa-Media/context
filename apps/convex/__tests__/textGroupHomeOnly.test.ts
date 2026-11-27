@@ -235,9 +235,9 @@ describe("what a home-only grant reads", () => {
     const slugs = session!.workspaces.map((entry) => entry.slug);
     expect(slugs).toEqual(["context-lc"]);
     expect(session!.workspaces.map((entry) => entry.workspaceId)).not.toContain(String(w.studio));
-    // Ada's own ask reads her shared workspace, guest or not, and still nobody's personal one.
+    // Ada's own ask reads her shared workspace, guest or not, and her own personal one (Dev2, 2026-11-26), nobody else's.
     const asked = await resolves(w.t, (await turn(w.t, ADA, [ADA, BO, GUEST, LINE])).accessToken as string);
-    expect(asked!.workspaces.map((entry) => entry.slug)).toEqual(["context-lc", "studio"]);
+    expect(asked!.workspaces.map((entry) => entry.slug)).toEqual(["context-lc", "ada", "studio"]);
   });
 
   test("it is not an ordinary pin reader: under any other client the grant resolves to nothing", async () => {
