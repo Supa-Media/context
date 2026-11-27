@@ -316,6 +316,32 @@ for (const { name, groupId } of LINES) {
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
+    it("a burst the judge covered whole runs as the person who called Tex, never whoever spoke first", async () => {
+      const storage = new MemoryStorage();
+      // The judge reads the waiting messages together and responds when any of them is for Tex (2026-11-27), so a
+      // covered span can begin at somebody else's line. The asker is the one who called Tex: their access is the
+      // ceiling, and nobody borrows another person's by speaking a moment before their ask
+      // (`docs/decisions/texting-assistant/asker-reach.md`).
+      // The judge, as it is told to judge a burst (2026-11-27): it answers when any waiting message is for Tex, and
+      // covers the whole burst, so the span it covers begins at Bo's line.
+      const burstJudge = (body: Decide): Answer => {
+        const lines = body.candidates.map((id) => body.transcript.split("\n").find((line) => line.startsWith(`<${id}>`)) ?? "");
+        return lines.some((line) => /(?:^|[^\w-])tex(?![\w-])/i.test(line)) ? answerAll(body) : silent();
+      };
+      const w = setup(groupId, { decide: burstJudge, control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex hi"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("the cabin last year was so nice", { from: BO }), 10);
+      await acceptGroup(storage, w.message("ok Tex prove it, find us a cabin"), 11);
+      await drainGroup(storage, w.deps);
+      // Bo asked nothing: no turn is minted on his grant, which would read his own personal workspace at its private tier.
+      // No turn runs as Bo, whose grant would read his own personal workspace at its private tier.
+      expect(w.asks.map((ask) => (ask.group as { from: string }).from)).toEqual(["ada", "ada"]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "ok Tex prove it, find us a cabin"]);
+      // Bo's line is the chat around the ask, never the turn's own words.
+      expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "the cabin last year was so nice" }]);
+    });
+
     it("somebody the control plane does not know never gets anything run, even inside a decided burst", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { controlFor: (body) => (body.sender === BO ? { status: "unknown_sender" } : undefined) });
