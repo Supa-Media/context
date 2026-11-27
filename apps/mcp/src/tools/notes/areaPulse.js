@@ -24,7 +24,7 @@ const textOf = (result) => (result?.content ?? []).map((part) => part.text ?? ""
 export async function areaPulse({ store, scope, rules, overrides, area, modes, change }, pulse) {
   const done = [];
   const problems = [];
-  if (pulse !== true && pulse !== false) return { refused: toolError("pulse: true or false") };
+  if (pulse !== true && pulse !== false) return { refused: toolError("Pass true or false.") };
   let have = modes;
   if (have === undefined) {
     const said = (await factProps(store, [`${area}/about.md`]))?.get(`${area}/about.md`)?.props?.properties?.modes;
