@@ -282,11 +282,21 @@ jobs:
             echo "T_CONVEX=$(date +%s)"
           } >> "$GITHUB_ENV"
 
+      # The preview of a merged pull request is torn down by the last step anyway,
+      # so the deploy stops here rather than spend minutes on it, and the run ends
+      # green. No Worker has been deployed yet at this point.
+      - name: Stop if the pull request closed while this ran
+        id: gate1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node packages/sandbox/src/still-open.mjs
+
       # The preview's stand-ins for Google (and the other outside APIs in
       # packages/emulators): fake accounts only, one per persona. The gateway
       # is built to send its Google calls here (`--define` below) and the
       # Convex deployment is pointed here by convex-env.mjs (EMULATORS_ORIGIN).
       - name: Deploy the emulators
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         run: pnpm --dir packages/emulators exec wrangler deploy --env preview --name "context-emulators-pr$PR" --message "Preview pr$PR $HEAD_SHA"
 
       # The gateway first: the texting assistant binds it, so it must exist.
@@ -297,7 +307,7 @@ jobs:
       # its TEXTING binding only, and is deployed again in full once the
       # texting assistant exists.
       - name: Deploy the gateway
-        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        if: ${{ (needs.resolve.outputs.mcp == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           config=wrangler.preview.toml
@@ -317,7 +327,7 @@ jobs:
       # One request and one new version, as staging does; see scripts/worker-secrets.mjs.
       # No line key is named here, on purpose: the gateway's texting lines are off.
       - name: Set the gateway's secrets
-        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        if: ${{ (needs.resolve.outputs.mcp == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
@@ -337,12 +347,12 @@ jobs:
             | pnpm --dir apps/mcp exec wrangler secret bulk --config wrangler.preview.toml --name "context-mcp-pr$PR"
 
       - name: Deploy the texting assistant
-        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        if: ${{ (needs.resolve.outputs.agent == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: pnpm --dir apps/agent exec wrangler deploy --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR" --message "Preview pr$PR $HEAD_SHA"
 
       # Only the worker secret: the assistant has no line key, so it answers no text.
       - name: Set the texting assistant's secret
-        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        if: ${{ (needs.resolve.outputs.agent == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
         run: |
@@ -353,13 +363,14 @@ jobs:
       # The full gateway, its TEXTING binding included, now that the texting
       # assistant exists. Its secrets carry over to the new version.
       - name: Deploy the gateway again with its texting binding
-        if: ${{ needs.resolve.outputs.mcp == 'true' && needs.resolve.outputs.agent == 'true' && env.GATEWAY_REDEPLOY == 'true' }}
+        if: ${{ (needs.resolve.outputs.mcp == 'true' && needs.resolve.outputs.agent == 'true' && env.GATEWAY_REDEPLOY == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --define "__CONTEXT_EMULATORS__:\"https://context-emulators-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev\"" --message "Preview pr$PR $HEAD_SHA"
 
       # A preview whose pull request never touched the app had no web app at
       # all: the router is also deployed when its Worker does not exist yet.
       - name: Find whether this preview has its web app yet
         id: webapp
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
@@ -374,7 +385,7 @@ jobs:
       # The web export is built when the app or the router changed, or the
       # router is missing. The router serves the export as its Static Assets.
       - name: Export the web app for the preview
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
+        if: ${{ (needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
         run: |
@@ -390,41 +401,51 @@ jobs:
           pnpm exec expo export --platform web --clear
 
       - name: Deploy the router with the web app
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
+        if: ${{ (needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: pnpm --dir infra/router exec wrangler deploy --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR" --message "Preview pr$PR $HEAD_SHA"
 
       # After the deploy, as every Worker here does: `wrangler secret put` acts
       # on the live version, so the order cannot collide with a retired var.
       - name: Set the router's Convex origin
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
+        if: ${{ (needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --name "context-router-pr$PR"
 
       # Each Worker's own secret list must hold no texting, SMS, email or billing
       # name, and no name the workflow never puts. Only names are read.
       - name: Check the gateway holds no line, mail or payment key
-        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        if: ${{ (needs.resolve.outputs.mcp == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --name "context-mcp-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-mcp-pr$PR"
 
       - name: Check the texting assistant holds no line, mail or payment key
-        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        if: ${{ (needs.resolve.outputs.agent == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-agent-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-agent-pr$PR"
 
       - name: Check the router holds no line, mail or payment key
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
+        if: ${{ (needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true') && env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-router-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-router-pr$PR"
 
+      # Every check above has run, so this gate skips nothing that would leave a Worker unchecked.
+      - name: Stop if the pull request closed while this ran (again)
+        id: gate2
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node packages/sandbox/src/still-open.mjs
+
       - name: Record when the Workers were done
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         run: echo "T_WORKERS=$(date +%s)" >> "$GITHUB_ENV"
 
       # Live means the gateway answers as the gateway does and the texting
       # assistant reports no line. Ten attempts, for the deploy to reach the edge.
       - name: Wait until the gateway and the texting assistant are live
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         run: |
           set -euo pipefail
           for attempt in $(seq 1 10); do
@@ -441,6 +462,7 @@ jobs:
           exit 1
 
       - name: Seed the preview's personas and notes
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           APP_ENV: preview
@@ -449,6 +471,7 @@ jobs:
         run: node packages/sandbox/src/seed.mjs
 
       - name: Smoke the preview
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           APP_ENV: preview
@@ -463,6 +486,7 @@ jobs:
       # fetch the 24.04 build; no --with-deps, the runner image already carries
       # Chrome's libraries (and Chrome, which the script falls back to).
       - name: Open the preview's web app in a browser
+        if: ${{ env.PREVIEW_PR_CLOSED != 'true' }}
         env:
           PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
         run: |
@@ -518,6 +542,9 @@ jobs:
             printf '| Router and web app | `context-router-pr%s` | %s |\n\n' "$PR" "$router_changed"
             printf '%s\n' 'Hosts are `https://<name>.<account>.workers.dev`. The account part is left out here, because it names the account and this repository is public. The texting assistant has a simulator at `/texts-simulator` on its host. A preview sends no text and no email.' ''
             printf '%s\n' 'Seconds: commit to job start '"$(seconds "$PREVIEW_PUSHED_AT" "$PREVIEW_STARTED_AT")"'; job start to Convex '"$(seconds "$PREVIEW_STARTED_AT" "${T_CONVEX:-}")"'; Convex to Workers '"$(seconds "${T_CONVEX:-}" "${T_WORKERS:-}")"'; commit to live '"$(seconds "$PREVIEW_PUSHED_AT" "${T_LIVE:-}")"'; commit to smoke passed '"$(seconds "$PREVIEW_PUSHED_AT" "${T_SMOKE:-}")"'.'
+            if [ "${PREVIEW_PR_CLOSED:-}" = "true" ]; then
+              printf '%s\n' '' 'The pull request closed while this ran, so the deploy stopped early and the preview was deleted.'
+            fi
           } > "$body"
           cat "$body" >> "$GITHUB_STEP_SUMMARY"
           existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '.[] | select(.body | startswith("<!-- context-preview -->")) | .id' | sed -n '1p')"
