@@ -1,6 +1,6 @@
 /** A routine's run: reloads the routine, and stops here when it is paused or its job needs no model. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { deferred } from "../deferred.js";
 import { RoutineRefusal, keepRun, loadRoutine, readRuns, routinePathFrom, routineRunQuestion, stopRoutine } from "../routine.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision } from "../supervise.js";

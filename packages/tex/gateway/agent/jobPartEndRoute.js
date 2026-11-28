@@ -7,7 +7,7 @@
  * While the job's pass runs here, the job node's own wire is used (`graph/jobHandles.js`); otherwise the config's
  * `job -> partEnd` wire; and while the node is still on the shelf (no wire), the same rule on its default limits.
  */
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
 import { borrowJob } from "./graph/jobHandles.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";

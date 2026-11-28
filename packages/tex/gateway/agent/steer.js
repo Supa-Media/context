@@ -34,7 +34,7 @@
  * turn ends, which clears its own folder and nobody else's.
  */
 
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
 import { toolIsWriting } from "../../../../apps/mcp/src/tools/registry.js";
 import { actionOf } from "../../../../apps/mcp/src/tools/v2/actions.js";

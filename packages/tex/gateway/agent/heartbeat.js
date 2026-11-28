@@ -78,7 +78,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import { markUntrusted, newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { SEARCH_WEB_TOOL, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { disarmTexting } from "../../../../apps/mcp/src/tools/approvals.js";
 import { heartbeatMailSection, withMailboxes } from "./mailHealth.js";
 import { mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";

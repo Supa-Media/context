@@ -18,7 +18,7 @@
  */
 
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { carriesGatewaySecret } from "../../../../apps/mcp/src/moves/mover.js";
 import { texStoreStub } from "./wire.js";
 

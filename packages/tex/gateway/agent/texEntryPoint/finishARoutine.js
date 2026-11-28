@@ -1,6 +1,6 @@
 /** A routine's run ends here: its outcome is kept, and it stops or finishes itself when due. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { disarmTexting } from "../../../../../apps/mcp/src/tools/approvals.js";
 import { rememberRoutineText } from "../conversation.js";
 import { wordsEntry } from "../ledger.js";

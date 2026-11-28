@@ -21,7 +21,7 @@
  * included, is ever kept.
  */
 
-import { sha256Hex } from "../../../../apps/mcp/src/ingestion/inbox.js";
+import { sha256Hex } from "../util/sha256.js";
 import { TOLD } from "./conversation.js";
 import { TEXT_SOURCES } from "./sentOnItsOwn.js";
 

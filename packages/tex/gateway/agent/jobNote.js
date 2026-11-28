@@ -24,7 +24,7 @@
  * ever texts the person.
  */
 
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
 import { contextTools } from "../contextMcp.js";

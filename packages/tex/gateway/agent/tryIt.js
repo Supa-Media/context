@@ -29,7 +29,7 @@
  *   setup's prompt.
  */
 
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { contextsFor, editsPinnedContext } from "../../../../apps/mcp/src/context/identity.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { contextTools } from "../contextMcp.js";

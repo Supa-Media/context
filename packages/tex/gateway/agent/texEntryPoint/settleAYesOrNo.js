@@ -1,6 +1,6 @@
 /** A texted yes or no settles a waiting approval before any model runs; otherwise keeps the Worker's fixed texts and reads no approval. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { SCOPE_WRITE, hasScope } from "../../../../../apps/mcp/src/session.js";
 import { appendTold, conversationPath, readTold } from "../conversation.js";
 import { deferred } from "../deferred.js";

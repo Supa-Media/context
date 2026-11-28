@@ -40,7 +40,7 @@
 import { requestViaGateway, aiGatewayConfig } from "./aiGateway.js";
 import { readConversation } from "./conversation.js";
 import { groupMemoryPath, groupOf, readGroupMemory } from "./groupTurn.js";
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { withArchitecture } from "./texArchitecture.js";
 import { texEffort, texModel, texPick } from "./texConfig.js";
 

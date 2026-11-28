@@ -1,7 +1,7 @@
 /** Reads the request: who is asking, from which chat, and what they asked. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { actorFor, contextsFor } from "../../../../../apps/mcp/src/context/identity.js";
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { contextTools } from "../../contextMcp.js";
 import { jobOf, jobReportOf, jobReportQuestion } from "../background.js";
 import { mailDomainOf } from "../chatHome.js";
