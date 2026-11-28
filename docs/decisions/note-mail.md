@@ -268,12 +268,21 @@ same seat writes in the same note and reads the whole history. A bot with no sea
 named for anybody else are left where they write. Notes from before stay where they are; moving them in is not done
 (their mailboxes are keyed by path in the control plane).
 
-Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): closing an ask when the PR or task it names finishes, and the Agent
-Mail page's Waiting state (artboards in the project's `agent-mail-asks-artboards/`).
+**Work done closes an ask.** An `[ask]` that links a note (`[[path]]`, a Markdown link to a `.md` path, or a Context
+note link) is kept against each bot it waits for (`workspaceStore/askUntil.js`, table `ws_ask_until`: bot names, note
+ids and linked paths, never words). When a linked note is saved with a finished `status` (done, finished, complete,
+completed, shipped, merged, closed, live), the ask stops waiting in that bot's inbox (`botInbox.js` `closeAsk`): the
+item goes, or stays as plain mail when newer lines wait there too. Nothing is written into the mail note. A linked
+pull request does not close an ask yet: the GitHub data source's sheets are not saved through the object's notes,
+so there is no save to hear.
+
+Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): closing an ask from a merged pull
+request, and the Agent Mail page's Waiting state (artboards in the project's `agent-mail-asks-artboards/`).
 
 **Simplifying it away costs:** a reply in another seat's mail reaches nobody, and every answered ask looks open forever.
 Tested by `apps/mcp/test/mailReplyRoute.test.mjs` (dropping the routing in `botMail.js` fails all seven; routing by
 the sender's name instead of its seat's holder fails "a swapped seat's successor"). The Tex seat: `apps/convex/__tests__/noteMail/texMail.test.ts` (dropping the
 `forHandle` check fails "wakes only the person the agent works for") and `apps/mcp/test/texMail.test.mjs` (dropping
-`toOwner` from `wakeTex` fails "a line to an agent with no seat wakes its person's Tex"). The seat's note: `apps/mcp/test/mailSeatNote.test.mjs` (writing where the bot named fails "a seated bot's note is
+`toOwner` from `wakeTex` fails "a line to an agent with no seat wakes its person's Tex"). Work done: `apps/mcp/test/mailReplyRoute.test.mjs` (dropping `until.changed` from `botMail.js` fails "an ask that
+links a task closes"; leaving `ask` set in `closeAsk` fails "a finished task closes only the ask"). The seat's note: `apps/mcp/test/mailSeatNote.test.mjs` (writing where the bot named fails "a seated bot's note is
 kept under its seat").

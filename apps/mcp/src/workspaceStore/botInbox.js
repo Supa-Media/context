@@ -38,7 +38,7 @@ const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray(
 const keyOf = (noteId, note) => (typeof noteId === "string" && noteId !== "" ? noteId : `path:${note}`);
 
 /**
- * `{add, clear, clearRoutines, check, checks, counts}` over the object's SQL. `rows.byNoteId` gives a note's path now,
+ * `{add, clear, closeAsk, clearRoutines, check, checks, counts}` over the object's SQL. `rows.byNoteId` gives a note's path now,
  * so an item follows its note through a move, and one whose note is gone is dropped.
  *
  * @param {any} sql
@@ -83,6 +83,17 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
     clear(bot, { noteId = null, note = "" }, at) {
       if (!Number.isFinite(at)) return;
       sql.exec("DELETE FROM ws_bot_inbox WHERE bot = ? AND note_key = ? AND at <= ?", mailJoinName(bot), keyOf(noteId, note), at);
+    },
+    /**
+     * The ask `bot` was sent here at `at` is closed by finished work (`askUntil.js`): the item goes, or, when newer lines
+     * wait there too, stays as plain mail.
+     */
+    closeAsk(bot, { noteId = null, note = "" }, at) {
+      if (!Number.isFinite(at)) return;
+      const name = mailJoinName(bot);
+      const key = keyOf(noteId, note);
+      sql.exec("DELETE FROM ws_bot_inbox WHERE bot = ? AND note_key = ? AND at <= ?", name, key, at);
+      sql.exec("UPDATE ws_bot_inbox SET ask = 0 WHERE bot = ? AND note_key = ?", name, key);
     },
     /** `bot` answered its routines in `area` at `at` (its own mail note there, `areaRoutines.js` `recordMail`). */
     clearRoutines(bot, area, at) {
