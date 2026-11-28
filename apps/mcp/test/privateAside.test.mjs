@@ -172,3 +172,14 @@ test("their own 1:1 run is told the clash as data, and that the group sees only 
     your_own_calendar: "readable here in full",
   });
 });
+
+test("text_privately naming the tagger in to is their own follow-up, never a calendar clash; a guest naming themselves is still told to sign up", async () => {
+  const ledger = {};
+  const tool = privateAsideTool({ group: member, ledger });
+  const result = await tool.call({ to: `@${member.from}`, what: "Go over their week with them." });
+  assert.notEqual(result.isError, true, said(result));
+  assert.equal(ledger.asides.length, 1);
+  assert.equal(ledger.asides[0].calendar, undefined, "not a calendar aside");
+  const asGuest = await privateAsideTool({ group: guest, ledger: {} }).call({ to: "@gus", what: "Go over their week." });
+  assert.equal(JSON.parse(said(asGuest)).has_account, false);
+});
