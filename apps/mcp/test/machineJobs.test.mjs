@@ -265,7 +265,9 @@ test("what the tool said and thought, and how the part ended, reach the chat's r
   await w.frame(server, { type: "said", runId, seq: 3, kind: "text", text: "gh needs a browser sign-in.", at: w.clock.at });
   await w.frame(server, { type: "result", runId, outcome: "failed", error: "notSignedIn", wallMs: 2000 });
   const answer = await read();
-  assert.equal(answer.run.said, undefined, "the job's read itself carries no words: they go to the record");
+  // The job's read carries what the tool said, never what it thought: its object texts a sign-in code or link at once
+  // (2026-11-05: two GitHub device codes on a computer were never texted; `packages/tex/worker/handBack.ts`).
+  assert.deepEqual(answer.run.said, [{ seq: 3, text: "gh needs a browser sign-in." }]);
   const byId = new Map(appended.map((e) => [e.id, e]));
   const thinking = appended.find((e) => e.kind === "thinking");
   const said = appended.filter((e) => e.kind === "said");

@@ -283,7 +283,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     await storage.put<Stored>(RUN_KEY, { ...run, sent });
   }
   const onProgress = async (text: string) => {
-    // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
+    // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask. A computer part's is `onHandBack` (`handBack.ts`).
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
   };
   // Each step, kept by the chat for "what is it doing?"; a step that failed to arrive costs only that line.
@@ -319,7 +319,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   try {
     outcome =
       run.machine !== undefined
-        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, askOwner: async (line) => void (await tell({ state: "running", status: "Waiting for the computer's owner to say yes", texts: [line], ask: line })), live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
+        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, onHandBack: async (line) => void (await tell({ state: "running", status: line, texts: [line] })), askOwner: async (line) => void (await tell({ state: "running", status: "Waiting for the computer's owner to say yes", texts: [line], ask: line })), live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
         : run.origin.kind === "phone"
           ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
           : await groupTurn(run, asked, turn, deps, onStep);

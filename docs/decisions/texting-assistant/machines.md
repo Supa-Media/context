@@ -532,6 +532,20 @@ ended (`computer_part`, with the runner's short error code). Each entry carries 
 `jobId`. Tool results and file contents still stay on the computer. Tests: `apps/mcp/test/machineJobs.test.mjs`
 and the runner's `tests/e2e.rs`.
 
+## A sign-in code a computer part says is texted at once, and kept past its deadline (Grok Bot for Seyi, 2026-11-28)
+
+Job `2c9ea414` (2026-11-05) got two GitHub device codes on a computer and neither was texted: the steps reached
+only the Tex page, and the process stayed alive until the part's deadline, whose `limit` words are never texted.
+The job's read of the run now carries what the tool said (`said`, never `thinking`, at most 1,000 characters
+each). A line that holds a sign-in code, or a link with words that hand it to the person (sign in, approve,
+enter, authorize), goes to the chat's coordinator at once, as a cloud part's progress line with a link does
+(`packages/tex/worker/handBack.ts`, at most three a part). Ordinary narration, links included, is not texted. A
+part out of time whose last word was such a line ends `waiting` with it rather than carrying on; a part that
+said something else after it, or failed, ends as before. Reversing the first leaves a code that is ready mid-part
+on the Tex page only, which a phone-only person never sees; reversing the second drops a code ready before the
+deadline. Tests: `packages/tex/worker/machineTurn.test.ts` ("a computer part that hands the person a sign-in
+code") and `apps/mcp/test/machineJobs.test.mjs`.
+
 ## A job needs no folder, and a refusal ends it once, with the reason (owner, 2026-11-05)
 
 A machine whose owner chose no folder runs jobs in the runner's own work
