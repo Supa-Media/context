@@ -360,7 +360,7 @@ export const texSeatMailbox = internalMutation({
     if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return null;
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null || live.grant.clientId === TEXTS_CLIENT_ID) return null;
-    const target = addressable(await contextsForGrant(ctx, { ...live, onlyJob: null })).find((entry) => entry.workspaceId === args.workspaceId);
+    const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target || target.askerOwn === true || target.homeOnly === true) return null;
     const grants = await ctx.db
       .query("oauthGrants")
