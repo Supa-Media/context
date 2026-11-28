@@ -157,6 +157,26 @@ test("a helper's mail is signed as itself, 'Claude via Grok Bot', never as the b
   assert.match(said(joining), /join only as "claude-via-grok-bot-0123"/);
 });
 
+// Dev, 2026-11-27: a helper's mail name is "<name>-via-<bot>-<4 chars>", and the app shows any sender of that shape as
+// "<Name> via <Bot>" with that bot's face. A connection that is not that helper must not join as one.
+test("a connection that is not the helper can't join as a helper's mail name; the helper still joins as its own", async () => {
+  const posing = await world({ bound: false });
+  const posingJoins = [];
+  posing.store.mail = { join: async (path, name) => (posingJoins.push(name), { mailbox: { mailboxId: "mb_posing", name } }) };
+  const refused = await toolMailNote(posing.store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { join: "claude-via-pablo-0000" } });
+  assert.equal(refused.isError, true);
+  assert.match(said(refused), /refused: "claude-via-pablo-0000" is shaped like a bot helper's name \(<name> via <bot>\)/);
+  assert.deepEqual(posingJoins, [], "the refusal comes before the mailbox is joined");
+
+  const real = await world({ helper: HELPER });
+  await real.base.put(HELPER.note, "---\nstatus: working\n---\n\n# Fix search\n");
+  const realJoins = [];
+  real.store.mail = { join: async (path, name) => (realJoins.push(name), { mailbox: { mailboxId: "mb_helper", name } }) };
+  const joined = await toolMailNote(real.store, "team", RULES, new PrivacyOverrides(), { path: HELPER.note, mail: { join: HELPER.mail } });
+  assert.equal(joined.isError, undefined, said(joined));
+  assert.deepEqual(realJoins, [HELPER.mail]);
+});
+
 test("a helper shows in agents active and on its caret as 'Claude via Grok Bot', one row of its own", async () => {
   const { store } = await world({ helper: HELPER });
   assert.deepEqual(await activityBot(store, { path: "areas/plans.md" }), { bot: "claude-via-grok-bot-0123", name: "Claude via Grok Bot", helper: true });

@@ -189,7 +189,9 @@ const { rules: RULES } = parsePrivacyManifest(
     "```\n\n<!-- END BRAIN PRIVACY RULES -->\n",
 );
 
-function orientStore(check) {
+// The connection is bound as these bots (`boundBot.js`), so its check-ins count. Pass [] for an unbound connection.
+const ORIENT_BOUND = [{ bot: "grok-bot", name: "Grok Bot" }, { bot: "muse", name: "Muse" }];
+function orientStore(check, bots = ORIENT_BOUND) {
   let built = false;
   return {
     get built() {
@@ -200,6 +202,8 @@ function orientStore(check) {
       return [];
     },
     objectBots: { state: async () => null, check },
+    actor: { workspaceId: "ws-test", workspaceKind: "shared", grantId: "grant-orient", client: "Grok Bot", role: "editor", name: "@seyi" },
+    objectReading: { client: { mail: { bound: async () => ({ served: true, bots }) } }, home: "object", scope: "team", names: [], workspaceId: "ws-test", userId: "u1" },
   };
 }
 const text = (result) => result.content.map((part) => part.text).join("\n");
@@ -270,6 +274,33 @@ test("a check-in sent as a tool call reaches the check, and lists new mail", asy
   assert.deepEqual(asked, ["Muse"]);
   assert.match(out, /^1 new for Muse:\n- mail from @seyi, 2026-11-28T00:24:00Z: bots\/muse\/mail\/seyi\.md/);
   assert.equal(store.built, false);
+});
+
+// Dev, 2026-11-27: "orient { for, check: true }" recorded a check-in for ANY caller, so any member or agent could make a
+// dead bot look alive. Only a connection bound as that bot records one; anyone else gets the read-only answer.
+test("only the bot's own connection checks it in: an unbound one records nothing and gets the read-only answer", async () => {
+  const asked = [];
+  const store = orientStore(async (bot) => (asked.push(bot), { items: [], previousAt: Date.now() - 60_000 }));
+  const full = async () => ({ content: [{ type: "text", text: "FULL" }] });
+  const now = Date.now();
+  assert.equal(text(await botCheckAnswer(store, "Grok Bot", full, now, async () => [])), "FULL");
+  assert.equal(text(await botCheckAnswer(store, "Grok Bot", full, now, async () => [{ bot: "muse", name: "Muse" }])), "FULL");
+  assert.equal(text(await botCheckAnswer(store, "Grok Bot", null, now, async () => [])), "Only Grok Bot's own connection checks it in, so this records nothing. orient { for: \"Grok Bot\" } lists its holder.");
+  assert.equal(text(await botCheckAnswer(store, "Grok Bot", full, now, async () => { throw new Error("down"); })), "FULL");
+  assert.deepEqual(asked, [], "no check-in recorded for a connection that is not that bot");
+  // The bound one records it, by name or by its mail name.
+  assert.equal(text(await botCheckAnswer(store, "Grok Bot", full, now, async () => [{ bot: "grok-bot", name: "Grok Bot" }])), "Nothing new. Check again in 5 minutes.");
+  assert.equal(text(await botCheckAnswer(store, "grok-bot", full, now, async () => [{ bot: "grok-bot", name: "" }])), "Nothing new. Check again in 5 minutes.");
+  assert.deepEqual(asked, ["Grok Bot", "grok-bot"]);
+});
+
+test("a check-in as a tool call from an unbound connection leaves no check-in recorded", async () => {
+  const asked = [];
+  const store = orientStore(async (bot) => (asked.push(bot), { items: [] }), []);
+  store.get = async (key) => (key === PRIVACY_KEY ? { [PRE_PARSED_RULES]: { rules: RULES, overrides: new PrivacyOverrides() }, etag: "e" } : null);
+  const out = text(await callTool("orient", { for: "Grok Bot", check: true }, store, "team"));
+  assert.deepEqual(asked, [], "check is never called for a connection not bound as the bot");
+  assert.doesNotMatch(out, /Nothing new|new for Grok Bot/, "the read-only answer, not a check-in");
 });
 
 test("a check where the workspace isn't on its object says so", async () => {
