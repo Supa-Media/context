@@ -231,7 +231,12 @@ export function SourcePage({
  * run's own sentence when it failed or stopped, never anything the address answered.
  */
 export function urlSyncLine(status: string, sync: SyncState | undefined, now: number): string {
-  if (sync?.said !== undefined && (sync.stopped === true || (sync.failedAt !== undefined && (sync.syncedAt === undefined || sync.failedAt >= sync.syncedAt)))) return sync.said;
+  if (sync?.said !== undefined && (sync.stopped === true || (sync.failedAt !== undefined && (sync.syncedAt === undefined || sync.failedAt >= sync.syncedAt)))) {
+    // A failed or stopped run after a good sync also says when that good sync was, and its rows, when it kept them.
+    const earlier = sync.syncedAt !== undefined && (sync.failedAt === undefined || sync.syncedAt < sync.failedAt);
+    if (!earlier) return sync.said;
+    return [sync.said, `last synced ${ago(sync.syncedAt, now)}`, ...(sync.rows === undefined ? [] : [rowsWords(sync.rows)])].join(" · ");
+  }
   if (sync?.syncedAt !== undefined) return [`Synced ${ago(sync.syncedAt, now)}`, sync.rows === undefined ? "" : rowsWords(sync.rows)].filter((part) => part !== "").join(" · ");
   return sync?.known === true ? "Not synced yet. Press Sync now to run it." : status;
 }

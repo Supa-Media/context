@@ -64,7 +64,9 @@ test("an owner arms a url source: it runs at once, writes the sheet, records the
   // The status reads the same run back, and the alarm is set an hour on.
   const asked = await status(w, w.alice);
   assert.equal(asked.status, 200);
-  assert.deepEqual(asked.body.sources, [{ about: "data/status/about.md", armed: true, last: { at: NOW, outcome: "ok", rows: 2 } }]);
+  // `synced` and `line` (the last good sync, and its one status sentence) were added to the status answer with the
+  // sync line, so they are part of this whole answer too (`dataSyncStatusLine.test.mjs` tests them in detail).
+  assert.deepEqual(asked.body.sources, [{ about: "data/status/about.md", armed: true, last: { at: NOW, outcome: "ok", rows: 2 }, synced: { at: NOW, rows: 2 }, line: "Last synced: 2026-11-25 12:30 UTC · 2 rows" }]);
   assert.equal(dataObject(w, "pAlice").storage.alarm, NOW + SYNC_EVERY_MS);
 });
 
@@ -278,7 +280,9 @@ test("status leaves out a source the reader cannot read", { skip }, async () => 
   await roleOf(w, w.alice, "editor");
   const asked = await status(w, w.alice, ["data/private-feed/about.md", "data/status/about.md"]);
   assert.equal(asked.status, 200);
-  assert.deepEqual(asked.body.sources, [{ about: "data/status/about.md", armed: false, last: null }]);
+  // `synced` and `line` were added to the status answer with the sync line: an unarmed source has no last good sync,
+  // and its line says it isn't being synced.
+  assert.deepEqual(asked.body.sources, [{ about: "data/status/about.md", armed: false, last: null, synced: null, line: "Not syncing: this source hasn't been started. An owner or editor starts it from the Data page." }]);
 });
 
 test("a synced sheet's cells reach an agent as a quotation, never an instruction", { skip }, async () => {

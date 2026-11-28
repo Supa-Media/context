@@ -30,7 +30,7 @@ import { ThemeProvider } from "../features/design/theme";
 import { ConnectSourceDialog } from "../features/console/files/data/ConnectSource";
 import { SourcePage, urlSyncLine } from "../features/console/files/data/SourcePage";
 import { publicAddress, urlSourceFiles, type UrlSourceFiles } from "../features/console/files/data/dataWrites";
-import { callDataSync, dataSyncUrl, syncStateOf } from "../features/console/files/data/dataSync";
+import { callDataSync, dataSyncUrl, readSourceSync, syncStateOf } from "../features/console/files/data/dataSync";
 import { sourceAt, sourceKindOf } from "../features/console/files/data/sources";
 import { keptBy } from "../features/console/files/data/syncedSheet";
 import { sourceStatus } from "../features/console/files/data/words";
@@ -224,5 +224,61 @@ describe("a url source's page", () => {
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(pressed).toBe(1);
+  });
+});
+
+describe("a source's sync answer: synced, line and the status it reads", () => {
+  test("readSourceSync keeps synced and line, and drops a malformed synced", () => {
+    const kept = readSourceSync({ about: ABOUT.path, armed: true, last: { at: NOW, outcome: "failed", said: "Nothing was written." }, synced: { at: NOW - 3_600_000, rows: 2 }, line: "Last synced: 2026-11-25 11:30 UTC · 2 rows" });
+    expect(kept).toEqual({ about: ABOUT.path, armed: true, last: { at: NOW, outcome: "failed", said: "Nothing was written." }, synced: { at: NOW - 3_600_000, rows: 2 }, line: "Last synced: 2026-11-25 11:30 UTC · 2 rows" });
+    expect(readSourceSync({ about: ABOUT.path, armed: true, last: null, synced: { at: "later" }, line: 7 })).toEqual({ about: ABOUT.path, armed: true, last: null });
+    expect(readSourceSync({ about: ABOUT.path, armed: true, last: null, synced: { at: NOW, rows: "2" } })).toEqual({ about: ABOUT.path, armed: true, last: null });
+    expect(readSourceSync({ about: ABOUT.path, armed: true, last: null, line: "x".repeat(900) })?.line).toHaveLength(500);
+  });
+
+  test("(a) armed false with no run reads stopped, and says Not syncing", () => {
+    const state = syncStateOf({ about: ABOUT.path, armed: false, last: null });
+    expect(state).toEqual({ known: true, stopped: true });
+    expect(sourceStatus(SOURCE, SHEETS, NOW, state).text).toBe("Not syncing");
+  });
+
+  test("(b) armed true with no run is not stopped, and reads Not synced yet", () => {
+    const state = syncStateOf({ about: ABOUT.path, armed: true, last: null });
+    expect(state).toEqual({ known: true });
+    expect(state).not.toHaveProperty("stopped");
+    expect(sourceStatus(SOURCE, SHEETS, NOW, state).text).toBe("Not synced yet");
+  });
+
+  test("(c) a failed run after a good one reads failed, with the good sync's time and rows", () => {
+    const state = syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW - 25 * 60_000, outcome: "failed", said: "Nothing was written: status.example.com answered 500." }, synced: { at: NOW - 5 * 60 * 60_000, rows: 182 } });
+    expect(state).toEqual({ known: true, failedAt: NOW - 25 * 60_000, syncedAt: NOW - 5 * 60 * 60_000, rows: 182, said: "Nothing was written: status.example.com answered 500." });
+    expect(state.failedAt!).toBeGreaterThan(state.syncedAt!);
+    expect(sourceStatus(SOURCE, SHEETS, NOW, state).text).toMatch(/^Sync failed /);
+    // A run's own row count wins over the kept good sync's.
+    const own = syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW, outcome: "failed", rows: 3 }, synced: { at: NOW - 60_000, rows: 182 } });
+    expect(own.rows).toBe(3);
+  });
+
+  test("(c2) a stopped run after a good one reads Stopped, and keeps the good sync's time and rows", () => {
+    const state = syncStateOf({ about: ABOUT.path, armed: false, last: { at: NOW - 60 * 60_000, outcome: "stopped", said: "Stopped: its about.md is no longer in a source folder." }, synced: { at: NOW - 2 * 60 * 60_000, rows: 40 } });
+    expect(state).toMatchObject({ stopped: true, failedAt: NOW - 60 * 60_000, syncedAt: NOW - 2 * 60 * 60_000, rows: 40 });
+    expect(sourceStatus(SOURCE, SHEETS, NOW, state)).toMatchObject({ tone: "bad", text: "Stopped 1h ago" });
+  });
+
+  test("a failed or stopped run after a good sync says when that sync was, and its rows", () => {
+    const failed = syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW - 25 * 60_000, outcome: "failed", said: "Nothing was written: status.example.com answered 500." }, synced: { at: NOW - 5 * 60 * 60_000, rows: 182 } });
+    expect(urlSyncLine("x", failed, NOW)).toBe("Nothing was written: status.example.com answered 500. · last synced 5h ago · 182 rows");
+    const stopped = syncStateOf({ about: ABOUT.path, armed: false, last: { at: NOW - 60 * 60_000, outcome: "stopped", said: "Stopped: its about.md is no longer in a source folder." }, synced: { at: NOW - 2 * 60 * 60_000 } });
+    expect(urlSyncLine("x", stopped, NOW)).toBe("Stopped: its about.md is no longer in a source folder. · last synced 2h ago");
+    // No good sync kept: the failure's own sentence alone, as before.
+    const bare = syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW - 25 * 60_000, outcome: "failed", said: "Nothing was written." } });
+    expect(urlSyncLine("x", bare, NOW)).toBe("Nothing was written.");
+  });
+
+  test("(d) a last ok run reads as it did, ignoring any kept sync", () => {
+    const state = syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW - 5 * 60_000, outcome: "ok", rows: 182 }, synced: { at: NOW - 9 * 60_000, rows: 1 } });
+    expect(state).toEqual({ known: true, syncedAt: NOW - 5 * 60_000, rows: 182 });
+    expect(sourceStatus(SOURCE, SHEETS, NOW, state).text).toBe("Synced 5 min ago");
+    expect(syncStateOf({ about: ABOUT.path, armed: true, last: { at: NOW, outcome: "ok" } })).toEqual({ known: true, syncedAt: NOW });
   });
 });

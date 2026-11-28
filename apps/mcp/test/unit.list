@@ -871,3 +871,4 @@ test/namedAlike.test.mjs
 test/texContextMcp.test.mjs
 test/mailReplyRoute.test.mjs
 test/mailSeatNote.test.mjs
+test/dataSyncStatusLine.test.mjs

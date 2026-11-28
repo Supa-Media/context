@@ -140,7 +140,7 @@ export async function handleDataSync(request, store, session, _path, env) {
     if (answered.status !== 200 || !Array.isArray(answered.body?.sources)) return json({ error: "unavailable" }, 503);
     const pathOf = new Map(found.rows.map((row) => [row.noteId, row.path]));
     const named = asked.kind === "metric" ? "metric" : "about";
-    return json({ sources: answered.body.sources.map((source) => ({ [named]: pathOf.get(source.noteId), armed: source.armed === true, last: source.last ?? null })) });
+    return json({ sources: answered.body.sources.map((source) => ({ [named]: pathOf.get(source.noteId), armed: source.armed === true, last: source.last ?? null, synced: source.synced ?? null, line: typeof source.line === "string" ? source.line : null })) });
   }
 
   let found;

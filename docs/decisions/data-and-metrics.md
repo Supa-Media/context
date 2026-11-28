@@ -463,6 +463,8 @@ synced sheet says it is kept up to date (08),
   source. A source is run at most once a minute however often it is armed,
   and a workspace syncs at most 25 addresses. A url source sends nothing that
   signs in, so this stage keeps no vault key for one.
+- **Every source says when it last synced, how many rows, and why it
+  stopped**: [sync-status](./data-and-metrics/sync-status.md).
 
 **What a simplification would cost.** Keeping the address read at arming
 lets an edited about.md reach a private network; re-setting the alarm

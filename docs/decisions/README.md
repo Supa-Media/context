@@ -825,6 +825,7 @@ Every section title is listed in [its own index](./texting-assistant/index.md).
 - Right-now metrics are kept hourly
 - CI sends its own numbers (2026-11-25)
 - A source's sheet can live anywhere (2026-11-25)
+- [Every source says when it last synced, how many rows, and why it stopped](./data-and-metrics/sync-status.md) (2026-11-28)
 
 ## [Connectors](./connectors.md)
 

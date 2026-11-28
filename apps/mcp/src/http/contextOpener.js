@@ -161,6 +161,7 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     followParent(targetStore, store, "searchSettings");
     followParent(targetStore, store, "holdSearchPass");
     followParent(targetStore, store, "searchConfig");
+    followParent(targetStore, store, "dataSyncStub");
     // Who is sending mail (`tools/notes/mail.js`): a job's turn joins another context's note mail as the job too.
     followParent(targetStore, store, "mailTurn");
     attachLinkCalls(targetStore, target, controlPlane, env);

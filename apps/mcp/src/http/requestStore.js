@@ -15,6 +15,7 @@ import { searchBudgetFor } from "../search/budget.js";
 import { searchSettingsFor } from "../search/settings.js";
 import { benchSearchConfigFor } from "../search/config/benchDraft.js";
 import { attachImageUploads } from "../notes/imageUploads.js";
+import { dataSyncStubFor } from "../data/sync/aboutStatus.js";
 
 export function decorateRequestStore(store, { session, env, controlPlane, ctx, request, origin }) {
   // The deployment's search budget rides the per-request store the way
@@ -24,6 +25,9 @@ export function decorateRequestStore(store, { session, env, controlPlane, ctx, r
   // And the deployment's search settings (`search/settings.js`), on the
   // same terms; a texting setup may lay its own over them for one turn.
   store.searchSettings = searchSettingsFor(env);
+  // The workspace's sync object, asked for a data source's sync line on a read (`data/sync/aboutStatus.js`): the
+  // same way, a function of the binding and never the binding itself.
+  store.dataSyncStub = dataSyncStubFor(env);
   // A bench run's draft search config (`search/config/benchDraft.js`): only ever set in a bench environment.
   const benchConfig = benchSearchConfigFor(env);
   if (benchConfig) store.searchConfig = benchConfig;
