@@ -23,6 +23,16 @@ search is then the embedding and one call to the object, and the embedding is th
   A build gathers its rows first and asks the model for all their passages together, 32 to a call and
   `EMBED_PARALLEL` (4) calls at once: one note at a time, at about 130 ms a call, a 512-passage build took a minute
   and a large workspace's first build never finished (production, 2026-11-03).
+- **The query goes first, and the build only when something waits** (2026-11-28). A search used to send a build
+  call just ahead of its query, and the query waited behind that build's start: its reads of the changed notes and
+  its writes to the change log, which the object holds every answer behind until they are stored (production: a
+  query whose index was already in memory took p50 481 ms and p95 6.1 s summed over 3.4 workspaces). Now the query
+  applies, before it answers, what changed and needs no model (`settle`: a move, a change of tier, a removal, up to
+  `SETTLE_ROWS` rows), so it answers those exactly as a build ahead of it did, and says how many changes still wait.
+  The gateway sends a build behind the response only when that is more than none, or when the object said nothing.
+  A changed text is found by its last fingerprint until the model has its new one, as before: the build that sends
+  it to the model never made the query wait for the answer. While a build runs, the query settles nothing, as a
+  build found busy settled nothing.
 - **Built on the object's alarm too** (`workspaceStore/indexBuild.js`). Once a build call says changes are still
   waiting, the object wakes a second later and builds both indexes again, until nothing waits; a failed model waits
   a minute. This lives only in memory: an evicted object forgets it, and the next search's build call starts it
@@ -84,7 +94,7 @@ woken, or if one person's kept fingerprint answers another's search.
 - Every passage is embedded twice, once for Vectorize and once for the object, until Vectorize is retired.
 - A workspace's first build embeds every note: about 9 s of local work for 52,000 passages, started by a search's
   build calls (`MEANING_BUILD_CALLS`) and carried on by the alarm.
-- The object starts building when a search asks it to, or when a save, move or removal of a note is written behind
+- The object starts building when a search's query says changes wait, or when a save, move or removal of a note is written behind
   its response (`meaningBuildBehind`, 2026-11-03: a save with no search after it had no fingerprint until one came).
   Live-editor saves (`meaning: false`) do not start it. A search only asks where meaning search is on for that
   workspace. One whose owner turned it off keeps whatever it built until its next layout change.
@@ -94,3 +104,6 @@ Reversing this means setting `MEANING_FROM_OBJECT=off`, or deleting `meaningInde
 `apps/mcp/test/workspaceMeaningIndex.test.mjs` fails if the tier filter, the no-re-embed path for moves, the retry
 after a failed model, the batched model calls or the served-after-build rule goes;
 `apps/mcp/test/workspaceIndexBuild.test.mjs` fails if the alarm stops building, never stops, or stops backing off.
+`apps/mcp/test/meaningQueryFirst.test.mjs` fails if a search stops reading its own writes (a save, a move, a removal,
+a change of tier, a changed text), if the build is sent ahead of the query again, or if it is sent with nothing
+waiting.

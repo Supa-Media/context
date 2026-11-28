@@ -5,8 +5,9 @@
  * the score floors and the live `canSee` over every match are the same.
  *
  * `null` is "not answered here", and the caller asks Vectorize exactly as before: the object is not where the notes
- * live, the switch is off (`MEANING_FROM_OBJECT=off`), its first build has not finished, or it failed. Either way a
- * build is sent behind the response, so the object catches up with what changed.
+ * live, the switch is off (`MEANING_FROM_OBJECT=off`), its first build has not finished, or it failed. Then, and
+ * whenever the object says changes still wait for the model, a build is sent behind the response, so the object
+ * catches up with what changed.
  */
 
 import { phaseTook } from "../../mcp/phase.js";
@@ -89,10 +90,10 @@ export function objectMeaningWarm(store) {
 export async function objectMeaningMatches(store, vector, { tiers = null, prefix = "" } = {}) {
   const object = store?.objectMeaning ?? null;
   if (object === null || typeof object.meaningQuery !== "function") return null;
-  meaningBuildBehind(store);
+  let answer;
   try {
     const sent = Date.now();
-    const answer = await object.meaningQuery(vector, { tiers, prefix });
+    answer = await object.meaningQuery(vector, { tiers, prefix });
     const served = answer?.served === true && Array.isArray(answer.matches);
     // The query's round trip by whether the object had to read its index first (`inside:meaning_query_cold`) or held
     // it (`inside:meaning_query_held`): the object's own clock does not move while it computes, so the gateway times it.
@@ -100,6 +101,13 @@ export async function objectMeaningMatches(store, vector, { tiers = null, prefix
     return served ? answer.matches : null;
   } catch {
     return null;
+  } finally {
+    // The build goes after the query, never ahead of it: a build sent first made the query wait behind its start (its
+    // reads of the changed notes and its writes to the change log, which the object holds every answer behind until
+    // they are stored; 2026-11-28, held queries p95 6.1 s). The query applies what needs no model itself and says how
+    // many changes still wait for the model (`workspaceStore/meaningIndex.js` `settle`), so a build is sent only then,
+    // and whenever the object did not say (not served, failed, or code from before it said).
+    if (!(answer?.served === true && answer.waiting === 0)) meaningBuildBehind(store);
   }
 }
 
