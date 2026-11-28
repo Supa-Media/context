@@ -10,8 +10,8 @@
  * and only GitHub's own fields; nothing about GitHub is written into a file but what the source is; the GitHub tile
  * is drawn only when the owner's GitHub calls are there.
  *
- * SABOTAGE (confirmed, reverted): accept a callback without `installation_id` in `githubReturnOf` → "reads GitHub's
- * answer" fails; let `openGithubInstall` resolve on any message → "waits for GitHub's answer" fails; draw the GitHub
+ * SABOTAGE (confirmed, reverted): accept a callback without `state` in `githubReturnOf` → "reads GitHub's
+ * answer" fails (one without `installation_id` is GitHub's sign-in page coming back, for an App already installed); let `openGithubInstall` resolve on any message → "waits for GitHub's answer" fails; draw the GitHub
  * tile without `github` → "only an owner on the web sees GitHub" fails.
  */
 
@@ -111,7 +111,10 @@ const BACK = { code: "oneTimeCode123", installation: "77", state: "abc.def" };
 describe("the window GitHub sends the owner back to", () => {
   test("reads GitHub's answer: the code, the installation and the state, or why there is none", () => {
     expect(githubReturnOf({ code: BACK.code, installation_id: "77", setup_action: "install", state: BACK.state })).toEqual(BACK);
-    expect(githubReturnOf({ code: BACK.code, state: BACK.state })).toBe("cancelled");
+    // Back from GitHub's sign-in page (connecting an App already installed): no installation id, the kept one is used.
+    expect(githubReturnOf({ code: BACK.code, state: BACK.state })).toEqual({ code: BACK.code, state: BACK.state });
+    expect(githubReturnOf({ code: BACK.code, installation_id: "seven", state: BACK.state })).toBe("cancelled");
+    expect(githubReturnOf({ code: BACK.code })).toBe("cancelled");
     expect(githubReturnOf({ installation_id: "77", state: BACK.state })).toBe("cancelled");
     expect(githubReturnOf({ setup_action: "request", state: BACK.state })).toBe("request");
     expect(githubReturnOf({ code: "x y", installation_id: "77", state: BACK.state })).toBe("cancelled");
