@@ -328,7 +328,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
-  if (outcome.kind === "answer" && outcome.roomRead?.length) roomRead = [...new Set([...roomRead, ...outcome.roomRead])].slice(0, 24);
+  if (outcome.kind === "answer" && outcome.roomRead?.length) roomRead = [...new Set([...roomRead, ...outcome.roomRead])].slice(0, 48);
   // Another pass took the job meanwhile, or already finished it: that one's word is the only one the chat gets.
   if ((await storage.get<string>(PASS_KEY)) !== pass) {
     log("stale_pass", run.id);

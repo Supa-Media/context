@@ -556,7 +556,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(Number.isInteger(part) && (part as number) > 0 && (part as number) < 1_000 ? { part: part as number } : {}),
     ...(readEnds(ends).length > 0 ? { ends: readEnds(ends) } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
-    ...(jobEndOf(end) ? { end: jobEndOf(end)! } : {}), ...(Array.isArray(roomRead) && roomRead.length > 0 ? { roomRead: [...new Set(roomRead.filter((slug): slug is string => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)))].slice(0, 24) } : {}), // `roomRead.ts`
+    ...(jobEndOf(end) ? { end: jobEndOf(end)! } : {}), ...(Array.isArray(roomRead) && roomRead.length > 0 ? { roomRead: [...new Set(roomRead.filter((entry): entry is string => typeof entry === "string" && (/^[a-z0-9][a-z0-9-]{0,63}$/.test(entry) || /^private:@?[A-Za-z0-9][^\s]{0,299}$/.test(entry))))].slice(0, 48) } : {}), // `roomRead.ts` `roomReadOf`
   };
 }
 

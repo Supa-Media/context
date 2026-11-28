@@ -19,6 +19,14 @@
  *  - whether the draft carries it (`roomVerdict`): names and figures the draft shares with what was read there, that
  *    nobody in the chat or the ask already said.
  *
+ * PRIVATE NOTES STAY OUT OF THE GROUP UNLESS THE ASKER NAMES ONE (Dev2, 2026-11-28: "if i tell tex a specific note even
+ * if marked private it should still be able to read right" — yes). A note is private where it lives (a read says
+ * `visibility: private`; a group's search marks the hit, `apps/mcp/src/tools/search.js` `PRIVATE_HIT_LABEL`). Almost
+ * every note in a personal workspace is private, and almost every note in a shared one is team, so "v2l action items"
+ * draws on v2l's team notes, while "share my gulag trip note" names one and may post it (`namedIn`). And a draft that
+ * carries a secret read this turn (a passcode, a password, a PIN, an account number: `secretIn`) goes to the asker
+ * alone whoever asked for it.
+ *
  * What is held goes to the asker alone, in their own chat with Tex (`privateAside.js`, a held aside); what the group is
  * told, and how, is the model's own, from the facts it is handed (`heldFacts`) and Training. Never a line written here.
  */
@@ -108,10 +116,22 @@ export function hitsBySlug(text) {
  * and came back; `add(slugs, texts)` adds what a job read there (its report's words). Null for a turn with none.
  */
 export function roomReads(group) {
+  if (group === null || group === undefined) return null;
   const closed = roomSlugs(group);
-  if (closed.size === 0) return null;
   const read = new Map(); // slug -> text read there
+  const held = new Map(); // a private note's key -> text read from it
   let chars = 0;
+  let heldChars = 0;
+  let all = ""; // every result's text, for the secret check (`secretIn`), bounded like the rest
+  const keepAll = (text) => {
+    if (all.length < MAX_READ_CHARS) all += `\n${String(text ?? "").slice(0, Math.min(MAX_CALL_CHARS, MAX_READ_CHARS - all.length))}`;
+  };
+  const keepPrivate = (key, text) => {
+    const left = Math.min(MAX_CALL_CHARS, MAX_READ_CHARS - heldChars);
+    const piece = left > 0 ? String(text ?? "").slice(0, left) : "";
+    heldChars += piece.length;
+    held.set(key, `${held.get(key) ?? ""}\n${piece}`);
+  };
   const keep = (slug, text) => {
     if (!closed.has(slug)) return;
     const left = Math.min(MAX_CALL_CHARS, MAX_READ_CHARS - chars);
@@ -129,17 +149,130 @@ export function roomReads(group) {
           const called = slugsCalled(args);
           for (const slug of called) keep(slug, text);
           for (const [slug, hits] of hitsBySlug(text)) if (!called.has(slug)) keep(slug, hits);
+          keepAll(text);
+          // A read across several workspaces at once can't say which a bare path was in, so it is never taken for the home.
+          const where = called.size === 1 ? [...called][0] : called.size > 1 ? "several" : null;
+          for (const [key, words] of privateNotesIn(text, where)) keepPrivate(key, words);
         }
         return result;
       };
     },
-    add(slugs, texts) {
-      for (const slug of Array.isArray(slugs) ? slugs : []) if (slugOf(slug)) keep(slugOf(slug), (Array.isArray(texts) ? texts : []).join("\n"));
+    /** What a job read (`roomRead`: slugs, and `private:<key>` for a private note), its report's words as the text. */
+    add(entries, texts) {
+      const words = (Array.isArray(texts) ? texts : []).join("\n");
+      keepAll(words);
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        if (typeof entry === "string" && entry.startsWith(PRIVATE_READ)) keepPrivate(entry.slice(PRIVATE_READ.length), words);
+        else if (slugOf(entry)) keep(slugOf(entry), words);
+      }
     },
     /** The closed workspaces this turn read, by slug. */
     slugs: () => [...read.keys()],
     text: (slug) => read.get(slug) ?? "",
+    /** The private notes this turn read, by key (`@slug/path` or a path). */
+    privateKeys: () => [...held.keys()],
+    privateText: (key) => held.get(key) ?? "",
+    /** Everything this turn's calls gave back, for the secret check. */
+    allText: () => all,
+    /** What a job's answer carries to its report: the closed workspaces and the private notes it read. */
+    carried: () => [...read.keys(), ...[...held.keys()].map((key) => `${PRIVATE_READ}${key}`)],
   };
+}
+
+/** How a job's `roomRead` names a private note it read, beside the slugs (`packages/tex/worker/roomRead.ts`). */
+export const PRIVATE_READ = "private:";
+const PRIVATE_HIT = /^\s+\(private note\)\s*$/;
+const READ_HEAD = /^etag: \S+\npath: (\S+)\nvisibility: (\w+)/;
+
+/**
+ * The private notes in one result, by key, each with the text it gave of them: a read's notes whose `visibility` is
+ * private (`apps/mcp/src/tools/notes/read.js`), and a search's hits marked `(private note)`. `where` is the workspace
+ * the call named, put in front of a read's bare path. The chat's own home never counts: it is the room's memory.
+ */
+export function privateNotesIn(text, where = null) {
+  const found = privateNotesAt(text, where);
+  // The chat's own home is the room's: a bare path (no `@slug/`) is in it, as is anything under `tex/groups/`.
+  for (const key of [...found.keys()]) if (!key.startsWith("@") || /^@[a-z0-9-]+\/tex\/groups\//i.test(key)) found.delete(key);
+  return found;
+}
+
+function privateNotesAt(text, where) {
+  const out = new Map();
+  const words = String(text ?? "");
+  for (const block of words.split(/\n(?=etag: )/)) {
+    const head = READ_HEAD.exec(block.replace(/^\s+/, ""));
+    if (head && head[2] === "private") out.set(where && !head[1].startsWith("@") ? `@${where}/${head[1]}` : head[1], block);
+  }
+  let key = null;
+  let lines = [];
+  const close = () => {
+    if (key !== null && lines.some((line) => PRIVATE_HIT.test(line))) out.set(key, `${out.get(key) ?? ""}\n${lines.join("\n")}`);
+  };
+  for (const line of words.split("\n")) {
+    if (HIT_LINE.test(line) || HOME_HIT.test(line)) {
+      close();
+      key = line.trim();
+      lines = [];
+    } else if (key !== null && /^\s+\S/.test(line)) lines.push(line);
+    else {
+      close();
+      key = null;
+      lines = [];
+    }
+  }
+  close();
+  return out;
+}
+
+/** A note's naming words: its file name's and its first heading's, without dates or sentence words. */
+function namingWords(text) {
+  return String(text ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 3 && !/^\d+$/.test(word) && !COMMON.test(word));
+}
+
+/**
+ * Whether the asker's own text names this note: its path or a link to it, every word of its file name, or every word
+ * of its first heading. A search's words alone never do ("v2l action items" names no note called "v2l plans").
+ */
+export function namedIn(question, key, text = "") {
+  const asked = String(question ?? "").toLowerCase();
+  if (asked.trim() === "") return false;
+  // The note's path without its workspace or its kind's ending (a note, a sheet, a page alike).
+  const path = String(key ?? "").replace(/^@[a-z0-9-]+\//i, "").replace(/(?:\.[a-z0-9]{1,8})+$/i, "").toLowerCase();
+  if (path !== "" && asked.includes(path)) return true;
+  const said = new Set(namingWords(asked));
+  const every = (words) => words.length > 0 && words.every((word) => said.has(word));
+  const stem = path.split("/").pop() ?? "";
+  if (every(namingWords(stem))) return true;
+  const heading = /^#\s+(.+)$/m.exec(String(text ?? ""));
+  return heading !== null && every(namingWords(heading[1]));
+}
+
+/** Words that say what follows is a secret. */
+const SECRET_WORD = /\b(?:pass(?:word|code|phrase)s?|pins?|pin code|passcodes?|security code|one[- ]time code|otp|2fa code|backup codes?|recovery codes?|ssn|social security(?: number)?|account (?:number|no\.?|#)|routing (?:number|no\.?)|card number|cvv|cvc|seed phrase|private key|api key)\b/i;
+/** A value: four or more characters with a digit in them, or a long run of letters and digits without spaces. */
+const SECRET_VALUE = /^(?=[^\s]*\d)[^\s,;]{4,}$|^[A-Za-z0-9!@#$%^&*_+=?-]{8,}$/;
+
+/**
+ * Whether a draft carries a secret this turn read: a secret word, then within a few words a value (`SECRET_VALUE`)
+ * that something read this turn holds and nobody in the room already said. Code only; nothing a model decides.
+ */
+export function secretIn(draft, readText, seen = new Set()) {
+  const words = String(draft ?? "");
+  const read = String(readText ?? "");
+  if (read === "" || !SECRET_WORD.test(words)) return false;
+  for (const match of words.matchAll(new RegExp(SECRET_WORD.source, "gi"))) {
+    const after = words.slice(match.index + match[0].length, match.index + match[0].length + 60);
+    for (const raw of after.split(/\s+/).slice(0, 6)) {
+      const value = raw.replace(/^[:=("'“”‘’`*-]+|[)"'“”‘’`*.,;:!?]+$/g, "");
+      if (value.length < 4 || !SECRET_VALUE.test(value)) continue;
+      if (seen.has(value.toLowerCase()) || seen.has(value.replace(/[,]/g, ""))) continue;
+      if (read.includes(value)) return true;
+    }
+  }
+  return false;
 }
 
 /** Whether the asker's own text points at a workspace: names it (`@slug`) or links into it. */
@@ -176,7 +309,7 @@ export function seenInRoom({ history = [], question = "", group = null }) {
  * many of them the asker pointed at, and the most names and figures the draft shares with one of the others.
  */
 export function roomTally({ draft, reads, group, question = "", history = [] }) {
-  if (reads === null || reads === undefined) return { chars: 0, pointed: 0, carried: 0 };
+  if (reads === null || reads === undefined) return { chars: 0, pointed: 0, carried: 0, private: 0, named: 0 };
   const seen = seenInRoom({ history, question, group });
   const said = tokensOf(draft);
   let chars = 0, pointed = 0, carried = 0;
@@ -186,7 +319,14 @@ export function roomTally({ draft, reads, group, question = "", history = [] }) 
     const there = tokensOf(reads.text(slug));
     carried = Math.max(carried, [...said].filter((token) => there.has(token) && !seen.has(token)).length);
   }
-  return { chars, pointed, carried };
+  let named = 0;
+  const keys = typeof reads.privateKeys === "function" ? reads.privateKeys() : [];
+  for (const key of keys) {
+    if (namedIn(question, key, reads.privateText(key))) { named += 1; continue; }
+    const there = tokensOf(reads.privateText(key));
+    carried = Math.max(carried, [...said].filter((token) => there.has(token) && !seen.has(token)).length);
+  }
+  return { chars, pointed, carried, private: keys.length, named };
 }
 
 /**
@@ -208,8 +348,23 @@ export function roomVerdict({ draft, reads, group, question = "", history = [] }
       shared += carried.length;
     }
   }
-  if (from.length === 0) return null;
-  return { from, cantOpen: cantOpen(group, from), shared };
+  // A private note's text, unless the asker named that note (Dev2, 2026-11-28).
+  const notes = [];
+  const keys = typeof reads.privateKeys === "function" ? reads.privateKeys() : [];
+  for (const key of keys) {
+    if (namedIn(question, key, reads.privateText(key))) continue;
+    const there = tokensOf(reads.privateText(key));
+    const carried = [...said].filter((token) => there.has(token) && !seen.has(token));
+    if (carried.length >= HOLD_AT) {
+      notes.push(key);
+      shared += carried.length;
+    }
+  }
+  // A secret read this turn, whoever asked and whatever named it.
+  const everything = [...reads.slugs().map((slug) => reads.text(slug)), ...keys.map((key) => reads.privateText(key)), typeof reads.allText === "function" ? reads.allText() : ""].join("\n");
+  const secret = secretIn(draft, everything, seen);
+  if (from.length === 0 && notes.length === 0 && !secret) return null;
+  return { from, cantOpen: cantOpen(group, from), shared, private: notes, secret };
 }
 
 /**
@@ -220,9 +375,11 @@ export function heldFacts(verdict, { asker = "", sent = false } = {}) {
   return JSON.stringify({
     held_from_group: {
       read_from: verdict.from.map((slug) => `@${slug}`),
-      cant_open_here: verdict.cantOpen.length > 0 ? verdict.cantOpen : "not everyone here",
+      ...(verdict.from.length > 0 ? { cant_open_here: verdict.cantOpen.length > 0 ? verdict.cantOpen : "not everyone here" } : {}),
       draft_sent_privately_to: sent && asker ? `@${asker}` : null,
       asker_pointed_at_it: false,
+      ...(verdict.private?.length > 0 ? { private_notes_not_named: verdict.private, private_notes_open_by_name: true } : {}),
+      ...(verdict.secret === true ? { carries_a_secret: true } : {}),
     },
   });
 }

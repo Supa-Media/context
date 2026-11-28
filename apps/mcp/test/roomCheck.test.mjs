@@ -55,7 +55,8 @@ test("the room's closed workspaces are the unshared ones and every one somebody 
   assert.deepEqual([...roomSlugs(GROUP)].sort(), ["events-team"]);
   assert.deepEqual([...roomSlugs({ ...GROUP, unshared: ["family"], blocked: [] })], ["family"]);
   assert.equal(roomSlugs(null).size, 0);
-  assert.equal(roomReads({ ...GROUP, unshared: [], blocked: [] }), null, "a room that shares everything reads nothing closed");
+  assert.deepEqual(roomReads({ ...GROUP, unshared: [], blocked: [] }).closed.size, 0, "a room that shares everything has nothing closed (its private notes are still kept: roomPrivate.test.mjs)");
+  assert.equal(roomReads(null), null, "a 1:1 reads nothing for the room");
   assert.deepEqual(cantOpen(GROUP, ["events-team"]), ["@bo", "guest-1a2b"]);
 });
 

@@ -4,7 +4,8 @@
  *
  * Wired as `answerCheck -> roomCheck` (`uses`), the Answer check asks it about each group draft after its other checks:
  * a draft that carries what this turn (or the job it reports) read from a workspace someone in the room can't open, and
- * the asker didn't point at, is held. Its draft goes to the asker alone, once per turn (`privateAside.js`
+ * the asker didn't point at, is held; so is one carrying a private note the asker didn't name, or a secret read this
+ * turn (Dev2, 2026-11-28). Its draft goes to the asker alone, once per turn (`privateAside.js`
  * `holdForAsker`), and the front door is sent back with the facts (`t.roomNotice`) to write what the group gets.
  * Wired as `finish -> roomCheck`, it reads the answer once more before it goes, so a draft that was never checked (a
  * last round) or still carries it is held the same way and nothing goes to the group (`t.roomHush`).
@@ -16,7 +17,7 @@
  * it is not sent, and the front door reads the facts as the tool's answer.
  *
  * Input `{ at: "draft" | "answer" | "progress", draftChars }`. Output `{ to: "pass" | "hold" | "skipped", read?, chars?, pointed?, carried?,
- * from?, shared?, sent?, recorded? }` (a pass says how it measured, `roomTally`):
+ * from?, private?, secret?, shared?, sent?, recorded? }` (a pass says how it measured, `roomTally`):
  * counts only, never the words.
  */
 import { heldFacts, roomTally, roomVerdict } from "../../roomCheck.js";
@@ -36,11 +37,12 @@ export async function roomCheckNode(input, io) {
   const sent = t.roomHeld?.sent === true || holdForAsker(t.ledger, t.group, draft, facts(true));
   // Once a turn, the hold is recorded with who is here, so the asker's yes in their own chat can open it for them
   // (`heldShare.js`, `apps/convex/functions/groupHolds.ts`; rulebook rule 4). Ids and slugs only, never the words.
-  const recorded = sent && first ? await recordHold(t, verdict.from) : t.roomHeld?.recorded ?? false;
+  // A private note or a secret is never recorded: a yes there opens a workspace for the room, and neither is one.
+  const recorded = sent && first && verdict.from.length > 0 ? await recordHold(t, verdict.from) : t.roomHeld?.recorded ?? false;
   t.roomHeld = { from: verdict.from, sent, recorded };
   t.roomNotice = facts(sent);
   if (input?.at === "answer") t.roomHush = true;
-  return { to: "hold", read: reads.slugs().length, from: verdict.from.length, shared: verdict.shared, sent, recorded };
+  return { to: "hold", read: reads.slugs().length, from: verdict.from.length, private: verdict.private?.length ?? 0, secret: verdict.secret === true, shared: verdict.shared, sent, recorded };
 }
 
 /** A fresh hold's id. */

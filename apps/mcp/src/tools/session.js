@@ -61,6 +61,7 @@ import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
+import { TEXTS_GROUP_CLIENT_ID } from "../machines/reach.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -291,6 +292,8 @@ export async function callToolForSession(params, store, session, options = {}) {
   }
   // A model's fetch reads a long note in part unless it asks for full (`notes/readCapped.js`); the gateway's own reads are whole.
   if (v2?.tool === "fetch") options = { ...options, fetchCap: true };
+  // A group chat's Tex is told which search hits are private notes (`search.js` `PRIVATE_HIT_LABEL`; `roomCheck.js`).
+  if (session?.actorClientId === TEXTS_GROUP_CLIENT_ID) options = { ...options, markPrivate: true };
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
   if (sandbox !== null && typeof sandbox.call === "function") return inWordsOf(v2, await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox));

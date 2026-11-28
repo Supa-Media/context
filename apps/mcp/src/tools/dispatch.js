@@ -253,7 +253,7 @@ async function runTool(name, args, store, scope, options = {}) {
       // A range of days: what the notes say is on each, across workspaces (`searchDates.js`).
       if (args.from !== undefined || args.to !== undefined) return toolSearchDated(store, scope, rules, overrides, args);
       // `boost` ranks a named workspace's hits up and never filters (`search.js`).
-      return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix, { boost: typeof args.boost === "string" ? args.boost : undefined });
+      return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix, { boost: typeof args.boost === "string" ? args.boost : undefined, markPrivate: options.markPrivate === true });
     case "related_notes":
       return toolRelatedNotes(store, scope, rules, overrides, args);
     case "archive_note":

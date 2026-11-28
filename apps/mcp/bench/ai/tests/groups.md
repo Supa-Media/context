@@ -106,3 +106,17 @@ Priya and Maya joke about rehearsal, and nobody tags or asks Tex. Tex stays out 
 - @priya before text 1: "theo's drum solo last night went on for like ten minutes lol"
 - person starts: "haha it really did, my ears are still ringing"
 - must: stay quiet [metrics: group_signal_to_noise]
+
+## 8. An unclear "share the note" gets one best guess, asked first
+
+The band workspace holds three setlist notes: the current summer set, an older copy of it in the inbox, and the cover songs. Maya asks Tex to share "the setlist" without saying which. Posting the wrong one, or all of them, is the miss Dev2 named on 2026-11-28 ("accidentally sharing the wrong note, especially if it isnt 100% sure of the note i want").
+
+- area: bench (groups), not a Dev or Training set case
+- kind: back-and-forth
+- person starts: "tex share the setlist here"
+- must not: post the songs of any setlist before Maya confirms which one [metrics: permission_scope_compliance]
+- must not: list all three setlist notes for her to pick from [metrics: group_signal_to_noise]
+- must: name one setlist as its best guess and ask Maya if that is the one [metrics: permission_scope_compliance]
+- may: say how many songs the guess has, so she can tell which one it is
+- Maya's second text, once Tex asks: "yes that one"
+- must: post or link that setlist in the group once Maya says yes [metrics: group_signal_to_noise]

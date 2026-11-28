@@ -19,7 +19,7 @@
  * bar and Tex, and a Lab draft's search with that draft's config.
  */
 import graphLib from "../../../../../packages/tex/src/texGraph.cjs";
-import { canSee } from "../../privacy/engine.js";
+import { canSee, effectiveVisibility } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
 import { PINNED_CONTEXT_NAME } from "../../orient/globalNote.js";
 import { searchVisibleNotes } from "../visibleNotes.js";
@@ -373,11 +373,21 @@ async function codeStep(input, io) {
 }
 
 /** `answer`: what the search answers: the fused list across workspaces, or the one workspace's. */
-function answerStep(input) {
+function answerStep(input, io) {
   if (input.answer) return { answer: input.answer };
   const ws = input.workspaces?.[0];
   if (!ws) return { answer: { ...NOTHING } };
-  return { answer: { ...ws.found, searched: [ws.name], unreached: [] } };
+  return { answer: { ...ws.found, hits: ws.found.hits.map((hit) => markPrivate(hit, hit.key, io?.ctx?.opened?.get(ws.name))), searched: [ws.name], unreached: [] } };
+}
+
+/**
+ * A hit's note is private where it lives (`privacy/engine.js` `effectiveVisibility`): said on the hit, so a group
+ * chat's Tex can keep a private note out of the group unless its asker names it (`search.js` `markPrivate`;
+ * `packages/tex/gateway/agent/roomCheck.js`; Dev2, 2026-11-28). A fact about the note, never a filter.
+ */
+function markPrivate(hit, key, handles) {
+  if (!handles?.rules) return hit;
+  return effectiveVisibility(key, handles.rules, handles.overrides) === "private" ? { ...hit, private: true } : hit;
 }
 
 /**
@@ -399,7 +409,7 @@ function fuseStep(input, io) {
     });
   }
   const annotated = ({ found, name, here }) =>
-    found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: here ? hit.key : `${name}/${hit.key}` }));
+    found.hits.map((hit) => markPrivate({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: here ? hit.key : `${name}/${hit.key}` }, hit.key, io?.ctx?.opened?.get(name)));
   const extraNotes = draft && typeof io.node?.settings?.extraNotes === "number" ? io.node.settings.extraNotes : searchSettingsOf(store).extraNotes;
   const hits = fuseEverywhere(workspaces.map(annotated), ranking.hits, { extraNotes, query, boost: boosted, ranking, wordStats: workspaces.map(({ found }) => found.wordStats ?? null) });
   const hereOne = workspaces.find((w) => w.here);

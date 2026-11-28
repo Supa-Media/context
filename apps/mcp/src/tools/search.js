@@ -67,13 +67,21 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
 }
 
 
-export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg, { boost } = {}) {
+/**
+ * The line a group chat's search puts under a private note's hit (`PRIVATE_HIT_LINE`), so its Tex keeps the note out
+ * of the group unless the asker names it (`packages/tex/gateway/agent/roomCheck.js`; Dev2, 2026-11-28). Only the group
+ * client is told (`session.js` `markPrivate`): everywhere else it would only be noise.
+ */
+export const PRIVATE_HIT_LABEL = "private note";
+
+export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg, { boost, markPrivate = false } = {}) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix: pass a folder path, like projects/, or leave prefix out");
   const found = await findNotes(store, scope, rules, overrides, query, prefix, { boost });
-  const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
-    meaningOnly
+  const hits = found.hits.map(({ key: path, snippets, title, meaningOnly, private: held }) => {
+    const key = markPrivate && held === true ? `${path}\n    (${PRIVATE_HIT_LABEL})` : path;
+    return meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
         // agent does not quote the snippet as if it carried the term.
         `${key}\n    (${MEANING_ONLY_LABEL})\n${(snippets.length ? snippets : [title])
@@ -84,8 +92,8 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
       : // Indexed, then edited: it matched when it was indexed and its current
         // text does not carry the term. The title was actually read; a snippet
         // here would be invented.
-        `${key}\n    ${title}`
-  );
+        `${key}\n    ${title}`;
+  });
   // An empty search is the moment an agent decides the context is useless and
   // answers from its own head. It is almost always the wrong conclusion — the
   // note exists under a word the user would have used and this query did not —

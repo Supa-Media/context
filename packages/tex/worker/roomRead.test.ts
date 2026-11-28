@@ -23,6 +23,10 @@ describe("a group job's closed reads and a held answer", () => {
     expect(roomReadOf("events-team")).toEqual([]);
   });
 
+  it("keeps a private note it read, by key, and nothing loose (Dev2, 2026-11-28)", () => {
+    expect(roomReadOf(["private:@shyoh/inbox/plans.md", "private:notes/a.md", "private:", "private: spaced key", "private:\nx"])).toEqual(["private:@shyoh/inbox/plans.md", "private:notes/a.md"]);
+  });
+
   it("the gateway's answer carries them", () => {
     const answer = agentAnswer(200, { answer: "Done.", roomRead: ["events-team"] });
     expect(answer.kind === "answer" && answer.roomRead).toEqual(["events-team"]);
