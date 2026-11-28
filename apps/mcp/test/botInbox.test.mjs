@@ -13,8 +13,9 @@ import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 import { objectFirstBots } from "../src/store/objectBots.js";
 import { toolOrient } from "../src/orient/tool.js";
+import { callTool } from "../src/tools/dispatch.js";
 import { botCheckAnswer, FULL_AFTER_MS, recordCheckIn } from "../src/orient/botCheck.js";
-import { parsePrivacyManifest } from "../src/privacy/engine.js";
+import { parsePrivacyManifest, PRE_PARSED_RULES, PRIVACY_KEY, PrivacyOverrides } from "../src/privacy/engine.js";
 import { WorkspaceStore } from "../src/workspaceStore.js";
 import { durableSqlite } from "./durableSqlite.mjs";
 
@@ -255,6 +256,20 @@ test("a bot orienting for itself checks in, even without check; anyone else reco
   // A flag sent as text is still a check.
   const out = text(await toolOrient(store, "team", RULES, {}, { for: "Muse", check: "true" }));
   assert.equal(out, "Nothing new. Check again in 5 minutes.");
+});
+
+// Dev, 2026-11-28: Muse checked in every 5 minutes and never saw mail written in its own bots/muse/mail/ folder. The
+// tool call dropped `check` on its way to orient, so every check-in got the full holder answer, which lists waiting
+// routines but not new mail. The check has to survive the real dispatch, not only a direct toolOrient call.
+test("a check-in sent as a tool call reaches the check, and lists new mail", async () => {
+  const asked = [];
+  const items = [{ kind: "mail", note: "bots/muse/mail/seyi.md", from: "@seyi", at: Date.parse("2026-11-28T00:24:00.000Z") }];
+  const store = orientStore(async (bot) => (asked.push(bot), { items, previousAt: Date.now() - 60_000 }));
+  store.get = async (key) => (key === PRIVACY_KEY ? { [PRE_PARSED_RULES]: { rules: RULES, overrides: new PrivacyOverrides() }, etag: "e" } : null);
+  const out = text(await callTool("orient", { for: "Muse", check: true }, store, "team"));
+  assert.deepEqual(asked, ["Muse"]);
+  assert.match(out, /^1 new for Muse:\n- mail from @seyi, 2026-11-28T00:24:00Z: bots\/muse\/mail\/seyi\.md/);
+  assert.equal(store.built, false);
 });
 
 test("a check where the workspace isn't on its object says so", async () => {
