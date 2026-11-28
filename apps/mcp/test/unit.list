@@ -867,3 +867,4 @@ test/labSandboxApp.test.mjs
 bench/test/benchAppChat.test.mjs
 test/agentActivityBots.test.mjs
 test/namedAlike.test.mjs
+test/texContextMcp.test.mjs
