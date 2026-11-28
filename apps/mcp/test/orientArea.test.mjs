@@ -236,3 +236,29 @@ test("orient about roster: who holds each area and which bots work here, read at
   assert.doesNotMatch(out, /secret/);
   assert.match(text(await toolOrient(store(), "private", RULES, OVERRIDES, { about: "roster" })), /`areas\/secret\/` — owner @seyi/);
 });
+
+test("orient about roster says when each bot last checked in and what waits for it, from the workspace object", async () => {
+  // Dev, 2026-11-28: an agent reads bot health itself rather than asking a person to open each bot's card.
+  const props = {
+    ...PROPS,
+    "areas/bots/finance/about.md": { properties: { bot: "grok", holder: "Finance", belongs_to: "@seyi" } },
+    "areas/bots/pipeline/about.md": { properties: { bot: "grok", holder: "Pipeline", belongs_to: "@kim" } },
+  };
+  const base = store();
+  const withState = (state) => ({
+    ...base,
+    treeEntries: async () => [...ENTRIES, { key: "areas/bots/finance/about.md", uploaded: at(1) }, { key: "areas/bots/pipeline/about.md", uploaded: at(1) }],
+    treeFacts: async (request) =>
+      request.ask === "props"
+        ? { served: true, props: request.paths.filter((path) => props[path]).map((path) => ({ path, props: JSON.stringify(props[path]) })) }
+        : base.treeFacts(request),
+    objectBots: { state: async () => state },
+  });
+  const served = { week: "2026-11-23", routines: [], usage: [], checks: [{ bot: "finance", at: Date.parse("2026-11-28T01:20:00Z") }], inbox: [{ bot: "finance", count: 2 }] };
+  const out = text(await toolOrient(withState(served), "team", RULES, OVERRIDES, { about: "roster" }));
+  assert.match(out, /- Finance \(@seyi's\)[^\n]* — last check-in 2026-11-28T01:20:00Z; 2 waiting in its inbox/);
+  assert.match(out, /- Pipeline \(@kim's\)[^\n]* — never checked in/);
+  // Where the object did not answer, nothing is said about check-ins rather than "never".
+  const unserved = text(await toolOrient(withState(null), "team", RULES, OVERRIDES, { about: "roster" }));
+  assert.doesNotMatch(unserved, /last check-in|never checked in/);
+});

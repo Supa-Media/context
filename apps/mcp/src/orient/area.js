@@ -304,7 +304,7 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
   }
   if (held.length > HOLDER_AREAS_SHOWN) parts.push(`(+${held.length - HOLDER_AREAS_SHOWN} more areas)`);
   parts.push(`## What each mode asks\n${Object.entries(MODE_MEANINGS).map(([mode, meaning]) => `- ${mode}: ${meaning}`).join("\n")}`);
-  if (!isPerson(holder)) parts.push(await otherBotsSection(store, entries, areasRoot, holder, byBot));
+  if (!isPerson(holder)) parts.push(await otherBotsSection(store, entries, areasRoot, holder, byBot, state));
   return toolText(parts.join("\n\n"));
 }
 
@@ -372,6 +372,6 @@ export async function rosterAnswer(store, scope, rules, overrides) {
     if (bot !== null) byBot.set(bot.toLowerCase(), [...(byBot.get(bot.toLowerCase()) ?? []), path.slice(0, -"/about.md".length)]);
   }
   const seats = await areaSeatsSection(store, scope, rules, overrides);
-  const bots = await otherBotsSection(store, entries, areasRoot, null, byBot);
+  const bots = await otherBotsSection(store, entries, areasRoot, null, byBot, await botsState(store));
   return toolText([seats || "No area here names an owner yet.", bots].join("\n\n"));
 }

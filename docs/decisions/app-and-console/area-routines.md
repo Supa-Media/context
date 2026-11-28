@@ -204,7 +204,13 @@ minutes it can be in good standing".
   the bot last checked (`previousAt`); `orient/botCheck.js` `FULL_AFTER_MS`.
 - **Good standing.** `ws.bots.state` (and the app's area-routines route) carries
   `checks: [{bot, at}]` and `inbox: [{bot, count}]`; the app shows a polling
-  bot as checking when it checked in within ten minutes.
+  bot as checking when it checked in within ten minutes. An agent reads the
+  same facts in `orient { about: "roster" }` and `orient { for }`'s "Other bots
+  here": each bot's last check-in, or "never checked in", and how many items
+  wait in its inbox; nothing is said where the object did not answer (Dev,
+  2026-11-28: an agent checks bot health itself rather than asking a person to
+  open each card; `orient/areaWork.js` `healthWords`,
+  `apps/mcp/test/orientArea.test.mjs`).
 - **Told in the prompt.** A bot set up with reach `mail` is told to make that
   call every 5 minutes on a timer that survives its session, and open only what
   it lists (`packages/shared/src/areaBots.cjs` `mailText`). Webhook bots are
