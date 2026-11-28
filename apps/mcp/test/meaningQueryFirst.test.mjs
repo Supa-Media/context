@@ -17,6 +17,8 @@
 //   `settle` forgetting a row whose text changed            -> "a note whose text changed ... is still found" fails
 //   the build sent before the query again                   -> "with changes waiting, the build is sent after ..." fails
 //   the build sent whatever the query says                  -> "a search with nothing waiting sends no build" fails
+//   `settle` run while a build is out to the model          -> "a query while a build waits on the model settles
+//                                                             nothing ..." fails
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -75,9 +77,20 @@ function workspace() {
   const objects = texObjects(sql, { now: () => 1_000 });
   const rows = workspaceRows(sql);
   // The model answers later, as Workers AI does: the object answers other calls while it waits.
+  let gate = null;
   const embed = async (texts) => {
     await new Promise((resolve) => setTimeout(resolve, 15));
+    if (gate !== null) await gate.held;
     return texts.map(fingerprint);
+  };
+  /** Hold the model's answers until `release()`: a build waiting on the model for as long as a test needs. */
+  const hold = () => {
+    let release;
+    gate = { held: new Promise((resolve) => (release = resolve)) };
+    return () => {
+      gate = null;
+      release();
+    };
   };
   const store = { objects, rows, marks: workspaceMarks(sql, { now: () => 1_000 }), search: workspaceSearch(sql, { rows, objects }), meaning: workspaceMeaning(sql, { rows, objects, embed }), sql };
   const taken = [];
@@ -116,7 +129,7 @@ function workspace() {
     const matches = await objectMeaningMatches(at, fingerprint(words), options);
     return { paths: (matches ?? []).map((match) => match.path), behind: at.behind };
   };
-  return { send, request, note, move, rewrite, search, taken };
+  return { send, request, note, move, rewrite, search, taken, hold, meaning: store.meaning, sql };
 }
 
 /** A workspace whose index has finished its first build, holding two notes, read into memory by one search. */
@@ -216,4 +229,29 @@ test("a query while a build waits on the model touches nothing that build holds,
   await found.behind();
   for (let pass = 0; pass < 10 && (await ws.send("ws.meaning.build")).waiting > 0; pass += 1);
   assert.deepEqual((await ws.search("marble quarry")).paths.slice(0, 1), ["plans/stone/garden.md"], "the new text, at the new path");
+});
+
+// The query and the build never both apply a change: `settle` runs only when no build is running, and it is synchronous,
+// so a build cannot start in the middle of it; a build running holds the rows it took until it has written them.
+test("a query while a build waits on the model settles nothing, and both together leave the index a build alone would", { skip }, async () => {
+  const ws = await built();
+  await ws.rewrite(1, "# Garden\nmarble quarry");
+  const release = ws.hold();
+  const save = ws.request();
+  meaningBuildBehind(save);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // While that build waits on the model: another note moved, and a search at once.
+  await ws.move(2, "plans/money/budget.md", 20);
+  const during = await ws.search("invoice payroll");
+  assert.deepEqual(during.paths.slice(0, 1), ["plans/budget.md"], "the running build holds the log: the query settled nothing, as a busy build did");
+  release();
+  await save.behind();
+  await during.behind();
+  for (let pass = 0; pass < 10 && (await ws.send("ws.meaning.build")).waiting > 0; pass += 1);
+
+  assert.equal((await ws.search("invoice payroll")).paths[0], "plans/money/budget.md");
+  assert.equal((await ws.search("marble quarry")).paths[0], "plans/garden.md");
+  const held = ws.sql.exec("SELECT row_id, path, tier, COUNT(*) AS n FROM ws_meaning_passages GROUP BY row_id, path, tier ORDER BY row_id").toArray();
+  assert.deepEqual(held.map(({ row_id, path, tier, n }) => [row_id, path, tier, Number(n)]), [["r1", "plans/garden.md", "team", 1], ["r2", "plans/money/budget.md", "team", 1]], "one passage each, at its path: nothing applied twice");
+  assert.equal(ws.meaning.state().waiting, 0);
 });
