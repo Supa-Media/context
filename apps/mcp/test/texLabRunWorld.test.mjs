@@ -77,11 +77,15 @@ const jobOf = (text, name) => {
 };
 
 test("workflow: heal-ready hands on the world answers of a run of main's code only, and holds no secret", () => {
-  const ready = jobOf(TEXT, "heal-ready");
-  assert.ok(ready, "a heal-ready job");
-  assert.match(ready, /needs: \[prep, run\]\n/);
+  const job = jobOf(TEXT, "heal-ready");
+  assert.ok(job, "a heal-ready job");
+  assert.match(job, /needs: \[prep, run\]\n/);
+  // Its steps live in a reusable workflow (to keep tex-lab-run.yml under 1,000 lines), handed the run's commit.
+  assert.match(job, /uses: \.\/\.github\/workflows\/tex-world-heal-ready\.yml\n\s+with:\n\s+sha: \$\{\{ needs\.prep\.outputs\.sha \}\}/);
+  const ready = readFileSync(join(dirname(WORKFLOW_PATH), "tex-world-heal-ready.yml"), "utf8");
+  assert.match(ready, /SHA: \$\{\{ inputs\.sha \}\}/);
   assert.match(ready, /ref: main\n/);
-  assert.match(ready, /git merge-base --is-ancestor "\$SHA" HEAD/, "a branch's run never heals main");
+  assert.match(ready, /git merge-base --is-ancestor "\$SHA" HEAD; then echo "ok=true"/, "a branch's run never heals main");
   assert.match(ready, /name: world-heal\n/);
   assert.doesNotMatch(ready, /secrets\./);
   assert.doesNotMatch(TEXT, /GH_ADMIN_TOKEN/, "the Lab run never names the admin token (check-bench-token-writer.mjs)");
