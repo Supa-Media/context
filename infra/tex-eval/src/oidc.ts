@@ -17,6 +17,8 @@ export const WORKFLOWS = {
   seed: `${REPOSITORY}/.github/workflows/tex-test-set-seed.yml@refs/heads/main`,
   "search-run": `${REPOSITORY}/.github/workflows/search-test-set.yml@refs/heads/main`,
   "search-seed": `${REPOSITORY}/.github/workflows/search-test-set-seed.yml@refs/heads/main`,
+  // Not a door of this service: the Lab runner (infra/tex-runner) checks its own audience with this same code.
+  "lab-runner": `${REPOSITORY}/.github/workflows/tex-lab-sandbox.yml@refs/heads/main`,
 } as const;
 export type Door = keyof typeof WORKFLOWS;
 
@@ -63,7 +65,7 @@ const b64url = (s: string) => {
 const decode = <T>(s: string): T => JSON.parse(new TextDecoder().decode(b64url(s))) as T;
 
 /** The bearer token's claims when GitHub signed it for this door; else throws `Refused` with the reason. */
-export async function verify(authorization: string | null, door: Door, keys: KeySource = githubKeys, now = Date.now()): Promise<Claims> {
+export async function verify(authorization: string | null, door: Door, keys: KeySource = githubKeys, now = Date.now(), audience: string = AUDIENCE): Promise<Claims> {
   const token = /^Bearer\s+(\S+)$/i.exec(authorization ?? "")?.[1];
   if (!token) throw new Refused("no token");
   const parts = token.split(".");
@@ -85,7 +87,7 @@ export async function verify(authorization: string | null, door: Door, keys: Key
   const s = Math.floor(now / 1000);
   if (claims.iss !== ISSUER) throw new Refused("not issued by GitHub Actions");
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!aud.includes(AUDIENCE)) throw new Refused("not meant for this service");
+  if (!aud.includes(audience)) throw new Refused("not meant for this service");
   if (!(claims.exp > s)) throw new Refused("expired");
   if (typeof claims.nbf === "number" && claims.nbf > s + 60) throw new Refused("not valid yet");
   if (claims.repository !== REPOSITORY) throw new Refused("not this repository");

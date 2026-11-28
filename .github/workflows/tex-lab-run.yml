@@ -332,10 +332,19 @@ jobs:
           [ -n "$PUB" ] || { echo "::error::no public key"; exit 1; }
           echo "Public key: ${#PUB} characters. The private half stays wrapped on the key job."
 
-  run:
+  # The Lab's runner (infra/tex-runner, tex-lab-sandbox.yml): with TEX_LAB_RUNNER=sandbox the run job runs on a one-job
+  # runner in a Cloudflare container. No label, and it runs on GitHub's runner as before. After the lease and the lock.
+  sandbox:
     needs: [prep, lease, wait-turn, publish-pub]
-    if: ${{ !cancelled() && needs.prep.result == 'success' && needs.lease.result == 'success' && needs.publish-pub.result == 'success' && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && vars.TEX_LAB_RUNNER == 'sandbox' && needs.prep.result == 'success' && needs.lease.result == 'success' && needs.publish-pub.result == 'success' && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped') }}
+    permissions:
+      id-token: write
+    uses: ./.github/workflows/tex-lab-sandbox.yml
+
+  run:
+    needs: [prep, lease, wait-turn, publish-pub, sandbox]
+    if: ${{ !cancelled() && needs.prep.result == 'success' && needs.lease.result == 'success' && needs.publish-pub.result == 'success' && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped') && needs.sandbox.result != 'cancelled' }}
+    runs-on: ${{ needs.sandbox.outputs.label && fromJSON(format('["self-hosted","{0}"]', needs.sandbox.outputs.label)) || 'ubuntu-latest' }}
     environment: production
     # Each Front door test now runs REPEATS times (3 by default, at most 5; `repeats` in texLabRuns.ts), so the
     # Front door's share of a run grows by that much; 90 minutes was a single pass's room.
@@ -967,34 +976,6 @@ jobs:
   heal-ready:
     needs: [prep, run]
     if: ${{ always() && needs.run.result != 'cancelled' && needs.run.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: The run ran main's code
-        id: main
-        env:
-          SHA: ${{ needs.prep.outputs.sha }}
-        run: |
-          if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$SHA" HEAD; then echo "ok=true" >> "$GITHUB_OUTPUT"
-          else echo "The run's code is not on main; its world answers are not kept"; fi
-
-      - uses: actions/download-artifact@v4
-        if: steps.main.outputs.ok == 'true'
-        continue-on-error: true
-        with:
-          name: world-fixtures
-          path: ${{ runner.temp }}/world-in/
-
-      - uses: actions/upload-artifact@v4
-        if: steps.main.outputs.ok == 'true'
-        with:
-          name: world-heal
-          path: ${{ runner.temp }}/world-in/
-          retention-days: 7
-          if-no-files-found: ignore
+    uses: ./.github/workflows/tex-world-heal-ready.yml
+    with:
+      sha: ${{ needs.prep.outputs.sha }}

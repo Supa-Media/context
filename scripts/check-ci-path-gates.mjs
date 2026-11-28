@@ -557,7 +557,7 @@ export function check(root = ROOT) {
     transcribe: { packages: ["@context/transcribe-worker"], runs: "infra/transcribe-worker" },
     egress: { packages: ["@context/egress-service"], runs: "infra/egress-service" },
     photon: { packages: ["@context/photon-bridge"], runs: "infra/photon-bridge" }, texcomputer: { packages: ["@context/tex-computer"], runs: "infra/tex-computer" },
-    siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" }, texeval: { packages: ["@context/tex-eval"], runs: "infra/tex-eval" },
+    siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" }, texeval: { packages: ["@context/tex-eval"], runs: "infra/tex-eval" }, texrunner: { packages: ["@context/tex-runner"], runs: "infra/tex-runner" },
     agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
   assertUnitSlices(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"));

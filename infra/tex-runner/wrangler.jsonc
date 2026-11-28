@@ -1,0 +1,28 @@
+{
+  // context-tex-runner: the Lab's runner (README.md). One GitHub Actions runner
+  // for one job of tex-lab-run.yml, in a container that stops when the job ends.
+  //
+  // Its only door is POST /v1/start, open to main's tex-lab-run.yml alone by its
+  // GitHub OIDC token. It holds one secret, GH_RUNNER_TOKEN, which can register
+  // a runner on the repository; it never leaves this Worker.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-tex-runner",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "containers": [
+    {
+      "class_name": "LabRunner",
+      "image": "./Dockerfile",
+      // 4 vCPU, 12 GiB, 20 GB disk: a Lab run keeps 24 Front door tests going at
+      // once, as it does on GitHub's 4-core runner.
+      "instance_type": "standard-4",
+      "max_instances": 4
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "LAB_RUNNER", "class_name": "LabRunner" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LabRunner"] }],
+  "observability": { "enabled": true }
+}

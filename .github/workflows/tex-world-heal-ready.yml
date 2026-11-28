@@ -1,0 +1,49 @@
+# A Lab run's world answers, handed on for tex-world-heal.yml (called by tex-lab-run.yml's heal-ready). No secret,
+# main's checkout: when the run ran code already on main, its `world-fixtures` artifact is uploaded again as
+# `world-heal`, which tex-world-heal.yml merges into main's fixtures so the next run replays them.
+name: Tex world heal ready
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit the run ran"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  heal-ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The run ran main's code
+        id: main
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$SHA" HEAD; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "The run's code is not on main; its world answers are not kept"; fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.main.outputs.ok == 'true'
+        continue-on-error: true
+        with:
+          name: world-fixtures
+          path: ${{ runner.temp }}/world-in/
+
+      - uses: actions/upload-artifact@v4
+        if: steps.main.outputs.ok == 'true'
+        with:
+          name: world-heal
+          path: ${{ runner.temp }}/world-in/
+          retention-days: 7
+          if-no-files-found: ignore

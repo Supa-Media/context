@@ -70,6 +70,8 @@ const SHARED_IGNORED = [
   "artifacts/**",
   "apps/desktop/**",
   "infra/domain-connect/**",
+  // The Lab's runner deploys to production only (its component there claims it first): no staging or preview copy.
+  "infra/tex-runner/**",
   "packages/encryption-decryptor/**",
   "README.md",
   "CLAUDE.md",
@@ -174,6 +176,8 @@ export const TARGETS = {
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       photon: { packages: ["@context/photon-bridge"], files: [workflow("deploy-photon-bridge")] },
       computer: { packages: ["@context/tex-computer"], files: [workflow("deploy-tex-computer")] },
+      // The Lab's runner checks GitHub's tokens with the eval service's code, so either changing redeploys it.
+      runner: { packages: ["@context/tex-runner", "@context/tex-eval"], files: [workflow("deploy-tex-runner")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
       // The router publishes the web export as one Worker version. Either
       // half changing must rebuild and deploy both halves of that version.

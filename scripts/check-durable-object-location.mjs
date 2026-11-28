@@ -24,6 +24,7 @@ const ROOTS = [
   "infra/egress-service/src",
   "infra/photon-bridge/src",
   "infra/tex-computer/src",
+  "infra/tex-runner/src",
   "infra/email-worker/src",
   "infra/router/src",
   "infra/sentry-worker/src",
@@ -38,6 +39,7 @@ const PLACERS = new Set([
   "infra/egress-service/src/handler.ts",
   "infra/photon-bridge/src/index.ts",
   "infra/tex-computer/src/index.ts",
+  "infra/tex-runner/src/index.ts",
   "infra/sentry-worker/src/worker.js",
   "infra/site-shots/src/idle.ts",
 ]);

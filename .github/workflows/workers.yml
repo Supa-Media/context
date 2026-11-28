@@ -39,6 +39,7 @@ on:
       - "infra/tex-computer/**"
       - "infra/site-shots/**"
       - "infra/tex-eval/**"
+      - "infra/tex-runner/**"
       - "apps/agent/**"
       - "packages/shared/src/**"
       - "packages/tex/src/**"
@@ -222,6 +223,28 @@ jobs:
       - name: Tex eval service tests
         if: ${{ !cancelled() && steps.texeval.outputs.affected == 'true' }}
         working-directory: infra/tex-eval
+        run: pnpm test
+
+      # ── The Lab's runner ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: texrunner
+        with:
+          packages: "@context/tex-runner"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Lab runner)
+        if: ${{ !cancelled() && steps.texrunner.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/tex-runner... --frozen-lockfile
+
+      - name: Typecheck (Lab runner)
+        if: ${{ !cancelled() && steps.texrunner.outputs.affected == 'true' }}
+        working-directory: infra/tex-runner
+        run: pnpm typecheck
+
+      - name: Lab runner tests
+        if: ${{ !cancelled() && steps.texrunner.outputs.affected == 'true' }}
+        working-directory: infra/tex-runner
         run: pnpm test
 
       # ── Site Shots Worker ──
