@@ -680,7 +680,9 @@ export async function runEmailGateChecks(check) {
       readEmail({ ...EMAIL, from: "other@example.com", in_reply_to: "email:me@example.com/18cafe" }).email?.mailbox === "me@example.com",
   );
   check(
-    "...and the person is told it is a reply in the thread",
-    emailCopy(reply).includes("(A reply inside the existing email thread.)") && !emailCopy(readEmail(EMAIL).email).includes("existing email thread"),
+    "...and the person sees it is a reply by its Re: subject, with no sentence of ours in the copy (2026-11-28)",
+    emailCopy(reply).includes("\nSubject: Re: Thursday\n") && !emailCopy(reply).includes("existing email thread") &&
+      readEmail({ ...EMAIL, subject: "Re: Thursday", in_reply_to: "email:me@example.com/18cafe" }).email?.subject === "Re: Thursday" &&
+      emailCopy(readEmail(EMAIL).email).includes("\nSubject: Thursday\n"),
   );
 }

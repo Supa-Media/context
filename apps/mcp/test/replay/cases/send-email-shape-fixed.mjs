@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { sixToolsOver } from "../../../../../packages/tex/gateway/agent/sixTools.js";
 import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
 import { inSixNames, staleToolNames } from "../../../../../packages/tex/gateway/agent/promptNames.js";
-import { readEmail } from "../../../src/tools/email.js";
+import { emailCopy, readEmail } from "../../../src/tools/email.js";
+import { parseAskEmail } from "../../../../../packages/tex/gateway/agent/appChatCards.js";
 
 const KANSI = {
   to: ["info@cityleague.example"],
@@ -46,5 +47,14 @@ export default {
     assert.equal(six.manualOnFailure("send", { action: "email" }), first);
     assert.deepEqual(staleToolNames(first), []);
     assert.deepEqual(staleToolNames(inSixNames("Pass the email:<address>/<id> id search_email gave.")), []);
+
+    // 2026-11-28: the copy texted for a yes carried "(A reply inside the existing email thread.)", a sentence of ours,
+    // in ten previews. A reply now shows by its Re: subject, the copy holds only headers and body, and the app still
+    // reads it as a reply.
+    const reply = readEmail({ ...KANSI, subject: "Event venue", from: "me@team.example", in_reply_to: "email:me@team.example/1a205a21935afbd5" }).email;
+    const copy = emailCopy(reply);
+    assert.match(copy, /\nSubject: Re: Event venue\n\nHi Dane/);
+    assert.doesNotMatch(copy, /\((?!Attached)[A-Z][^)]*\.\)/);
+    assert.equal(parseAskEmail(`Drafted it.\n\n${copy}`)?.thread, true);
   },
 };

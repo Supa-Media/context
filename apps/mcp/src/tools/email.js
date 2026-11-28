@@ -167,7 +167,10 @@ export function readEmail(args) {
       ...(mailbox ? { mailbox } : {}),
       to: to.list,
       cc: cc.list,
-      subject,
+      // A reply's subject opens with "Re:", as Gmail and Outlook write it, so the copy the person reads says it answers
+      // an email without a line of ours under the headers (2026-11-28: "(A reply inside the existing email thread.)"
+      // was texted in ten previews, a sentence the code wrote).
+      subject: reply !== null && !REPLY_SUBJECT.test(subject) ? `Re: ${subject}` : subject,
       body,
       ...(reply ? { replyTo: reply.messageId } : {}),
       ...(forward ? { forward: forward.messageId } : {}),
@@ -177,7 +180,8 @@ export function readEmail(args) {
 }
 
 /**
- * The email exactly as the person reads it before they say yes. A forward
+ * The email exactly as the person reads it before they say yes: its headers and body, never a sentence of ours (a
+ * reply shows as one by its "Re:" subject, `readEmail`). A forward
  * also says what goes below their words: the forwarded email (`forwarded`,
  * read by `emailGate.js`) and each attachment by name.
  */
@@ -187,7 +191,6 @@ export function emailCopy(email, forwarded = null, attached = []) {
     `To: ${email.to.join(", ")}`,
     ...(email.cc.length > 0 ? [`Cc: ${email.cc.join(", ")}`] : []),
     `Subject: ${email.subject}`,
-    ...(email.replyTo ? ["(A reply inside the existing email thread.)"] : []),
     "",
     email.body,
     ...(email.forward ? ["", forwardedLine(forwarded)] : []),
