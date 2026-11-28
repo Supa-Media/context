@@ -36,13 +36,20 @@ function itemLine(item) {
   return `- mail${sender}${at ? `, ${at}` : ""}${area}: ${item.note}`;
 }
 
-export async function botCheckAnswer(store, rawBot, full = null, now = Date.now()) {
+export async function botCheckAnswer(store, rawBot, full = null, now = Date.now(), boundOf = boundBotsOf) {
   const bot = String(rawBot ?? "").trim();
   if (!bot || bot.length > 80) return toolError('invalid: for must be the bot checking in, e.g. "Grok Bot"');
   const everything = `orient { for: ${quoted(bot)} }`;
+  // Only that bot's own connection records a check-in (`recordCheckIn`). Anyone else gets the read-only answer, and
+  // nothing is recorded: a person or another bot orienting for it must not make it look alive (Dev, 2026-11-27).
+  const checkable = typeof store?.objectBots?.check === "function";
+  if (checkable && !(await boundAs(store, bot, boundOf))) {
+    if (typeof full === "function") return await full();
+    return toolText(`Only ${bot}'s own connection checks it in, so this records nothing. ${everything} lists its holder.`);
+  }
   let answer = null;
   try {
-    answer = typeof store?.objectBots?.check === "function" ? await store.objectBots.check(bot) : null;
+    answer = checkable ? await store.objectBots.check(bot) : null;
   } catch {
     answer = null;
   }
@@ -62,13 +69,23 @@ export async function botCheckAnswer(store, rawBot, full = null, now = Date.now(
  * or Tex reading a bot's areas never makes it look alive. Never throws; what waits is left for the next check.
  */
 export async function recordCheckIn(store, rawBot, boundOf = boundBotsOf) {
-  const bot = mailJoinName(String(rawBot ?? "").trim());
-  if (bot === "" || typeof store?.objectBots?.check !== "function") return false;
+  if (typeof store?.objectBots?.check !== "function") return false;
+  if (!(await boundAs(store, rawBot, boundOf))) return false;
   try {
-    const bound = await boundOf(store);
-    if (!bound.some((each) => mailJoinName(each.bot) === bot || mailJoinName(each.name ?? "") === bot)) return false;
     await store.objectBots.check(String(rawBot).trim());
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether this connection is bound as `rawBot`, by its bot name or its name (the one test both check-in paths use). */
+async function boundAs(store, rawBot, boundOf) {
+  const bot = mailJoinName(String(rawBot ?? "").trim());
+  if (bot === "") return false;
+  try {
+    const bound = await boundOf(store);
+    return bound.some((each) => mailJoinName(each.bot) === bot || mailJoinName(each.name ?? "") === bot);
   } catch {
     return false;
   }

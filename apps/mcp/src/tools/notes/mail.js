@@ -159,6 +159,9 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       const name = mailName(request.join);
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
       if (helper && name !== helper.mail) return toolError(`refused: you are ${helper.name} via ${helper.botName}, so you join only as "${helper.mail}". Pass join: "${helper.mail}"`);
+      // A helper's mail name is "<name>-via-<bot>-<4 chars>", and the app shows any sender of that shape as that helper
+      // with its bot's face. Only that helper's own connection joins as one (Dev, 2026-11-27).
+      if (!helper && name.includes("-via-")) return toolError(`refused: "${name}" is shaped like a bot helper's name (<name> via <bot>), and only that helper's own connection joins as it; pick your own name`);
       if (bots.length > 0 && !bots.some((each) => each.bot === name)) {
         const list = bots.map((each) => `"${each.bot}"`).join(" or ");
         return toolError(`refused: this connection is bound here as ${list}, so it joins only as one of those. Pass join: ${list}, or bind this bot first with manage area { bind_bot }`);
