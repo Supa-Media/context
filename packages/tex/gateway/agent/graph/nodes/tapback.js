@@ -14,14 +14,15 @@ const STICKER_FALLBACK = "❤️";
 /**
  * `lastFailed`: the last call this turn made before it failed (only the last: one that fails beside it in the same
  * round is caught when the round settles, `tapbackEnding.js`). `tagged`: a literal @Tex tag, always answered in words,
- * as `say_nothing` is refused there (Dev2, 2026-11-12).
+ * as `say_nothing` is refused there (Dev2, 2026-11-12), unless this turn already followed up with the tagger in their own
+ * chat (`followedUp`, `privateAside.js`): their 1:1 text is the answer, and words here would only say so (Dev2, 2026-11-27).
  * `sticker`: a sticker of this chat's, by its id, asked for in the emoji's place (only while the step's "Chat stickers"
  * setting is on, `tapbackEnding.js`); handed on when it reads as one, and the Worker checks the chat kept it.
- * @param {{ emoji: string, why?: string, lastFailed?: boolean, tagged?: boolean, sticker?: string }} input
+ * @param {{ emoji: string, why?: string, lastFailed?: boolean, tagged?: boolean, followedUp?: boolean, sticker?: string }} input
  */
 export async function tapbackNode(input) {
   const refuse = (why) => ({ to: "refuse", why });
-  if (input?.tagged === true) return refuse("they tagged you by name, so this turn answers them in words; reply with text instead");
+  if (input?.tagged === true && input?.followedUp !== true) return refuse("they tagged you by name, so this turn answers them in words; reply with text instead");
   if (input?.lastFailed === true) return refuse("your last call failed, so tell them what happened in words");
   const sticker = stickerIdOf(input?.sticker);
   // With a sticker, the emoji only goes if the sticker can't: an emoji off the list never holds the sticker back

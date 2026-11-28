@@ -273,7 +273,7 @@ export const READ_TOOLS = Object.freeze(
  */
 export const REAL_GATE = Object.freeze(new Set(["send_email"]));
 
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer", "name_guest"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer", "name_guest", "text_privately"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the

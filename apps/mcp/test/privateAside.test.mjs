@@ -47,7 +47,10 @@ test("a guest is told to make an account first, and no link is made", async () =
   const result = await call("vault_add_link", { site: "instacart.com" });
   assert.equal(result.isError, true);
   assert.equal(said(result), GUEST_ASIDE_REFUSAL);
-  assert.match(GUEST_ASIDE_REFUSAL, /set up an account first/);
+  const facts = JSON.parse(GUEST_ASIDE_REFUSAL);
+  assert.equal(facts.sent, false);
+  assert.equal(facts.has_account, false, "a guest is told, as a fact, that they have no account");
+  assert.match(facts.to_sign_up, /text you directly/, "and the way to sign up: texting Tex on their own");
   assert.equal(made, 0);
   assert.equal(ledger.asides, undefined);
   const tool = privateAsideTool({ group: guest, ledger });

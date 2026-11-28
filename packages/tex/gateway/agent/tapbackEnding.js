@@ -58,7 +58,7 @@ export const TAPBACK_DEFINITION = {
   name: TAPBACK_TOOL,
   description:
     "Answer their text with one tapback on it instead of words, and end your turn: nothing is texted. " +
-    "Refused after a call that failed, and when they tagged you by name.",
+    "Refused after a call that failed, and when they tagged you by name, unless this turn you followed up with them in their own chat (text_privately).",
   inputSchema: {
     type: "object",
     properties: {
@@ -131,14 +131,15 @@ export function lastCallFailed(messages) {
  * The local tool and the `endsTurn` it settles with. `gate(input)` runs the Tapback node over the config's wire and
  * answers `{ to: "react", emoji }` or `{ to: "refuse", why }`; a refusal goes back to the model, which writes words.
  */
-export function tapbackEnding({ gate, tagged = false, stickers = false }) {
+/** `followedUp()`: whether this turn already followed up with the tagger in their own chat (`privateAside.js` `followedUpWith`). */
+export function tapbackEnding({ gate, tagged = false, followedUp = () => false, stickers = false }) {
   let chosen = null;
   let stuck = null;
   const local = {
     tool: TAPBACK_DEFINITION,
     call: async (args = {}, turn = {}) => {
       const asked = stickers === true ? stickerIdOf(args.sticker) : null;
-      const out = await gate({ emoji: typeof args.emoji === "string" ? args.emoji : "", why: typeof args.why === "string" ? args.why.slice(0, 300) : "", lastFailed: lastCallFailed(turn.messages), tagged: tagged === true, ...(asked ? { sticker: asked } : {}) }).catch(() => null);
+      const out = await gate({ emoji: typeof args.emoji === "string" ? args.emoji : "", why: typeof args.why === "string" ? args.why.slice(0, 300) : "", lastFailed: lastCallFailed(turn.messages), tagged: tagged === true, ...(followedUp() === true ? { followedUp: true } : {}), ...(asked ? { sticker: asked } : {}) }).catch(() => null);
       if (out?.to !== "react" || tapbackEmoji(out.emoji) === null) {
         const why = typeof out?.why === "string" && out.why ? out.why : "the tapback could not be checked";
         return { isError: true, content: [{ type: "text", text: `No tapback: ${why}. Write your reply in words.` }] };

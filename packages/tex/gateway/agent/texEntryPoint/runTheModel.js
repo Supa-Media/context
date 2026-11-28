@@ -82,7 +82,7 @@ import { agentTools, runTurn } from "../turn.js";
 import { examplesOptions } from "../turnExamples.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { VAULT_SAVED_QUESTION, withGroupVault, withVaultWatch } from "../vaultSaved.js";
-import { privateAsideTool, withPrivateLinks } from "../privateAside.js";
+import { followedUpWith, privateAsideTool, withPrivateLinks } from "../privateAside.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
 import { threadsSortAndWrite } from "../conversationThreads.js";
@@ -225,7 +225,7 @@ export async function runTheModel(t, via) {
   // answering a text of theirs the Worker can react to. Never on their own tapback (the Worker never taps a tapback:
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
-  const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true, stickers: settingsOf(env, "tapback").stickers === true }) : null;
+  const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true, followedUp: () => followedUpWith(ledger), stickers: settingsOf(env, "tapback").stickers === true }) : null;
   // A sticker this chat kept, sent as its own picture, named or not (`stickerSend.js`): while the chat kept some and "Chat stickers" is on.
   const stickersOn = settingsOf(env, "tapback").stickers === true, keptIds = keptStickerIds(body);
   const stickering = chatTurn && job === null && !routine && report === null && !t.crossChat && stickersOn && keptIds.length > 0 ? stickerSending({ kept: keptIds, onChosen: (id) => void (ledger.chatSticker = id) }) : null;

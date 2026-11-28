@@ -70,3 +70,15 @@ reversed.
 
 A background job's turn in a group still says a vault link in its report. Only a chat's own turns, routines
 included, send it on the side.
+
+## A tapback in the group, and guests sign up first (Dev2, 2026-11-28)
+
+Asked why group Tex texted "Texting you now" instead of a tapback, Dev2 agreed the group gets a tapback: a literal @Tex
+tag is still answered in words, unless that turn already followed up with the tagger in their own chat
+(`privateAside.js` `followedUpWith`, the Tapback node's `followedUp`). A calendar owner's aside does not count: it is
+not the tagger's. A sensitive ask (a login, a card) keeps its short line, as Dev2 chose on 2026-11-25.
+
+"The 1:1 shouldn't work with someone who is a guest. If someone asks for a 1:1 chat it should prompt them to sign up
+for an account": a guest's `text_privately` keeps no aside and answers facts (`has_account: false`, `to_sign_up`),
+and Tex tells them in its own words. The Lab runs `text_privately` for real, so a test chat shows this answer.
+Replay case: `group-login-on-the-side`.

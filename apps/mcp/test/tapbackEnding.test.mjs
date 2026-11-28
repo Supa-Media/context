@@ -27,6 +27,7 @@
  * 11. `stickersLine` handing the stickers while "Chat stickers" is off (`on` ignored).
  *     → "the front door is handed the chat's kept stickers as data, only while Chat stickers is on" fails.
  */
+import { followedUpWith } from "../../../packages/tex/gateway/agent/privateAside.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TAPBACK_DEFINITION, TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, stickersLine, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
@@ -70,6 +71,18 @@ test("a tagged turn's tapback is refused", async () => {
   const ending = tapbackEnding({ gate: gateOf, tagged: true });
   assert.equal((await ending.local.call({ emoji: "👍" }, { messages: [] })).isError, true);
   assert.equal(ending.endsTurn(TAPBACK_TOOL), null);
+});
+
+test("a tagged group turn that followed up with the tagger 1:1 may answer the group with a tapback", async () => {
+  assert.equal((await tapbackNode({ emoji: "👍", tagged: true, followedUp: true })).to, "react");
+  const ledger = {};
+  const ending = tapbackEnding({ gate: gateOf, tagged: true, followedUp: () => followedUpWith(ledger) });
+  assert.equal((await ending.local.call({ emoji: "👍" }, { messages: [] })).isError, true, "before any follow-up: words");
+  ledger.asides = [{ what: "a calendar clash", texts: [], to: "seyi", calendar: true }];
+  assert.equal((await ending.local.call({ emoji: "👍" }, { messages: [] })).isError, true, "a calendar owner's aside is not the tagger's");
+  ledger.asides.push({ what: "Go over their week with them.", texts: [] });
+  assert.notEqual((await ending.local.call({ emoji: "👍" }, { messages: [] })).isError, true);
+  assert.equal(ending.endsTurn(TAPBACK_TOOL), tapbackAnswer("👍"));
 });
 
 test("a refused tapback goes back to the model and never ends the turn", async () => {

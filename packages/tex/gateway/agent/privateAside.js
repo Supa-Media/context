@@ -57,11 +57,24 @@ export function canAside(group) {
   return group !== null && group !== undefined && group.guestTagger !== true && typeof group.from === "string" && group.from !== "";
 }
 
-/** What a guest is told instead: no account yet, so nothing sensitive is asked for anywhere. */
-export const GUEST_ASIDE_REFUSAL =
-  "Not sent: whoever tagged you isn't on Context, so they have no chat of their own with you to be texted the details in. " +
-  "Tell them in one short line to text you on their own from their phone to set up an account first, and that you'll text them for it then; " +
-  "never ask for it, or explain how to give it, here.";
+/**
+ * What a guest's call answers instead (Dev2, 2026-11-27: "the 1:1 shouldnt work with someone who is a guest. if someone
+ * ask for a 1:1 chat it should prompt them to signup for an account"): facts, never words for Tex to say. Texting Tex's
+ * number on their own is how a phone with no account signs up (the setup texts), so that is the way named.
+ */
+export const GUEST_ASIDE_REFUSAL = JSON.stringify({
+  sent: false,
+  status: "not_on_context",
+  has_account: false,
+  own_chat_with_you: false,
+  to_sign_up: "text you directly, not here",
+  after_sign_up: "follow up there",
+});
+
+/** Whether this turn already followed up with whoever tagged Tex in their own chat: their 1:1 text answers them. */
+export function followedUpWith(ledger) {
+  return (Array.isArray(ledger?.asides) ? ledger.asides : []).some((aside) => aside && aside.calendar !== true);
+}
 
 function keep(ledger, aside) {
   const asides = (ledger.asides ??= []);
@@ -112,7 +125,8 @@ export function privateAsideTool({ group, ledger }) {
         "Follow up with whoever tagged you in their own chat with you, for what is theirs alone and not for this group: something sensitive you need " +
         "from them (a card, an ID, a one-time code), or something of theirs to give them or go over with them there (their own notes, a summary, a draft, a question). " +
         "what: what their own Tex should do there, in a sentence. Their own Tex, which reads all of their notes and calendar, texts them right after your answer, " +
-        "and can post back here what they choose to share. Here, say only that you'll text them; never the details.",
+        "and can post back here what they choose to share. Here, a tapback on their text is enough (send action tapback); never the details. " +
+        "Someone not on Context has no chat of their own with you yet: the call says so.",
       inputSchema: {
         type: "object",
         properties: {
