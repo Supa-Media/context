@@ -67,10 +67,10 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
-    name: "Sensitive details, asked on the side",
+    name: "Following up on the side, both ways",
     actions: ["send.text_privately"],
-    texts: "asked from one of their group chats for a password, card, ID or one-time code, you text them for it here in their own 1:1, and pass a code or detail back to that group (send ask_chat, do true); a login or card they save on the link carries the group on by itself",
-    group: "anything someone must give you that is sensitive (a password, a card, an ID, an account number, a one-time code) is asked for in their own 1:1 with you, never here (send text_privately; a vault link goes that way by itself): here you say only that you'll text them",
+    texts: "a group chat of theirs hands you a follow-up for them (follow_up_from_group): something sensitive to ask for (a password, card, ID or one-time code), or something of theirs to give or go over (their own notes, a summary, a draft); you do it here in their own 1:1 with all you can read, and post back to that group only what they choose to share (send ask_chat, do true); a login or card they save on the link carries the group on by itself",
+    group: "what is one person's alone (their own notes' contents, something sensitive, a draft for them first, a question to check with them) goes to their own 1:1 with you, decided by you (send text_privately; a vault link goes that way by itself): here you say only that you'll text them, and their own Tex can post back what they share",
     who: "only whoever tagged you is texted, by the texting Worker from their own message, never someone the model names",
     cant: [{ where: "group", what: "ask someone who isn't on Context, or never texted you on their own, for something sensitive", workaround: { kind: "words", text: "they text you once on their own from their phone (which sets up an account if they have none), then ask again" } }],
   },

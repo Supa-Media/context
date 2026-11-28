@@ -25,7 +25,8 @@ jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeo
 // main's costs already stood 2.95% over the artifact's and one more line (manage area) put them past the 3%. The
 // front door's Training and its about-Tex and working words are held at their sizes on 2026-11-25 the same way, when
 // new Training moments and a plain pitch of Context (#4234) put a 1:1 turn past the 3%. The two voice modules are held
-// at their sizes on 2026-11-26, when the words for matching each chat's texting style put a 1:1 turn past it.
+// at their sizes on 2026-11-26, when the words for matching each chat's texting style put a 1:1 turn past it. The rules
+// module is held at its size on 2026-11-27, when its section on a group and their own chat put core/q1's cost past it.
 jest.mock("@context/lab/app/labData.generated", () => {
   const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
   return {
@@ -40,6 +41,7 @@ jest.mock("@context/lab/app/labData.generated", () => {
       "train:fd:all:100000": "t".repeat(68491),
       "p-how-you-talk": "h".repeat(7544),
       "p-sound-like-a-person": "s".repeat(2345),
+      "p-rules": "r".repeat(4918), // before its section on a group and their own chat (2026-11-27, #4517)
     },
   };
 });

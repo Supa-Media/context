@@ -14,7 +14,7 @@ import { test } from "node:test";
 
 import { privateAsideTool, withPrivateLinks, GUEST_ASIDE_REFUSAL, MAX_ASIDES } from "../../../packages/tex/gateway/agent/privateAside.js";
 import { withVaultWatch } from "../../../packages/tex/gateway/agent/vaultSaved.js";
-import { crossChatOf, crossChatPrompt, crossChatQuestion } from "../../../packages/tex/gateway/agent/crossChat.js";
+import { backTo, crossAskTool, crossChatOf, crossChatPrompt, crossChatQuestion } from "../../../packages/tex/gateway/agent/crossChat.js";
 import { groupOf, groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { GROUP_SENSITIVE_LINE } from "../../../packages/tex/gateway/agent/groupSignIns.js";
 
@@ -32,8 +32,7 @@ test("the model never sees the link: it goes to the tagger alone, and the save s
   const result = await call("vault_add_link", { type: "login", site: "instacart.com" });
   assert.equal(result.isError, undefined);
   assert.doesNotMatch(said(result), /vault\//, "no link in what the model reads");
-  assert.match(said(result), /@shyoh/);
-  assert.match(said(result), /I'll text you/);
+  assert.deepEqual(JSON.parse(said(result)), { link_made: true, texted_privately: "@shyoh", when: "right after your answer", this_group_sees: "nothing of it", once_they_save: "you are told here and carry on" });
   assert.equal(ledger.asides.length, 1);
   assert.match(ledger.asides[0].texts[0], new RegExp(TOKEN), "the link's words go to them exactly");
   assert.match(ledger.asides[0].what, /instacart\.com/);
@@ -59,7 +58,7 @@ test("text_privately keeps the ask for the tagger, at most twice a turn; other t
   const ledger = {};
   const tool = privateAsideTool({ group: member, ledger });
   assert.equal(tool.tool.name, "text_privately");
-  assert.match(said(await tool.call({ what: "the code Instacart just sent you, to sign in for the order" })), /say only/);
+  assert.deepEqual(JSON.parse(said(await tool.call({ what: "the code Instacart just sent you, to sign in for the order" }))), { texted_privately: "@shyoh", when: "right after your answer", this_group_sees: "nothing of it" });
   assert.equal((await tool.call({ what: "" })).isError, true);
   for (let i = 1; i < MAX_ASIDES; i++) await tool.call({ what: `ask ${i}` });
   assert.equal((await tool.call({ what: "one more" })).isError, true);
@@ -69,15 +68,52 @@ test("text_privately keeps the ask for the tagger, at most twice a turn; other t
   assert.equal(said(passed), "write_note");
 });
 
-test("the tagger's 1:1 run is told to text them, with the link exactly, and to pass a code back to the group", () => {
+test("the tagger's 1:1 run is handed the follow-up as data: the link's words exactly, and how to pass back to the group", () => {
   const event = crossChatOf({ event: "chat_answer", crossChat: { id: "xabcdefghij01", from: "a group chat they're in", what: "a private link to save instacart.com", state: "aside", texts: [LINK], key: "d".repeat(64) } }, { chatTurn: true, job: null });
   assert.equal(event.state, "aside");
   assert.equal(event.key, "d".repeat(64));
-  assert.match(crossChatQuestion(event), /not in front of the group/);
-  const prompt = crossChatPrompt(event);
-  assert.match(prompt, new RegExp(TOKEN));
-  assert.match(prompt, /ask_chat, do true, chat "d{64}"/);
-  assert.match(prompt, /never ask them to send it there/);
+  assert.equal(crossChatQuestion(event), `(${JSON.stringify({ event: "follow_up_from_group", group: "a group chat they're in", chat: "d".repeat(64) })})`);
+  const facts = JSON.parse(crossChatPrompt(event).trim()).follow_up_from_group;
+  assert.deepEqual(facts, {
+    group: "a group chat they're in",
+    chat: "d".repeat(64),
+    follow_up: "a private link to save instacart.com",
+    the_group_sees: "nothing of this chat",
+    private_link_words: [LINK],
+    send_link_words: "exactly as written",
+    back_to_the_group: `send ask_chat, do true, chat "${"d".repeat(64)}"`,
+  });
+});
+
+// Dev2, 2026-11-27 ("yea you can text me 1:1" went unanswered; "a two way loop indeed"): a group's Tex follows up with
+// its tagger for anything of theirs, not only something sensitive, and their own Tex can post back what they share.
+// Sabotage: make `backTo` return null and "the follow-up run can answer back" fails; let it return any group and
+// "to that one group only" fails.
+test("text_privately takes any follow-up for the tagger, and their 1:1 run can answer back to that one group only", async () => {
+  const ledger = {};
+  const tool = privateAsideTool({ group: member, ledger });
+  assert.match(tool.tool.description, /their own notes, a summary/);
+  await tool.call({ what: "Send them a short summary of their own thoughts and reflection notes." });
+  assert.deepEqual(ledger.asides, [{ what: "Send them a short summary of their own thoughts and reflection notes.", texts: [] }]);
+  const key = "d".repeat(64);
+  const groups = [{ key, name: "Battle of the Bots" }, { key: "e".repeat(64), name: "Family" }];
+  const event = crossChatOf({ event: "chat_answer", crossChat: { id: "xabcdefghij02", from: "a group chat they're in", what: "summary", state: "aside", texts: [], key } }, { chatTurn: true, job: null });
+  assert.equal(backTo(event, groups), groups[0]);
+  const fired = [];
+  const asking = crossAskTool({ event, groups, counts: { hour: 0, day: 0, open: [] }, ledger: {}, gate: async (input) => (fired.push(input), { to: "ask", ask: { to: input.to } }) });
+  assert.ok(asking, "the follow-up run can answer back");
+  assert.match(asking.tool.description, /Battle of the Bots/);
+  assert.doesNotMatch(asking.tool.description, /Family/, "to that one group only");
+  assert.equal((await asking.call({ chat: "Family", what: "share it", do: true })).isError, true);
+  await asking.call({ chat: "Battle of the Bots", what: "Post the fall reflection summary they chose to share.", do: true });
+  assert.equal(fired[0].to.key, key);
+  // Any other run another chat started still asks nobody (one hop).
+  const answered = crossChatOf({ event: "chat_answer", crossChat: { id: "xabcdefghij03", from: "a group", what: "x", state: "answered", texts: ["y"], key } }, { chatTurn: true, job: null });
+  assert.equal(crossAskTool({ event: answered, groups, counts: { hour: 0, day: 0, open: [] }, ledger: {}, gate: async () => null }), null);
+  const ask = crossChatOf({ event: "chat_ask", crossChat: { id: "xabcdefghij04", from: "a group", what: "x" } }, { chatTurn: true, job: null });
+  assert.equal(crossAskTool({ event: ask, groups, counts: { hour: 0, day: 0, open: [] }, ledger: {}, gate: async () => null }), null);
+  // A group's own turn never asks.
+  assert.equal(crossAskTool({ event, group: member, groups, counts: { hour: 0, day: 0, open: [] }, ledger: {}, gate: async () => null }), null);
 });
 
 test("every group is told sensitive details are asked for in their own chat, never here", () => {
