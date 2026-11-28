@@ -260,6 +260,14 @@ function advertisesTeamConfirmation(name) {
   return Boolean(tool?.inputSchema?.properties?.confirm_team_publish);
 }
 
+/**
+ * A group chat's turn: the group client's grant, or a Lab group test chat's, which runs on the Lab user's own grant
+ * (`packages/lab/gateway/labSandbox/chatRun.js`) and is told what a real group's turn is told.
+ */
+function groupTurn(session, sandbox) {
+  return session?.actorClientId === TEXTS_GROUP_CLIENT_ID || sandbox?.about?.kind === "group";
+}
+
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
 export async function callToolForSession(params, store, session, options = {}) {
   const { error, params: call, v2 } = options.legacy ? { params, v2: null } : translateV2Params(params, store); // v2 → the existing call, before any gate
@@ -275,7 +283,7 @@ export async function callToolForSession(params, store, session, options = {}) {
     if (wrongPlace) return inWordsOf(v2, toolError(wrongPlace));
     const stubbed = await toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
     // A note the test chat wrote is told the notes beside it named alike, as a real read is (`notes/namedAlike.js`).
-    if (stubbed !== null) return session?.actorClientId === TEXTS_GROUP_CLIENT_ID ? await sandboxNamedAlike(canonicalToolName(call?.name), call?.arguments, stubbed, sandbox) : stubbed;
+    if (stubbed !== null) return groupTurn(session, sandbox) ? await sandboxNamedAlike(canonicalToolName(call?.name), call?.arguments, stubbed, sandbox) : stubbed;
   }
   // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
   if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
@@ -295,7 +303,7 @@ export async function callToolForSession(params, store, session, options = {}) {
   if (v2?.tool === "fetch") options = { ...options, fetchCap: true };
   // A group chat's Tex is told which search hits are private notes (`search.js` `PRIVATE_HIT_LABEL`; `roomCheck.js`)
   // and, on a read, which notes beside it are named alike (`notes/namedAlike.js`).
-  const groupClient = session?.actorClientId === TEXTS_GROUP_CLIENT_ID;
+  const groupClient = groupTurn(session, sandbox);
   if (groupClient) options = { ...options, markPrivate: true, namedAlike: true };
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
