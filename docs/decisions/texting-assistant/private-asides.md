@@ -77,6 +77,8 @@ Asked why group Tex texted "Texting you now" instead of a tapback, Dev2 agreed t
 tag is still answered in words, unless that turn already followed up with the tagger in their own chat
 (`privateAside.js` `followedUpWith`, the Tapback node's `followedUp`). A calendar owner's aside does not count: it is
 not the tagger's. A sensitive ask (a login, a card) keeps its short line, as Dev2 chose on 2026-11-25.
+The call's answer carries `answer_here: "tapback"` as a fact, since the description alone still left Haiku texting
+"Texting you now." in the Lab; a vault link's answer (a login) does not carry it.
 
 "The 1:1 shouldn't work with someone who is a guest. If someone asks for a 1:1 chat it should prompt them to sign up
 for an account": a guest's `text_privately` keeps no aside and answers facts (`has_account: false`, `to_sign_up`),

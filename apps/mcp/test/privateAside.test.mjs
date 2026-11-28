@@ -61,7 +61,7 @@ test("text_privately keeps the ask for the tagger, at most twice a turn; other t
   const ledger = {};
   const tool = privateAsideTool({ group: member, ledger });
   assert.equal(tool.tool.name, "text_privately");
-  assert.deepEqual(JSON.parse(said(await tool.call({ what: "the code Instacart just sent you, to sign in for the order" }))), { texted_privately: "@shyoh", when: "right after your answer", this_group_sees: "nothing of it" });
+  assert.deepEqual(JSON.parse(said(await tool.call({ what: "the code Instacart just sent you, to sign in for the order" }))), { texted_privately: "@shyoh", when: "right after your answer", this_group_sees: "nothing of it", answer_here: "tapback" });
   assert.equal((await tool.call({ what: "" })).isError, true);
   for (let i = 1; i < MAX_ASIDES; i++) await tool.call({ what: `ask ${i}` });
   assert.equal((await tool.call({ what: "one more" })).isError, true);

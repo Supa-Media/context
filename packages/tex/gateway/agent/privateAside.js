@@ -148,7 +148,9 @@ export function privateAsideTool({ group, ledger }) {
       const what = clip(args?.what, MAX_WHAT);
       if (what === "") return text("Not sent: say what you need from them, in a sentence.", true);
       if (!keep(ledger, { what, texts: [] })) return text(`Not sent: this answer already texts @${group.from} privately ${MAX_ASIDES} times. Wait for their reply.`, true);
-      return text(sentLine(group));
+      // A tapback is the group's whole answer to a follow-up (Dev2, 2026-11-28); the description alone left Haiku
+      // texting "Texting you now." (Lab, 2026-11-28), so the result carries it as a fact too.
+      return text(JSON.stringify({ ...sentFacts(group), answer_here: "tapback" }));
     },
   };
 }
@@ -156,10 +158,6 @@ export function privateAsideTool({ group, ledger }) {
 /** What the group's model is told once an aside is kept: facts, never words to say (`no-scripted-wording`). */
 function sentFacts(group) {
   return { texted_privately: `@${group.from}`, when: "right after your answer", this_group_sees: "nothing of it" };
-}
-
-function sentLine(group) {
-  return JSON.stringify(sentFacts(group));
 }
 
 /**
