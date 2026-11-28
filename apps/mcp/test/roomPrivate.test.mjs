@@ -12,6 +12,8 @@
  *   (iii) roomCheck.js `privateNotesIn`: the search-hit half removed. "a search hit marked private is kept" fails.
  *   (iv)  roomCheck.js `roomVerdict`: `secretIn` ignored. "a passcode read this turn is held, even when named" fails.
  *   (v)   search.js `toolSearchNotes`: `markPrivate` ignored. "a group's search marks a private hit" fails.
+ *   (vi)  texConfig.json: the roomCheck outSchema back to before 2026-11-28 → "every field the node returns is one its
+ *         config's outSchema names" fails (the live bug it was written for).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -106,4 +108,20 @@ test("the chat's own home is the room's, never a private note to hold", () => {
   assert.equal(privateNotesIn(home).size, 0, "a bare path is the chat's home");
   assert.equal(privateNotesIn(home, "context-lc").size, 0, "its home under tex/groups/");
   assert.equal(privateNotesIn("3 matching notes\n\ntex/groups/abc/about.md\n    (private note)\n    Rehearsal").size, 0);
+});
+
+// Live on 2026-11-28 the node's new `private`/`named` counts were not in its config's outSchema, so the graph failed the
+// node on every group turn and the draft went unchecked (a Lab test chat on main caught it). Every field it returns,
+// on a pass and on a hold, must be one the config names.
+test("every field the node returns is one its config's outSchema names", async () => {
+  const { TEX_CONFIG } = (await import("../../../packages/tex/src/texConfig.cjs")).default;
+  const names = new Set(TEX_CONFIG.nodes.find((node) => node.id === "roomCheck").outSchema.map((field) => field.name));
+  const reads = await readsOf({ "projects/bandco-plans.md": ok(PLANS), "inbox/phone.md": ok("etag: \"e3\"\npath: inbox/phone.md\nvisibility: private\n\n# Phone\nScreen Time passcode: 4817") });
+  const turn = (answer) => ({ roomReads: reads, group: GROUP, question: "tex what are the bandco action items", history: [], ledger: {}, turn: { answer }, session: {} });
+  const outs = [
+    await roomCheckNode({ at: "answer" }, { ctx: { turn: turn("Book the hall.") } }),
+    await roomCheckNode({ at: "answer" }, { ctx: { turn: turn("Cut the Friday showcase with Wendell and Halvorsen; the passcode is 4817.") } }),
+  ];
+  assert.deepEqual(outs.map((out) => out.to), ["pass", "hold"]);
+  for (const out of outs) for (const key of Object.keys(out)) assert.ok(names.has(key), `roomCheck returns "${key}", which texConfig.json's outSchema does not name`);
 });
