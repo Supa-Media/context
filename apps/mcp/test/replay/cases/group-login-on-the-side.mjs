@@ -21,7 +21,8 @@ export default {
   // Sabotage (2026-11-25): return the vault tool's own answer from `withPrivateLinks`, or put "send whoever asked a
   // vault_add link" back in the group prompt, and this fails. Sabotage (2026-11-27): put "You can't text anyone outside the
   // chat. " back alone, or make `crossChat.js` `backTo` return null, and this fails. Sabotage
-  // (2026-11-28): drop `followedUp` from the Tapback node's tagged check, or let a guest's call keep an aside, and this fails.
+  // (2026-11-28): drop `followedUp` from the Tapback node's tagged check, or let a guest's call keep an aside, or send `to` naming the tagger to the calendar
+  // aside, and this fails.
   async run() {
     const group = { ...groupOf({ group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "shyoh", people: ["shyoh", "seyi"], reach: ["supa"] } }), home: { folder: "tex/groups/cactus-lotus-badge" } };
     const told = groupPrompt(group, "supa");
@@ -45,6 +46,9 @@ export default {
     assert.equal((await tapbackNode({ emoji: "👍", tagged: true, followedUp: followedUpWith({ asides: [{ what: "x", texts: [] }] }) })).to, "react");
     assert.equal((await tapbackNode({ emoji: "👍", tagged: true, followedUp: followedUpWith({}) })).to, "refuse");
     // A guest has no 1:1: the call says so as facts, and how to sign up (Dev2, 2026-11-27).
+    const named = {};
+    assert.notEqual((await privateAsideTool({ group, ledger: named }).call({ to: "@shyoh", what: "Go over their week." })).isError, true, "naming the tagger in to is still their follow-up");
+    assert.equal(named.asides.length, 1);
     const guestCall = await privateAsideTool({ group: { ...group, from: "", guestTagger: true }, ledger: {} }).call({ what: "Go over their week." });
     assert.equal(guestCall.isError, true);
     assert.equal(JSON.parse(guestCall.content[0].text).has_account, false);

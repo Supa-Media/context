@@ -138,7 +138,12 @@ export function privateAsideTool({ group, ledger }) {
     },
     call: async (args) => {
       const to = typeof args?.to === "string" ? args.to.trim().replace(/^@/, "").toLowerCase() : "";
-      if (to !== "") return calendarAside(group, ledger, to, clip(args?.what, MAX_WHAT));
+      // `to` naming the tagger is their own follow-up: Haiku names them (`to: "@ada"`) more often than not, and that
+      // was refused as a calendar clash with no calendar (Lab, 2026-11-28). Only another handle is a calendar's owner.
+      // A guest naming anyone but a calendar's owner (themselves, by name) is still told to sign up.
+      const tagger = typeof group.from === "string" ? group.from.toLowerCase() : "";
+      const self = to === "" || (tagger !== "" && to === tagger);
+      if (!self && (calendarOwners(group).includes(to) || group.guestTagger !== true)) return calendarAside(group, ledger, to, clip(args?.what, MAX_WHAT));
       if (!canAside(group)) return text(GUEST_ASIDE_REFUSAL, true);
       const what = clip(args?.what, MAX_WHAT);
       if (what === "") return text("Not sent: say what you need from them, in a sentence.", true);
