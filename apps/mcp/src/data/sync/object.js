@@ -218,18 +218,30 @@ export function dataSyncClass(deps = {}) {
       if ((old === null || old.stopped === true) && live >= MAX_SOURCES) return { error: "too_many", said: `A workspace connects at most ${MAX_SOURCES} app sources.` };
       // Back from GitHub's sign-in page (a reconnect) no installation is named: the one this workspace keeps is checked again.
       let kept;
+      let keptRepos = null;
       if (installed && !namesOne) {
         const held = ((await this.storage.get("connections")) ?? {})[app] ?? null;
         const opened = held === null ? null : await openConnection(held.sealed, { secret: this.env?.GATEWAY_SECRET, workspaceId, app }).catch(() => null);
         kept = typeof opened?.installation === "string" ? opened.installation : null;
         if (kept === null) return { error: "refused", said: "GitHub didn't say which installation; connect it again from the data page." };
+        keptRepos = Array.isArray(opened?.repos) ? opened.repos : null;
       }
       const input = installed ? { code: key, ...(namesOne ? { installation } : { kept }) } : { key, ...(account ? { account } : {}) };
       const checked = await APPS[app].check(input, deps.fetcher ?? fetch, this.env, this.now());
       if (!checked.ok) return { error: "refused", said: `${checked.said}.` };
+      // A reconnect never widens anything, and the repositories the owner picked are part of that: a check answers
+      // `repos: null`, which reads every repository in reach, so the pick is carried over, narrowed to what the owner
+      // can still read. None of it reachable any more means the owner picks again, never that the source reads it all.
+      let keeping = checked.kept;
+      if (keptRepos !== null) {
+        const reach = Array.isArray(checked.kept?.reach) ? checked.kept.reach : [];
+        const still = keptRepos.filter((name) => reach.includes(name));
+        if (still.length === 0) return { error: "refused", said: "None of the repositories you picked for this source are ones you can read now; pick again from the data page" };
+        keeping = { ...checked.kept, repos: still };
+      }
       let sealed;
       try {
-        sealed = await sealConnection(checked.kept, { secret: this.env?.GATEWAY_SECRET, workspaceId, app });
+        sealed = await sealConnection(keeping, { secret: this.env?.GATEWAY_SECRET, workspaceId, app });
       } catch {
         return { error: "unavailable", said: "This deployment can't keep a key." };
       }
