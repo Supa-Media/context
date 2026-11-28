@@ -37,7 +37,7 @@ import { builtinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { builtinMeter, dayOf } from "./jobLog.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { sandboxGateOf } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { failedAt, memoryNudge } from "./memoryNudge.js";
@@ -183,7 +183,7 @@ export function ownDispatch(store, session, env = null) {
   const gate = sandboxGateOf(env);
   const own = { ...session, egress: { ...(session.egress ?? {}), ledger: newLedger() }, ...(gate !== null ? { labSandbox: gate } : {}) };
   Object.defineProperty(own, "accessToken", { value: session.accessToken, enumerable: false });
-  return (name, args) => callToolForSession({ name, arguments: args }, store, own);
+  return contextTools(store, own);
 }
 
 function log(session, fields) {

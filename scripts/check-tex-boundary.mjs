@@ -5,7 +5,7 @@
  *
  * Decided by the owner, 2026-11-28 (docs/decisions/texting-assistant/tex-service.md):
  * Tex moves out of the gateway Worker into a Worker of its own, deployed from a
- * private repository, and reaches Context only through one gateway entrypoint.
+ * private repository, and reaches Context only over MCP, as a client.
  * Today the two are one program: Tex's code imports gateway modules directly,
  * and gateway code imports Tex's.
  *

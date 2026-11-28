@@ -27,7 +27,7 @@
 import { json } from "../../../../apps/mcp/src/http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { jobMailOf } from "./background.js";
 import { jobTagged, storeLedger } from "./ledger.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
@@ -100,7 +100,7 @@ export function rosterText({ path, context, name, mailbox, others = [] }) {
 }
 
 /** One tool call under the job's grant, as the job's turn would make it. */
-const callAs = (store, session) => (name, args) => callToolForSession({ name, arguments: args }, store, session, { legacy: true });
+const callAs = (store, session) => contextTools(store, session, { legacy: true });
 
 const textOf = (result) => (Array.isArray(result?.content) ? result.content.map((part) => part?.text ?? "").join("\n") : "");
 

@@ -27,7 +27,7 @@
 
 import { actorFor } from "../../../../apps/mcp/src/context/identity.js";
 import { PINNED_CONTEXT_NAME } from "../../../../apps/mcp/src/orient/globalNote.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { readWithEtag } from "./jobLog.js";
 import { withoutFence } from "./promptFence.js";
 import { HOME_NOTES } from "./homeNames.js";
@@ -62,7 +62,7 @@ export async function openChatHome(store, { log = console.log } = {}) {
     if (!opened?.store) return shut("no_store");
     if (typeof session?.chatHome !== "string") return shut("no_folder");
     opened.store.actor = actorFor(session);
-    return { folder: session.chatHome, session, store: opened.store, dispatch: (name, args) => callToolForSession({ name, arguments: args }, opened.store, session) };
+    return { folder: session.chatHome, session, store: opened.store, dispatch: contextTools(opened.store, session) };
   } catch (error) {
     return shut(`open_failed:${String(error?.name ?? "error").slice(0, 40)}`);
   }
