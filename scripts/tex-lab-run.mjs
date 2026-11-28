@@ -33,6 +33,7 @@ import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
 import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun.mjs";
+import { devConversations, trainingConversations } from "../packages/lab/src/labRunSets.mjs";
 
 const requireHere = createRequire(import.meta.url);
 const { unitTests } = requireHere("../packages/tex/src/texSets.cjs");
@@ -114,37 +115,8 @@ export function runVerdict(rows) {
   return { fallbacks: fell.fallbacks, valid: false, invalid: (fell.valid ? broken : `${broken}; ${fell.invalid}`).slice(0, 200) };
 }
 
-/** The Dev conversations a run covers: the repo's with the Lab's drafts over them, one chat when the run names one. */
-export function devConversations(repo, drafts, convId = null) {
-  const byId = new Map(repo.filter((c) => c.set === "dev").map((c) => [c.id, c]));
-  for (const d of drafts ?? []) {
-    if (d.set !== "dev" || d.removed) {
-      byId.delete(d.id);
-      continue;
-    }
-    let conv = null;
-    try {
-      conv = typeof d.conv === "string" ? JSON.parse(d.conv) : d.conv;
-    } catch {
-      conv = null;
-    }
-    if (conv && Array.isArray(conv.msgs)) byId.set(d.id, { ...conv, id: d.id, set: "dev" });
-  }
-  const all = [...byId.values()];
-  if (convId === null) return all;
-  return all.filter((c) => c.id === convId);
-}
-
-/**
- * The Training conversations a Training run covers: the repo's, less any the Lab moved to Dev or removed (Dev2,
- * 2026-11-18: "prove it on Training ... a scored Lab Training run"). The Lab's Training drafts carry only their id and
- * set, so a conversation edited in the Lab runs as the repo has it until its Promote.
- */
-export function trainingConversations(repo, drafts, convId = null) {
-  const gone = new Set((drafts ?? []).filter((d) => d.set !== "training" || d.removed).map((d) => d.id));
-  const all = repo.filter((c) => c.set === "training" && !gone.has(c.id));
-  return convId === null ? all : all.filter((c) => c.id === convId);
-}
+// Which conversations a run covers lives in `packages/lab/src/labRunSets.mjs`, shared with the Lab sandbox's bench run.
+export { devConversations, trainingConversations } from "../packages/lab/src/labRunSets.mjs";
 
 /**
  * The run's world as the Lab reads it (`texLabRuns.cleanResults`): the simulated calls no fixture answered, by kind, and
