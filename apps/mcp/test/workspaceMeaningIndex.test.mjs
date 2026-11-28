@@ -142,6 +142,24 @@ test("the archive and passages outside the prefix are left out before the closes
   assert.equal((await query(object, "lantern", { prefix: 3 })).status >= 400, true, "a prefix is a path");
 });
 
+// Whether a passage is archived is worked out once, when its path is set, and kept beside it in memory; a note moved
+// into the archive while the index is held, or out of it, is left out or let back in on the next query.
+// Sabotage: drop `archived` from the moved entry's update in `catchUp` and the moved-in note is still nominated.
+test("a note moved into the archive while the index is in memory is left out, and let back in when it moves out", { skip }, async () => {
+  const object = await seeded([{ prefix: "plans", visibility: "team" }, { prefix: "archive", visibility: "team" }]);
+  await note(object, 1, "plans/old.md", "# Old\nlantern harbor ferry");
+  await note(object, 2, "plans/new.md", "# New\nlantern harbor");
+  await object.call("ws.meaning.build");
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry")).sort(), ["plans/new.md", "plans/old.md"], "the index is read into memory");
+  await note(object, 1, "archive/old.md", "# Old\nlantern harbor ferry", 20);
+  await object.call("ws.meaning.build");
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry")), ["plans/new.md"]);
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry", { prefix: "archive/" })), ["archive/old.md"]);
+  await note(object, 1, "plans/old.md", "# Old\nlantern harbor ferry", 30);
+  await object.call("ws.meaning.build");
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry")), ["plans/old.md", "plans/new.md"]);
+});
+
 // Sabotage: drop the same-text branch in `catchUp` and the embed count rises.
 test("a moved note and a change of rules keep its fingerprints; only a changed text is embedded again", { skip }, async () => {
   const object = await seeded();
