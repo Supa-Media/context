@@ -4,7 +4,7 @@
  * `texEntryPoint.js`, which calls it, to keep that file to one job.
  */
 
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { callContextTool } from "../contextMcp.js";
 import { doneLine } from "./doneLine.js";
 import { folded } from "./folded.js";
 import { canonicalToolName } from "../../../../apps/mcp/src/tools/advertised.js";
@@ -343,7 +343,7 @@ export async function settleByText(store, session, verdict, { chat = null } = {}
       actorScope: session.scope,
       run: (held) =>
         replayAsAsked(store, session, held, (approver) =>
-          callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
+          callContextTool(store, approver, { name: held.tool, arguments: held.args }),
         ),
     });
     if (settled.status === "denied") {

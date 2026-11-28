@@ -73,7 +73,7 @@ const versionOf = (env) => {
 import { threadOf } from "./threadView.js";
 import { appendLogEntryWhy, builtinMeter, clock, readWithEtag } from "./jobLog.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { markUntrusted, newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { SEARCH_WEB_TOOL, webSession } from "./computer.js";
@@ -377,7 +377,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   store.contexts = contextsFor(session);
   // It reads only its own workspace, and what it says goes to the person's own phone.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
+  const dispatch = contextTools(store, session);
 
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();

@@ -11,7 +11,7 @@ import { HOUSEKEEPING_CLIENT_ID } from "./housekeeping.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { sessionLedger } from "./ledger.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { json } from "../../../../apps/mcp/src/http/responses.js";
 
@@ -34,7 +34,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   store.contexts = contextsFor(session);
   // Nothing a dream reads is sent anywhere, and the one thing it writes is in their own workspace.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
+  const dispatch = contextTools(store, session);
 
   const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
   const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
@@ -61,7 +61,7 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   store.contexts = contextsFor(session);
   // Nothing housekeeping reads is sent anywhere, and nothing it changes widens who sees it.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
+  const dispatch = contextTools(store, session);
 
   const timeZone = readTimeZone(body.housekeeping.timeZone) ?? DEFAULT_TIME_ZONE;
   const { outputs } = await night(env, session, { run: "housekeeping", timeZone }, { env, store, session, controlPlane, dispatch });

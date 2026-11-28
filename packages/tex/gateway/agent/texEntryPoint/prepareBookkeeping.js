@@ -2,7 +2,7 @@
 
 import { setupLogged } from "../promptModules.js";
 import { newLedger } from "../../../../../apps/mcp/src/privacy/egress.js";
-import { callToolForSession } from "../../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../../contextMcp.js";
 import { BUILTIN_PROVIDER } from "../builtin.js";
 import { heardEntry, heardEvents } from "../heardWords.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
@@ -84,7 +84,7 @@ export async function prepareBookkeeping(t) {
   const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
   Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   // The pictures they texted, kept in a note of their own (`textedPictures.js`) as the turn is saved: the daily transcripts that kept them are no longer written.
-  const keepPictures = texting && !runner ? () => keepTextedPictures((name, args) => callToolForSession({ name, arguments: args }, store, unseen), { now: received, timeZone, attachments: fresh }).catch(() => [])
+  const keepPictures = texting && !runner ? () => keepTextedPictures(contextTools(store, unseen), { now: received, timeZone, attachments: fresh }).catch(() => [])
     // A group's pictures, in its home, when the front door reads the week's history (`weekHistory.js`); a home is opened with the history, before this runs.
     : group !== null && !runner && weekOn(t.env) ? () => (group.home ? keepTextedPictures(group.home.dispatch, { now: received, timeZone, attachments: fresh, folder: `${group.home.folder}/pictures`, group: true }).catch(() => []) : null)
     : () => null;

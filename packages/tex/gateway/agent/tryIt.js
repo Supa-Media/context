@@ -32,7 +32,7 @@
 import { json } from "../../../../apps/mcp/src/http/responses.js";
 import { contextsFor, editsPinnedContext } from "../../../../apps/mcp/src/context/identity.js";
 import { grantedToolsFor } from "./sixTools.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { SCOPE_PRIVATE, SCOPE_READ } from "../../../../apps/mcp/src/session.js";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
@@ -196,7 +196,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   const persona = tryPersona(body.as);
   // Played as someone else, the turn reads nothing: their notes are what the case says, not the caller's.
   const tools = persona !== null ? [] : [...agentTools(offered), ...(skills?.tools ?? [])];
-  const dispatch = tryDispatcher(tools, (name, args) => callToolForSession({ name, arguments: args }, store, reader));
+  const dispatch = tryDispatcher(tools, contextTools(store, reader));
   const model = canRunBuiltin(setup.model, env) ? setup.model : undefined;
   const router = model !== undefined ? turnRouter(setup, (name) => canRunBuiltin(name, env), () => decisionEngine(env.AI)) : null;
   const fallback = model !== undefined && setup.fallback !== null && canRunBuiltin(setup.fallback, env) ? setup.fallback : null;

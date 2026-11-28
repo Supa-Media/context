@@ -2,7 +2,7 @@
 
 import { actorFor, contextsFor } from "../../../../../apps/mcp/src/context/identity.js";
 import { json } from "../../../../../apps/mcp/src/http/responses.js";
-import { callToolForSession } from "../../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../../contextMcp.js";
 import { jobOf, jobReportOf, jobReportQuestion } from "../background.js";
 import { mailDomainOf } from "../chatHome.js";
 import { groupOf, isGroupSession } from "../groupTurn.js";
@@ -72,7 +72,7 @@ export async function readTheText(t) {
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
   // A tool call through the client's own dispatcher, under this session.
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
+  const dispatch = contextTools(store, session);
   let routine = null;
   let runs = [];
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.

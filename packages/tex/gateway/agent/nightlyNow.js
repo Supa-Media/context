@@ -14,7 +14,7 @@ import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { aboutMeChanges } from "./dream.js";
 import { readAboutMe } from "./aboutMe.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
-import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
+import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 
 export const NIGHTLY_RUNS = Object.freeze(["dream", "housekeeping"]);
@@ -42,7 +42,7 @@ export async function runNightlyNow({ env, store, session, controlPlane, config,
   store.contexts = contextsFor(session);
   // As the nightly route: nothing it reads is sent anywhere, and what it writes is in their own workspace.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = given ?? ((name, args) => callToolForSession({ name, arguments: args }, store, session));
+  const dispatch = given ?? contextTools(store, session);
   const zone = readTimeZone(timeZone) ?? DEFAULT_TIME_ZONE;
   const before = await readAboutMe(dispatch);
   const graph = gatewayGraph({ env, writer, ...(config ? { config } : {}), ...(nodes ? { nodes } : {}) });
