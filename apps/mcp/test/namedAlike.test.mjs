@@ -12,6 +12,8 @@
  *         cannot see is never named" fails.
  *   (iv)  session.js `groupTurn`: the Lab group test chat half removed → "a Lab group test chat's read is told too"
  *         fails (the Lab runs a group test chat on its user's own grant, so it was never told; Lab, 2026-11-28).
+ *   (v)   policy.js `sandboxedTool`: answering with `toolAnswer` alone → "a group test chat's turn ... is told too"
+ *         fails (Tex's turn answers a test chat's own note there, never through session.js; Lab, 2026-11-28).
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,6 +22,7 @@ import { TEXTS_GROUP_CLIENT_ID } from "../src/machines/reach.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { namesAlike, nameWords, withNamedAlike, NAMED_ALIKE } from "../src/tools/notes/namedAlike.js";
 import { sandboxNamedAlike } from "../src/labSandbox/sandboxTools.js";
+import { LAB_SANDBOX_KEY, sandboxedTool } from "../src/labSandbox/policy.js";
 import { withServedTree } from "./servedTree.mjs";
 
 function workspaceStore(notes, rules) {
@@ -120,4 +123,20 @@ test("a Lab group test chat's read is told too, though it runs on the Lab user's
   const group = await readAs("group");
   assert.match(header(group), new RegExp(`^${NAMED_ALIKE}: friday-setlist.page.md$`, "m"), group.content[0].text);
   assert.doesNotMatch((await readAs("person")).content[0].text, new RegExp(NAMED_ALIKE));
+});
+
+test("a group test chat's turn reading a note it wrote is told too, as Tex's turn answers it (`sandboxedTool`)", async () => {
+  const held = [
+    { path: "band/zephyr-setlist.page.md", body: "# Z", adds: [] },
+    { path: "band/friday-setlist.page.md", body: "# F", adds: [] },
+  ];
+  const gateOf = (kind) => ({
+    about: { kind },
+    call: async (op, fields) => (op === "note.list" ? { notes: held } : op === "note.get" ? { found: held.find((note) => note.path === fields.path) ?? null } : {}),
+    record() {},
+    keepWrite() {},
+  });
+  const read = (kind) => sandboxedTool({ [LAB_SANDBOX_KEY]: gateOf(kind) }, { name: "read_note", args: { path: "band/zephyr-setlist.page.md" } });
+  assert.match(header(await read("group")), new RegExp(`^${NAMED_ALIKE}: friday-setlist.page.md$`, "m"));
+  assert.doesNotMatch((await read("person")).content[0].text, new RegExp(NAMED_ALIKE));
 });

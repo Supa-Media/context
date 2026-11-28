@@ -15,7 +15,7 @@
  *    live rooms, no secrets of other Workers; the objects only through `wire.js`, analytics as writers that keep nothing.
  */
 
-import { overlayRead, sandboxWrite } from "./sandboxTools.js";
+import { overlayRead, sandboxNamedAlike, sandboxWrite } from "./sandboxTools.js";
 import { etagRefusalByName } from "../tools/etagPlace.js";
 
 /** The env key a test turn's env carries its gate under; never set on a real request's env. */
@@ -366,10 +366,16 @@ export async function sandboxPrecheck(env, precheck, args) {
   return refused ?? null;
 }
 
-/** `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). */
+/**
+ * `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). A group test
+ * chat's read of a note it wrote is told the notes beside it named alike, as a real group's read is
+ * (`sandboxTools.js` `sandboxNamedAlike`): Tex's turn answers it here, never through `session.js`.
+ */
 export async function sandboxedTool(env, call) {
   const gate = sandboxGateOf(env);
-  return gate === null ? null : await toolAnswer(call?.name, call?.args, gate);
+  if (gate === null) return null;
+  const answer = await toolAnswer(call?.name, call?.args, gate);
+  return answer !== null && gate.about?.kind === "group" ? await sandboxNamedAlike(call?.name === "fetch" ? "read_note" : call?.name, call?.args, answer, gate) : answer;
 }
 
 /** Bindings a test turn is given as they are: the model, pictures, the deploy's version. */
