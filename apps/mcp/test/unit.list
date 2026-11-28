@@ -118,6 +118,7 @@ test/meaningServe.test.mjs
 test/meaningById.test.mjs
 test/meaningWrite.test.mjs
 test/meaningQueryFirst.test.mjs
+test/meaningPackedRead.test.mjs
 test/meetingClaimTree.test.mjs
 test/meetingResolveTree.test.mjs
 test/mover.test.mjs
