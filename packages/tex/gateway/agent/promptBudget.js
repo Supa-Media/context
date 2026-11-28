@@ -157,14 +157,14 @@ function largestText(body, end = Infinity, once = null) {
     if (key !== null && once?.has(key)) return;
     if (typeof text === "string" && text.length > (best?.text.length ?? EARLIER.length + 1)) best = { text, set, key };
   };
-  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; }, "system");
+  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; }, "sys");
   else if (Array.isArray(body.system)) {
     body.system.forEach((block, index) => {
-      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; }, `system:${index}`);
+      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; }, `sys/${index}`);
     });
   }
   (body.tools ?? []).forEach((tool, index) => {
-    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; }, `tool:${index}`);
+    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; }, `tool/${index}`);
   });
   (body.messages ?? []).forEach((message, index) => {
     if (index >= end) return; // the turn's own messages, when the cut keeps them
@@ -223,7 +223,9 @@ function cut(body, target, { older = true, newest = true, clip = true, keepFrom,
  */
 export const PREFIX_CAP = HAIKU_INPUT_BUDGET - 2 * TRIM_STEP;
 
-const prefixTokens = (body) => estimateBodyTokens({ system: body.system, tools: body.tools, messages: [] });
+/** The body with its messages left out: the system prompt and the tool list alone. */
+const prefixOf = (body) => ({ ...body, messages: [] });
+const prefixTokens = (body) => estimateBodyTokens(prefixOf(body));
 
 /**
  * Halve the longest system block or tool description until the two are under `PREFIX_CAP`, then mark every one of
@@ -232,15 +234,15 @@ const prefixTokens = (body) => estimateBodyTokens({ system: body.system, tools: 
  */
 function capPrefix(body, once) {
   let shed = 0;
-  const onlyPrefix = { system: body.system, tools: body.tools, messages: [] };
+  const onlyPrefix = prefixOf(body);
   while (prefixTokens(body) > PREFIX_CAP && clipLargest(onlyPrefix, 0, null)) {
     body.system = onlyPrefix.system;
     body.tools = onlyPrefix.tools;
     shed += 1;
   }
-  if (typeof body.system === "string") once.add("system");
-  (Array.isArray(body.system) ? body.system : []).forEach((_, index) => once.add(`system:${index}`));
-  (body.tools ?? []).forEach((_, index) => once.add(`tool:${index}`));
+  if (typeof body.system === "string") once.add("sys");
+  (Array.isArray(body.system) ? body.system : []).forEach((_, index) => once.add(`sys/${index}`));
+  (body.tools ?? []).forEach((_, index) => once.add(`tool/${index}`));
   return shed;
 }
 
