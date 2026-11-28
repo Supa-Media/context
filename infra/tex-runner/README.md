@@ -10,6 +10,9 @@ private repository's GitHub minutes much more. Why and how it is held:
 - `src/start.ts`: the one door, `POST /v1/start`, for main's `tex-lab-run.yml`
   by its GitHub OIDC token (audience `context-tex-runner`). Registers the
   runner, starts its container, and answers the job's label once it is online.
+  And `POST /v1/stop`, from the same workflow with `stop` once the run job is
+  over (a cancelled run included): stops that run's container and removes its
+  runner now.
 - `src/index.ts`: `LabRunner`, one Durable Object and container per label, and
   the alarm that stops it at the job's timeout.
 - `Dockerfile`: GitHub's runner image plus what the job's own scripts call.

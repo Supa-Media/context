@@ -945,6 +945,19 @@ jobs:
           [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1
 
+  # Stops the Lab's runner once the run job is over, a cancelled run included (lab-runner.md; slot 0 has no release).
+  sandbox-stop:
+    name: Stop the Lab runner
+    needs: [sandbox, run]
+    if: ${{ always() && vars.TEX_LAB_RUNNER == 'sandbox' && needs.sandbox.result != 'skipped' }}
+    permissions:
+      id-token: write
+    uses: ./.github/workflows/tex-lab-sandbox.yml
+    with:
+      stop: true
+    secrets:
+      TEX_RUNNER_ORIGIN: ${{ secrets.TEX_RUNNER_ORIGIN }}
+
   # Frees the leased slot once write-token has stored its token, so the next lease of that slot signs in with the
   # new one. Skipped when no slot was leased.
   release:

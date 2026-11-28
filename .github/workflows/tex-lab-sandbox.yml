@@ -3,10 +3,20 @@
 # outputs the label that job then runs on. The Worker opens only to this file on main, run from main (its OIDC token's
 # job_workflow_ref and ref), so a branch's copy, or main's copy called from a branch, gets nothing. It never fails the
 # run: with no label the run job runs on GitHub's runner, as before.
+#
+# With `stop`, called after the run job ends however it ends (a cancelled run included), it asks the Worker to stop
+# this run attempt's container and remove its runner now, instead of at the Worker's alarm hours later. The Worker
+# takes the run and attempt from the token, so a caller can only stop its own run's runner.
 name: Tex Lab sandbox runner
 
 on:
   workflow_call:
+    inputs:
+      stop:
+        description: "Stop this run attempt's runner instead of asking for one"
+        type: boolean
+        required: false
+        default: false
     outputs:
       label:
         description: "The run job's runner label, or empty for GitHub's runner"
@@ -21,6 +31,7 @@ permissions:
 
 jobs:
   ask:
+    if: ${{ !inputs.stop && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -46,3 +57,27 @@ jobs:
             echo "::warning::no Lab runner ($(printf '%s' "$answer" | jq -r '.error // "no answer"' 2>/dev/null | head -c 200)); the run job runs on GitHub's runner"
           fi
 
+  stop:
+    # always(): the caller's job runs after a cancel, and this job must too, or the runner outlives the run.
+    if: ${{ always() && inputs.stop }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Stop this run's Lab runner
+        env:
+          ORIGIN: ${{ secrets.TEX_RUNNER_ORIGIN }}
+        run: |
+          set -uo pipefail
+          [ -n "$ORIGIN" ] || { echo "no TEX_RUNNER_ORIGIN; nothing to stop"; exit 0; }
+          echo "::add-mask::$ORIGIN"
+          token=$(curl -fsS --max-time 30 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=context-tex-runner" | jq -r '.value // empty') || token=""
+          [ -n "$token" ] || { echo "::warning::no OIDC token; the Lab runner stops at its deadline instead"; exit 0; }
+          for try in 1 2 3; do
+            answer=$(curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $token" "$ORIGIN/v1/stop") && {
+              echo "Lab runner $(printf '%s' "$answer" | jq -r '"\(.label) released (container was running: \(.stopped))"' 2>/dev/null)"
+              exit 0
+            }
+            sleep $((try * 5))
+          done
+          echo "::warning::the Lab runner did not answer the stop; it stops at its deadline instead"

@@ -6,7 +6,8 @@
  * runner of our own: one container per run (`LabRunner`, named by the run's label), started with GitHub's
  * just-in-time configuration for exactly one job. The workflow, its secrets, its sealing and its artifacts are the
  * same as on GitHub's runners; only where the job runs changes. When the job ends the runner exits and the container
- * stops. An alarm stops it at the job's own timeout anyway, and removes a runner that never took its job.
+ * stops. A cancelled run asks `/v1/stop` to stop it at once (`release`); otherwise an alarm stops it at the job's own
+ * timeout anyway, and removes a runner that never took its job.
  */
 import { DurableObject } from "cloudflare:workers";
 import { remove } from "./github";
@@ -25,6 +26,8 @@ export class LabRunner extends DurableObject<Env> {
     const container = this.ctx.container;
     if (!container) throw new Error("no container on this object");
     if (container.running) return false;
+    // A run that was cancelled while its runner was still being asked for stays released: nothing starts after.
+    if (await this.ctx.storage.get("released")) return false;
     await container.setInactivityTimeout(DEADLINE_MS);
     container.start({ enableInternet: true, env: { RUNNER_JITCONFIG: jitconfig } });
     await this.ctx.storage.put("runner", runnerId);
@@ -34,6 +37,22 @@ export class LabRunner extends DurableObject<Env> {
 
   async stop(): Promise<void> {
     if (this.ctx.container?.running) await this.ctx.container.destroy();
+  }
+
+  /**
+   * The run is over (cancelled, or done): stop the container, remove a runner that never took its job, and remember
+   * the label is released until the deadline, so a start still in flight for it does not bring the runner back.
+   * True when a container was running.
+   */
+  async release(): Promise<boolean> {
+    const running = Boolean(this.ctx.container?.running);
+    await this.stop();
+    const id = await this.ctx.storage.get<number>("runner");
+    if (id && this.env.GH_RUNNER_TOKEN) await remove(this.env.GH_RUNNER_TOKEN, id).catch(() => undefined);
+    await this.ctx.storage.deleteAll();
+    await this.ctx.storage.put("released", true);
+    await this.ctx.storage.setAlarm(Date.now() + DEADLINE_MS);
+    return running;
   }
 
   async alarm(): Promise<void> {
@@ -49,6 +68,7 @@ const runnersOf = (env: Env): Runners => {
   return {
     start: (label, runnerId, jitconfig) => stub(label).start(runnerId, jitconfig),
     stop: (label) => stub(label).stop(),
+    release: (label) => stub(label).release(),
   };
 };
 

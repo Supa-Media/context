@@ -11,6 +11,8 @@ export interface Runners {
   /** Starts the container for this label with its configuration; false when one is already running there. */
   start(label: string, runnerId: number, jitconfig: string): Promise<boolean>;
   stop(label: string): Promise<void>;
+  /** The run is over: stops its container, removes a runner that never took its job, and keeps the label from starting again. */
+  release(label: string): Promise<boolean>;
 }
 
 export interface Deps {
@@ -26,13 +28,19 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
 const log = (record: Record<string, unknown>) => console.log(JSON.stringify({ event: "tex_runner", ...record }));
 
 /**
- * POST /v1/start: main's tex-lab-run.yml, by its OIDC token, asks for one runner for its run's `run` job. The answer
- * is the label that job runs on, once the runner is online; anything else is a refusal the workflow answers by running
- * the job on GitHub's runners, as before.
+ * Two doors, both for main's tex-lab-sandbox.yml by its OIDC token, and both for the asking run's own attempt only
+ * (the label comes from the token's claims, never from the request):
+ *
+ * POST /v1/start: main's tex-lab-run.yml asks for one runner for its run's `run` job. The answer is the label that job
+ * runs on, once the runner is online; anything else is a refusal the workflow answers by running the job on GitHub's
+ * runners, as before.
+ *
+ * POST /v1/stop: the run is over, cancelled or not: its container stops now and its runner is removed, instead of
+ * waiting for the alarm.
  */
 export async function handle(request: Request, deps: Deps): Promise<Response> {
   const path = new URL(request.url).pathname;
-  if (path !== "/v1/start") return json({ error: "not_found" }, 404);
+  if (path !== "/v1/start" && path !== "/v1/stop") return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   let claims;
   try {
@@ -41,17 +49,22 @@ export async function handle(request: Request, deps: Deps): Promise<Response> {
     if (error instanceof Refused) return json({ error: error.message }, 401);
     throw error;
   }
-  if (!deps.token) return json({ error: "this runner has no GitHub token" }, 503);
-  const fetcher = deps.fetcher ?? fetch;
-  const now = deps.now ?? Date.now;
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const started = now();
   let label: string;
   try {
     label = labelFor(String(claims.run_id), String(claims.run_attempt ?? "1"));
   } catch {
     return json({ error: "no run named" }, 400);
   }
+  if (path === "/v1/stop") {
+    const stopped = await deps.runners.release(label);
+    log({ label, outcome: "released", stopped });
+    return json({ label, stopped });
+  }
+  if (!deps.token) return json({ error: "this runner has no GitHub token" }, 503);
+  const fetcher = deps.fetcher ?? fetch;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const started = now();
   let runner;
   try {
     runner = await register(deps.token, label, fetcher);
@@ -71,6 +84,8 @@ export async function handle(request: Request, deps: Deps): Promise<Response> {
       log({ label, outcome: "online", ms: now() - started });
       return json({ label });
     }
+    // Removed already: the run was stopped (`/v1/stop`) while its runner was being asked for.
+    if (seen === "gone") break;
     await sleep(POLL_MS);
   }
   await deps.runners.stop(label).catch(() => undefined);
