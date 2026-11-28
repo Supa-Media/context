@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { withPrivateLinks } from "../../../../../packages/tex/gateway/agent/privateAside.js";
+import { followedUpWith, privateAsideTool, withPrivateLinks } from "../../../../../packages/tex/gateway/agent/privateAside.js";
+import { tapbackNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { withVaultWatch } from "../../../../../packages/tex/gateway/agent/vaultSaved.js";
 import { crossAskTool, crossChatOf, crossChatPrompt } from "../../../../../packages/tex/gateway/agent/crossChat.js";
 import { groupOf, groupPrompt } from "../../../../../packages/tex/gateway/agent/groupTurn.js";
@@ -19,7 +20,8 @@ export default {
   path: "group text",
   // Sabotage (2026-11-25): return the vault tool's own answer from `withPrivateLinks`, or put "send whoever asked a
   // vault_add link" back in the group prompt, and this fails. Sabotage (2026-11-27): put "You can't text anyone outside the
-  // chat. " back alone, or make `crossChat.js` `backTo` return null, and this fails.
+  // chat. " back alone, or make `crossChat.js` `backTo` return null, and this fails. Sabotage
+  // (2026-11-28): drop `followedUp` from the Tapback node's tagged check, or let a guest's call keep an aside, and this fails.
   async run() {
     const group = { ...groupOf({ group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "shyoh", people: ["shyoh", "seyi"], reach: ["supa"] } }), home: { folder: "tex/groups/cactus-lotus-badge" } };
     const told = groupPrompt(group, "supa");
@@ -38,5 +40,13 @@ export default {
     assert.equal(JSON.parse(crossChatPrompt(event).trim()).follow_up_from_group.follow_up, "Send them a short summary of their own journal notes.", "handed over as data");
     const asking = crossAskTool({ event, groups: [{ key: group.key, name: "Book club" }], counts: { hour: 0, day: 0, open: [] }, ledger: {}, gate: async () => null });
     assert.ok(asking, "their own Tex can post back to the group what they share");
+    // The group gets a tapback, not words saying so (Dev2, 2026-11-27: "why did tex feel the need to text here instead of
+    // just doing a tapback?"): a tag is answered by the follow-up it sent.
+    assert.equal((await tapbackNode({ emoji: "👍", tagged: true, followedUp: followedUpWith({ asides: [{ what: "x", texts: [] }] }) })).to, "react");
+    assert.equal((await tapbackNode({ emoji: "👍", tagged: true, followedUp: followedUpWith({}) })).to, "refuse");
+    // A guest has no 1:1: the call says so as facts, and how to sign up (Dev2, 2026-11-27).
+    const guestCall = await privateAsideTool({ group: { ...group, from: "", guestTagger: true }, ledger: {} }).call({ what: "Go over their week." });
+    assert.equal(guestCall.isError, true);
+    assert.equal(JSON.parse(guestCall.content[0].text).has_account, false);
   },
 };
