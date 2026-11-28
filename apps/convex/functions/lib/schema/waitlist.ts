@@ -1,6 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { adCampaignValidator } from "../waitlistCampaign";
+import { adCampaignValidator, firstTouchValidator } from "../waitlistCampaign";
 
 /**
  * Who asked to be let in, and who has been.
@@ -64,6 +64,13 @@ export const waitlistTables = {
      * before it is stored, so every field is short plain text.
      */
     campaign: v.optional(adCampaignValidator),
+    /**
+     * The first touch the browser saw (referrer origin, utm_source,
+     * utm_medium, ref, landing segment), set once with `landing`. The account
+     * made from this row reads it for its sign-up channel
+     * (`signupChannels.ts`).
+     */
+    touch: v.optional(firstTouchValidator),
     admittedAt: v.optional(v.number()),
     admittedBy: v.optional(v.id("users")),
     /**

@@ -158,7 +158,7 @@ async function setUp(
   handle: string,
   askedId: Id<"textSetups">,
 ): Promise<SetupAnswer> {
-  const userId = who.kind === "held" ? who.userId : await newPhoneAccount(ctx, phone);
+  const userId = who.kind === "held" ? who.userId : await newPhoneAccount(ctx, phone, { signup: { via: "tex" } });
   // A new account among the first hundred is granted founding Premium here,
   // not only by the walk `newPhoneAccount` schedules: the workspace below is
   // then Premium from its first moment (`createWorkspaceHandler`), so its

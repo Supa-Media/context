@@ -20,6 +20,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
+import type { SignupChannel } from "@context/shared";
 import { dayKey } from "./lib/usage";
 
 /** How long a person-day is kept: Returning users reads 8 days, a sheet reads 90. */
@@ -100,7 +101,8 @@ export interface UsageExport {
   activity: { day: string; person: string; wrote: boolean; called: boolean }[];
   /** A person's own texts: a turn in their personal workspace (`kind` one), its owner's account. */
   texts: { at: number; userId: string; outcome: "answered" | "exhausted" | "failed" }[];
-  signups: { at: number; userId: string }[];
+  /** A new account, with its sign-up channel when one was recorded (`signupChannels.ts`), else none. */
+  signups: { at: number; userId: string; channel?: SignupChannel }[];
   /**
    * Reports people sent about a bug: the app's bug button, Tex by text or in a group chat, or another AI's
    * `report_problem`. Never one about content, never one still sending. Its reference (the event id the person was
@@ -151,7 +153,17 @@ export const exportRows = internalQuery({
       .withIndex("by_creation_time", (q) => q.gte("_creationTime", since))
       .take(MAX_EXPORT_ROWS + 1);
     if (made.length > MAX_EXPORT_ROWS) cut = true;
-    const signups = made.slice(0, MAX_EXPORT_ROWS).map((user) => ({ at: Math.round(user._creationTime), userId: user._id as string }));
+    // A channel row is written at or after its account, so one read from the same moment finds every one of them.
+    const channelRows = await ctx.db
+      .query("signupChannels")
+      .withIndex("by_at", (q) => q.gte("at", since))
+      .take(MAX_EXPORT_ROWS + 1);
+    if (channelRows.length > MAX_EXPORT_ROWS) cut = true;
+    const channels = new Map(channelRows.slice(0, MAX_EXPORT_ROWS).map((row) => [row.userId as string, row.channel]));
+    const signups = made.slice(0, MAX_EXPORT_ROWS).map((user) => {
+      const channel = channels.get(user._id as string);
+      return { at: Math.round(user._creationTime), userId: user._id as string, ...(channel === undefined ? {} : { channel }) };
+    });
 
     const receipts = await ctx.db
       .query("feedbackReceipts")

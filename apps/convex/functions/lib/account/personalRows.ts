@@ -71,6 +71,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of devlogReads) await ctx.db.delete(row._id);
 
+  // The channel they signed up through (`signupChannels.ts`): a word about them, nothing more.
+  const signupChannels = await ctx.db
+    .query("signupChannels")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of signupChannels) await ctx.db.delete(row._id);
+
   // When they last opened @shared: a time about them, nothing more.
   const sharedInboxReads = await ctx.db
     .query("sharedInboxReads")

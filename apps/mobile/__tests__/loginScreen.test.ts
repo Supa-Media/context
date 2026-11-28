@@ -132,8 +132,8 @@ describe("signing in", () => {
     expect(view.text()).toContain("Invite only for now");
     await view.type("login-email", "Seyi@Example.com ");
     await view.press("login-submit");
-    // No landing page was drawn, so none is sent (`features/auth/landingPage.ts`).
-    expect(mockEntered).toEqual([{ email: "seyi@example.com", source: "login" }]);
+    // No landing page was drawn, so none is sent (`features/auth/landingPage.ts`); the first touch is, with no referrer.
+    expect(mockEntered).toEqual([{ email: "seyi@example.com", source: "login", touch: { path: "/" } }]);
     expect(mockCalls).toEqual([{ email: "seyi@example.com" }]);
     // Six digits and ten minutes are `@supa-media/convex`'s, not ours to change.
     expect(view.text()).toContain("six-digit code");
@@ -333,7 +333,7 @@ describe("signing in with a phone", () => {
     expect(view.text()).toContain("Use email instead");
     await view.type("login-phone", "+1 555 555 0100");
     await view.press("login-phone-send");
-    expect(mockStarted).toEqual([{ phone: "+15555550100" }]);
+    expect(mockStarted).toEqual([{ phone: "+15555550100", touch: { path: "/" } }]);
     expect(view.text()).toContain("Check your texts");
     expect(view.text()).toContain("+15555550100");
     await view.type("login-phone-code", "392 418");
@@ -350,7 +350,7 @@ describe("signing in with a phone", () => {
     expect(us.text()).toContain("+1");
     await us.type("login-phone", "(202) 615-0407");
     await us.press("login-phone-send");
-    expect(mockStarted).toEqual([{ phone: "+12026150407" }]);
+    expect(mockStarted).toEqual([{ phone: "+12026150407", touch: { path: "/" } }]);
     us.unmount();
 
     mockStarted.length = 0;
@@ -363,7 +363,7 @@ describe("signing in with a phone", () => {
     // The 0 dialled at home is dropped after the country code.
     await uk.type("login-phone", "07700 900123");
     await uk.press("login-phone-send");
-    expect(mockStarted).toEqual([{ phone: "+447700900123" }]);
+    expect(mockStarted).toEqual([{ phone: "+447700900123", touch: { path: "/" } }]);
     uk.unmount();
   });
 

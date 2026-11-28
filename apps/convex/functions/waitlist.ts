@@ -25,7 +25,7 @@ import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { waitlistConversionId } from "./lib/xConversion";
-import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
+import { adCampaignValidator, firstTouchValidator, signUpOrigin } from "./lib/waitlistCampaign";
 import { newReceipt } from "./lib/waitlistReceipt";
 
 /** New waitlist rows per window, across every caller. */
@@ -51,6 +51,8 @@ export const enter = mutation({
     // unknown value is dropped rather than refused.
     landing: v.optional(v.string()),
     campaign: v.optional(adCampaignValidator),
+    // The first touch (`@context/shared` `FirstTouch`), for the sign-up channel.
+    touch: v.optional(firstTouchValidator),
     // Set by the iOS and Android apps. A sign-up made inside the app is never
     // reported to X or Meta: a hashed address sent to an ad network from an
     // app is "tracking" under Apple's App Privacy rules, which the app neither

@@ -4,7 +4,7 @@ import { privacyContent, supportContent, termsContent } from "../features/legal/
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("November 27, 2026");
+    expect(privacyContent.updated).toBe("November 28, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -223,8 +223,15 @@ describe("the policy describes Google data as the code uses it", () => {
     expect(collected).toContain("off until you turn it on");
   });
 
+  test("says what the first touch keeps for a sign-up's channel, and that nothing else from the address is", () => {
+    const diagnostics = privacyContent.sections.find((section) => section.title === "Diagnostics and feedback")!.body.join(" ");
+    expect(diagnostics).toContain("its address only, never the page");
+    expect(diagnostics).toContain("utm_source, utm_medium and ref");
+    expect(diagnostics).toContain("Nothing else in the address you arrived at is kept.");
+  });
+
   test("both pages carry the date of their last change", () => {
-    expect(privacyContent.updated).toBe("November 27, 2026");
+    expect(privacyContent.updated).toBe("November 28, 2026");
     expect(termsContent.updated).toBe("October 29, 2026");
   });
 });

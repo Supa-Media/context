@@ -66,6 +66,20 @@ export {
   type LandingPage,
 } from "./landingPages";
 export {
+  FIRST_TOUCH_FIELD_MAX,
+  firstTouchFromLocation,
+  firstTouchOf,
+  isSignupChannel,
+  LANDING_SEGMENTS,
+  landingSegmentOf,
+  referrerOriginOf,
+  SIGNUP_CHANNELS,
+  signupChannelOf,
+  type FirstTouch,
+  type SignupChannel,
+  type SignupFacts,
+} from "./signupChannel";
+export {
   DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
   matchesDestructiveActionAcknowledgement,
 } from "./acknowledgement";

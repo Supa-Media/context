@@ -10,6 +10,7 @@
  * 4. `markCaller` counting the app's own calls: "the app and Tex are not callers" fails.
  * 5. `mergeSynced` ignoring `handColumns`: "a bug's status is the team's" fails.
  * 6. `usageRows` taking any channel: "a bug row is a reference, a time, a person id and a channel" fails.
+ * 7. `usageRows` taking the held channel before the exported one: "a sign-up's channel: a real exported one fills" fails.
  */
 
 import assert from "node:assert/strict";
@@ -18,7 +19,8 @@ import { test } from "node:test";
 import { arm, dataNamespace, dataObject, guestRules, NOW, noteId, RULES, roleOf, skip, world } from "./dataSyncWorld.mjs";
 import { R2Store } from "../src/store/r2.js";
 import { parseSheet } from "../src/sheets/csv.js";
-import { usageRows, usageWorkspaceOf, USAGE_SHEETS } from "../src/data/sync/runUsage.js";
+import { readFileSync } from "node:fs";
+import { SIGNUP_CHANNELS, usageRows, usageWorkspaceOf, USAGE_SHEETS } from "../src/data/sync/runUsage.js";
 import { usagePersonId } from "../src/usage/person.js";
 import { deriveSearchQualityKey, searchMac } from "../src/search/quality.js";
 import { forgetSentMarks, markPersonActive } from "../src/usage/mark.js";
@@ -319,4 +321,44 @@ test("app vitals keep a platform, a kind, a timing's ms and the session id, and 
   );
   assert.deepEqual(rows.app.map((row) => [row.id, row.kind, row.ms]), [["aaaaaaaaaaaaaaaa:load", "load", "812"], ["aaaaaaaaaaaaaaaa:error", "error", ""]]);
   assert.equal(JSON.stringify(rows.app).includes("secret"), false);
+});
+
+test("a sign-up's channel: a real exported one fills an unknown or empty row, an empty export keeps what is held", async () => {
+  const at = Date.parse("2026-11-24T10:00:00Z");
+  const held = new Map([
+    [await usagePersonId(KEY, "uUnknown"), { channel: "unknown", day1_active: "0" }],
+    [await usagePersonId(KEY, "uEmpty"), { channel: "", day1_active: "0" }],
+    [await usagePersonId(KEY, "uHand"), { channel: "social", day1_active: "0" }],
+    [await usagePersonId(KEY, "uPreShip"), { channel: "unknown", day1_active: "0" }],
+  ]);
+  const rows = await usageRows(
+    {
+      signups: [
+        { at, userId: "uUnknown", channel: "search" },
+        { at, userId: "uEmpty", channel: "ai" },
+        // A hand correction of a real channel is never written over by an export that has none.
+        { at, userId: "uHand", channel: "" },
+        // Nothing was captured before this shipped: the held `unknown` stays, nothing is invented.
+        { at, userId: "uPreShip" },
+        { at, userId: "uNew", channel: "direct" },
+        // A value that is not a channel is not written.
+        { at, userId: "uOdd", channel: "https://evil.example/?q=secret" },
+      ],
+    },
+    { key: KEY, held: { activity: new Map(), signups: held }, now: NOW },
+  );
+  const byPerson = new Map(rows.signups.map((row) => [row.person, row.channel]));
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uUnknown")), "search");
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uEmpty")), "ai");
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uHand")), "social");
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uPreShip")), "unknown");
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uNew")), "direct");
+  assert.equal(byPerson.get(await usagePersonId(KEY, "uOdd")), "");
+});
+
+test("the gateway's channel list is the shared classifier's", () => {
+  const shared = readFileSync(new URL("../../../packages/shared/src/signupChannel.ts", import.meta.url), "utf8");
+  const listed = /export const SIGNUP_CHANNELS = \[([^\]]*)\]/.exec(shared)?.[1];
+  assert.ok(listed, "SIGNUP_CHANNELS is still a literal list");
+  assert.deepEqual([...SIGNUP_CHANNELS], [...listed.matchAll(/"([a-z]+)"/g)].map((m) => m[1]));
 });

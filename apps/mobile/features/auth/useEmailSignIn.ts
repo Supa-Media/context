@@ -7,6 +7,7 @@ import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import { adClickId } from "./adClickId";
 import { adCampaign } from "./adCampaign";
+import { firstTouch } from "./firstTouch";
 import { landingPage } from "./landingPage";
 import { reportWaitlistSignUp } from "./xPixel";
 import { metaBrowserIds } from "./metaBrowserIds";
@@ -101,12 +102,14 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
       const twclid = adClickId();
       const landing = landingPage();
       const campaign = adCampaign();
+      const touch = firstTouch();
       const { status, conversionId } = await enter({
         email: normalized,
         source: options.source,
         ...(twclid === undefined ? {} : { twclid }),
         ...(landing === undefined ? {} : { landing }),
         ...(campaign === undefined ? {} : { campaign }),
+        ...(touch === undefined ? {} : { touch }),
         ...metaBrowserIds(),
         // Never reported to an ad network from inside the app (`waitlist.enter`).
         ...(Platform.OS === "web" ? {} : { app: "native" as const }),
