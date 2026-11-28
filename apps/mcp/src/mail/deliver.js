@@ -48,11 +48,15 @@ export const TEX_MAIL_ALARM = "mail:";
  * The control plane decides whether it may (`mail.askTex`); the alarm carries the owner and the mailbox, never the mail.
  */
 async function wakeTex(env, mail, boxes, line) {
-  if (typeof mail?.askTex !== "function" || line.from === "tex" || (line.to !== "tex" && line.to !== "everyone")) return [];
+  if (typeof mail?.askTex !== "function" || line.from === "tex") return [];
+  // A line to an agent that holds no seat wakes its person's Tex, the seat that stands in for it (`toOwner`, the
+  // `@handle` its own lines are signed for); the control plane checks the Tex is that person's (`forHandle`).
+  const forHandle = line.to !== "tex" && line.to !== "everyone" && typeof line.toOwner === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(line.toOwner) ? line.toOwner.slice(1) : null;
+  if (line.to !== "tex" && line.to !== "everyone" && forHandle === null) return [];
   const box = boxes.find((each) => each?.texChat === true && each.name === "tex" && each.own !== true && typeof each.mailboxId === "string");
   if (!box) return [];
   try {
-    const owner = await mail.askTex(line.path, box.mailboxId);
+    const owner = forHandle === null ? await mail.askTex(line.path, box.mailboxId) : await mail.askTex(line.path, box.mailboxId, forHandle);
     if (typeof owner !== "string") return [];
     const stub = texStoreStub(env, { person: owner });
     if (stub === null) return [];
@@ -94,7 +98,7 @@ async function toMachine(env, workspaceId, box, line) {
 /**
  * @param {{ TEXTING?: { mailDeliver?: (call: object) => Promise<{ taken?: boolean }> }, WORKSPACE_STORE?: object }} env
  * @param {{ jobMailboxes: (path: string) => Promise<Array<{ mailboxId: string, name: string, jobId?: string, machineId?: string, machineWorkspaceId?: string, texChat?: true, own?: boolean }>>, askTex?: (path: string, mailboxId: string) => Promise<string | null> }} mail
- * @param {{ path: string, at: string, from: string, app: string | null, to: string, mailKind: "note" | "ask" | "interrupt", text: string }} line
+ * @param {{ path: string, at: string, from: string, app: string | null, to: string, toOwner?: string | null, mailKind: "note" | "ask" | "interrupt", text: string }} line
  * @returns {Promise<string[]>} the names of the jobs and machines that took the line
  */
 export async function deliverMail(env, mail, line) {

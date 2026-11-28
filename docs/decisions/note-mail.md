@@ -249,10 +249,22 @@ holding that folder, so when Muse (holding Operations) answered Grok Bot (holdin
   "ask (an answer is owed)" and says to answer in the note it names; the roster says how many of a bot's waiting items
   are asks.
 
-Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): the person's Tex as the seat for an
-agent that holds none, one note per pair of seats, closing an ask when the PR or task it names finishes, and the Agent
+**The person's Tex is the seat for an agent that holds none** (Dev, 2026-11-28: "I'll ask you to tell Grokbot to do
+something, and you're not really holding a seat ... how do we work this out where even things that don't hold a seat
+can still get an answer?"). An agent working for a person that is no bot here, no bot's helper, not Tex and not a job
+(`tools/notes/mail.js` `seatless`), sending in an area's or a bot's mail, gives that person's own Tex a "tex" mailbox
+on the note (`/gateway/mail/tex-seat`, `noteMail.ts` `texSeatMailbox`; a note where another grant holds "tex" is left
+alone). A later line to that agent carries the `@handle` its own lines are signed for (`signedForOf`; never for a bot
+with a card, which signs for its person too), and wakes Tex only when the mailbox is that person's (`askTexMail`
+`forHandle`). Tex's run counts lines to the agents it stands in for as its own (`mailRunRoute.js` `standInsFor`),
+answers whoever wrote, and texts the person only when the mail needs them, as before. The mailboxes are still the
+control plane's until they move with the rest of `noteMailboxes` (`@supa projects/off-convex/plan.md`).
+
+Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): one note per pair of seats, closing an ask when the PR or task it names finishes, and the Agent
 Mail page's Waiting state (artboards in the project's `agent-mail-asks-artboards/`).
 
 **Simplifying it away costs:** a reply in another seat's mail reaches nobody, and every answered ask looks open forever.
 Tested by `apps/mcp/test/mailReplyRoute.test.mjs` (dropping the routing in `botMail.js` fails all seven; routing by
-the sender's name instead of its seat's holder fails "a swapped seat's successor").
+the sender's name instead of its seat's holder fails "a swapped seat's successor"). The Tex seat: `apps/convex/__tests__/noteMail/texMail.test.ts` (dropping the
+`forHandle` check fails "wakes only the person the agent works for") and `apps/mcp/test/texMail.test.mjs` (dropping
+`toOwner` from `wakeTex` fails "a line to an agent with no seat wakes its person's Tex").

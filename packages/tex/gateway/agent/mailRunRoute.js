@@ -63,10 +63,14 @@ function nodeOf(env, deps) {
  * What the run is told, from the note's mail: the lines new for "tex" since its mailbox last read (from anyone but
  * Tex), as the ask, and the lines before them as the thread. `null` when nothing new waits.
  */
-export function mailTurn(noteText, readThrough) {
+export function mailTurn(noteText, readThrough, standIns = []) {
   const { events } = mail.parseMail(typeof noteText === "string" ? noteText : "");
   const lines = events.filter((event) => event.kind === "mail");
-  const fresh = mail.newFor(lines, TEX, readThrough).slice(-NEW_LINES);
+  // Lines to an agent of the person's that holds no seat count as Tex's too: Tex is its seat (`standInsFor`).
+  const after = Number.isFinite(Date.parse(readThrough)) ? Date.parse(readThrough) : -Infinity;
+  const fresh = lines
+    .filter((event) => mail.newFor([event], TEX, readThrough).length > 0 || (standIns.includes(event.to) && event.from !== TEX && Date.parse(event.at) > after))
+    .slice(-NEW_LINES);
   if (fresh.length === 0) return null;
   const first = lines.indexOf(fresh[0]);
   const history = lines
@@ -76,6 +80,20 @@ export function mailTurn(noteText, readThrough) {
   const ask = fresh.map((event) => `${who(event)}: ${event.text}`).join("\n").slice(0, MAX_ASK);
   const last = fresh[fresh.length - 1];
   return { ask, history, to: last.from, newest: last.at };
+}
+
+/**
+ * The names on this note Tex stands in for (Dev, 2026-11-28; `docs/decisions/note-mail.md`): agents whose lines are
+ * signed for this person (`· @handle`) and that hold no seat, so are not a bot with a card here. A reply to one wakes
+ * Tex (`apps/mcp/src/mail/deliver.js`), and this is how the run sees it. `isBot` reads the name's card.
+ */
+export async function standInsFor(noteText, handle, isBot) {
+  if (typeof handle !== "string" || !handle.startsWith("@")) return [];
+  const { events } = mail.parseMail(typeof noteText === "string" ? noteText : "");
+  const names = [...new Set(events.filter((event) => event.kind === "mail" && event.from !== TEX && !event.from.startsWith("@") && mail.splitApp(event.app ?? "").owner === handle).map((event) => event.from))].slice(0, 5);
+  const out = [];
+  for (const name of names) if (!(await isBot(name).catch(() => true))) out.push(name);
+  return out;
 }
 
 /** `POST /tex/mail-run` (`APP_ROUTES`): one Tex-in-mail run. */
@@ -118,7 +136,8 @@ async function serveRun(request, store, session, env, deps) {
   const readStarted = Date.now();
   const note = await readNoteAs(dispatch, path, target.context);
   if (note === null) return json({ error: "not_readable" }, 404);
-  const turn = mailTurn(note.note, box.readThrough);
+  const isBot = async (name) => (await readNoteAs(dispatch, `bots/${name}/about.md`, target.context)) !== null;
+  const turn = mailTurn(note.note, box.readThrough, await standInsFor(note.note, store?.actor?.name, isBot));
   const started = (deps.now ?? Date.now)();
   if (turn === null) {
     console.log(JSON.stringify({ event: "mail_run", outcome: "nothing" }));

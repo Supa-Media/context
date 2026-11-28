@@ -18,6 +18,7 @@ import { addressable, contextsForGrant, resolveLiveGrant, resolveRunGrant } from
 import { resolveHelperGrant } from "./lib/controlPlane/helperGrants";
 import { deviceStillLive } from "./texMachineDevices";
 import { TEXTS_CLIENT_ID } from "./textLinks";
+import { handleForUser } from "./lib/identities";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
@@ -284,7 +285,17 @@ export const jobMailboxes = internalQuery({
  * Answers the owner's personal workspace, whose Tex store the gateway wakes, or null for every refusal alike.
  */
 export const askTexMail = internalMutation({
-  args: { hashedAccessToken: v.string(), workspaceId: v.string(), path: v.string(), mailboxId: v.string() },
+  args: {
+    hashedAccessToken: v.string(),
+    workspaceId: v.string(),
+    path: v.string(),
+    mailboxId: v.string(),
+    /**
+     * The line is to an agent working for this person (`@handle` without the @), not to Tex: woken only when the
+     * mailbox is that person's own Tex, the seat for an agent that holds none (`texSeatMailbox`).
+     */
+    forHandle: v.optional(v.string()),
+  },
   returns: v.union(v.null(), v.object({ owner: v.id("workspaces") })),
   handler: async (ctx, args) => {
     if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return null;
@@ -300,6 +311,7 @@ export const askTexMail = internalMutation({
     if (row === null || row.workspaceId !== target.workspaceId || row.path !== args.path) return null;
     const grant = await ctx.db.get(row.grantId);
     if (!isTexBox(row, grant) || mayUse(live, row)) return null;
+    if (args.forHandle !== undefined && (await handleForUser(ctx, grant.userId)) !== args.forHandle) return null;
     const now = Date.now();
     const runs = await ctx.db
       .query("texMailRuns")
@@ -327,5 +339,51 @@ export const askTexMail = internalMutation({
       });
     }
     return { owner: grant.workspaceId };
+  },
+});
+
+/**
+ * The person's own Tex as the seat for an agent of theirs that holds none (Dev, 2026-11-28: "I'll ask you to tell
+ * Grokbot to do something, and you're not really holding a seat ... how do we work this out where even things that
+ * don't hold a seat can still get an answer?"; `docs/decisions/note-mail.md`). When such an agent sends mail on a note,
+ * the gateway asks with its token: the person's texting grant gets a "tex" mailbox on that note, so a reply to the
+ * agent wakes their Tex there (`askTexMail` with `forHandle`) even after the agent's session has ended.
+ *
+ * Only the person's own agents: a live grant (never a job's run grant, a helper or Tex itself), reaching the note's
+ * workspace, and their own active texting grant. A note where another grant already holds "tex" is left alone.
+ * Answers the mailbox id, or null for every refusal alike.
+ */
+export const texSeatMailbox = internalMutation({
+  args: { hashedAccessToken: v.string(), workspaceId: v.string(), path: v.string(), mailboxId: v.string() },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return null;
+    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (live === null || live.grant.clientId === TEXTS_CLIENT_ID) return null;
+    const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
+    if (!target || target.askerOwn === true || target.homeOnly === true) return null;
+    const grants = await ctx.db
+      .query("oauthGrants")
+      .withIndex("by_user", (q) => q.eq("userId", live.grant.userId))
+      .collect();
+    const texts = grants.find((grant) => grant.clientId === TEXTS_CLIENT_ID && grant.status === "active");
+    if (texts === undefined) return null;
+    const existing = await ctx.db
+      .query("noteMailboxes")
+      .withIndex("by_workspace_path_name", (q) => q.eq("workspaceId", target.workspaceId).eq("path", args.path).eq("name", TEX_NAME))
+      .collect();
+    const mine = existing.find((row) => row.grantId === texts._id && row.jobId === undefined && row.machineId === undefined);
+    if (mine !== undefined) return mine.mailboxId;
+    if (existing.length > 0) return null;
+    await ctx.db.insert("noteMailboxes", {
+      mailboxId: args.mailboxId,
+      grantId: texts._id,
+      workspaceId: target.workspaceId,
+      path: args.path,
+      name: TEX_NAME,
+      readThrough: new Date().toISOString(),
+      createdAt: Date.now(),
+    });
+    return args.mailboxId;
   },
 });

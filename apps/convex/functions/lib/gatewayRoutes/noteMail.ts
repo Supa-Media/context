@@ -99,13 +99,34 @@ export async function gatewayMailTexHandler(ctx: ActionCtx, body: Record<string,
   const path = stringField(body, "path");
   const mailboxId = stringField(body, "mailboxId");
   if (accessToken === null || workspaceId === null || path === null || mailboxId === null) return json({ owner: null });
+  const forHandle = stringField(body, "forHandle");
   const asked = await ctx.runMutation(internal.functions.noteMail.askTexMail, {
     hashedAccessToken: await hashToken(accessToken),
     workspaceId,
     path,
     mailboxId,
+    ...(forHandle !== null ? { forHandle } : {}),
   });
   return json({ owner: asked?.owner ?? null });
+}
+
+/**
+ * `POST /gateway/mail/tex-seat` `{ accessToken, workspaceId, path }` → `{ mailboxId | null }`: an agent with no seat
+ * sent mail on this note, so its person's Tex gets a mailbox there and hears the reply (`functions/noteMail.ts`
+ * `texSeatMailbox`). The token is the agent's own.
+ */
+export async function gatewayMailTexSeatHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const workspaceId = stringField(body, "workspaceId");
+  const path = stringField(body, "path");
+  if (accessToken === null || workspaceId === null || path === null) return json({ mailboxId: null });
+  const mailboxId = await ctx.runMutation(internal.functions.noteMail.texSeatMailbox, {
+    hashedAccessToken: await hashToken(accessToken),
+    workspaceId,
+    path,
+    mailboxId: `mb_${randomOpaqueToken(8)}`,
+  });
+  return json({ mailboxId });
 }
 
 /**

@@ -116,6 +116,29 @@ describe("Tex in mail", () => {
     expect(await ask(t, BOT, devWs, mailboxId)).toBeNull();
   });
 
+  // The person's own Tex as the seat for an agent of theirs that holds none (`texSeatMailbox`; Dev, 2026-11-28).
+  // Sabotage: drop the `forHandle` check in `askTexMail` and "only the person the agent works for" fails.
+  test("an agent with no seat gives its person's Tex a mailbox on the note, once", async () => {
+    const { t, devWs } = await world();
+    const seat = async (accessToken: string, path: string) => ((await bodyOf(await gatewayPost(t, "/gateway/mail/tex-seat", { accessToken, workspaceId: devWs, path }))) as { mailboxId: string | null }).mailboxId;
+    const first = await seat(BOT, "areas/ops/mail/claude-code.md");
+    expect(first).toMatch(/^mb_/);
+    expect(await seat(BOT, "areas/ops/mail/claude-code.md")).toBe(first);
+    expect(await boxes(t, BOT, devWs, "areas/ops/mail/claude-code.md")).toEqual([{ mailboxId: first, name: "tex", texChat: true, own: false }]);
+    // Tex itself, a stranger, and a note where Tex already joined are left alone.
+    expect(await seat(TEX, "areas/ops/mail/other.md")).toBeNull();
+    expect(await seat(STRANGER, "areas/ops/mail/other.md")).toBeNull();
+    expect(await seat(BOT, PATH)).toBe((await boxes(t, BOT, devWs))[0]!.mailboxId);
+  });
+
+  test("a line to the agent wakes only the person the agent works for", async () => {
+    const { t, devWs } = await world();
+    const mailboxId = ((await bodyOf(await gatewayPost(t, "/gateway/mail/tex-seat", { accessToken: BOT, workspaceId: devWs, path: "a.md" }))) as { mailboxId: string }).mailboxId;
+    const askFor = async (forHandle: string) => ((await bodyOf(await gatewayPost(t, "/gateway/mail/tex", { accessToken: BOT, workspaceId: devWs, path: "a.md", mailboxId, forHandle }))) as { owner: string | null }).owner;
+    expect(await askFor("someone-else")).toBeNull();
+    expect(await askFor("devon")).toBe(devWs);
+  });
+
   test("a claim names a real owner or gets nothing", async () => {
     const { t } = await world();
     expect(await claim(t, "not-an-id")).toEqual([]);

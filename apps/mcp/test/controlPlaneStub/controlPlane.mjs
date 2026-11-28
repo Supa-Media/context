@@ -300,7 +300,7 @@ export function createControlPlaneStub(options = {}) {
   const gatewayCalls = { total: 0, byPath: new Map() };
 
   // Note mail mailboxes (`mail.mjs`).
-  const mail = createMailRoutes(grantForAccessToken, coveredContexts);
+  const mail = createMailRoutes(grantForAccessToken, coveredContexts, grants);
   const email = createEmailRoute(clearedOwnAccount, flags, clearedRead);
   const calendar = createCalendarRoute(clearedOwnAccount, flags, clearedRead);
   const googleChat = createGoogleChatRoute(clearedOwnAccount);

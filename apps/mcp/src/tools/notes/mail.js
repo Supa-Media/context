@@ -32,7 +32,7 @@ import { makeMailNote } from "./mailNoteMade.js";
 /** A note in a bot's or an area's mail folder, where every agent line says what it used. */
 const MAIL_FOLDER_NOTE = /(^|\/)mail\/[^/]+$/;
 
-const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, MAX_USED, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
+const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, MAX_USED, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail, splitApp } = mail;
 
 /** The longest an ask's sender may wait for its answer in one call, in seconds. */
 export const MAX_ASK_WAIT_S = 120;
@@ -62,8 +62,21 @@ function addressable(events) {
   return [...new Set(events.filter((event) => event.kind === "joined" || event.kind === "mail").map((event) => event.from))];
 }
 
+/** The `@handle` the newest line from `to` on this note is signed for, or null (to everyone, to Tex, or unsigned). */
+export function signedForOf(events, to) {
+  if (to === EVERYONE || to === "tex") return null;
+  return splitApp([...events].reverse().find((event) => event.kind === "mail" && event.from === to)?.app ?? "").owner;
+}
+
 /** The texting client: a person's own Tex in their 1:1 texts (`functions/textLinks.ts` `TEXTS_CLIENT_ID`). */
 const TEXTS_CLIENT_ID = "context_texts";
+
+/** An agent sending for a person with no seat of its own: not a bot here, not a bot's helper, not Tex, not a job. */
+export function seatless(store, bots, from) {
+  if (bots.length > 0 || store.actor?.helper || from === "tex" || from.startsWith("@")) return false;
+  if (store.mailTurn?.job || store.actor?.clientId === TEXTS_CLIENT_ID || store.actor?.clientId === MACHINE_RUN_CLIENT_ID) return false;
+  return typeof store.actor?.name === "string" && store.actor.name.startsWith("@");
+}
 
 /** The mailbox named by `args.mailbox`, if it is this connection's and on this note. */
 async function mailboxFor(store, args, path) {
@@ -254,7 +267,16 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (!joined && !sentFrom && entry.from === "tex" && store.actor?.clientId === TEXTS_CLIENT_ID && !store.mailTurn?.job && typeof store.mail?.join === "function") {
       await store.mail.join(path, "tex").catch(() => null);
     }
-    const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
+    // An agent working for a person and holding no seat (no bot, no helper, not Tex, not a job): that person's own Tex
+    // stands in as its seat on this note, so a reply reaches them after this session ends (Dev, 2026-11-28).
+    if (!joining && seatless(store, bots, entry.from) && MAIL_FOLDER_NOTE.test(path) && typeof store.mail?.texSeat === "function") {
+      await store.mail.texSeat(path).catch(() => null);
+    }
+    // A line to such an agent wakes that person's Tex: the `@handle` the agent's own lines here are signed for.
+    // A bot signs for its person too, but holds a seat: only an agent with no card here is stood in for.
+    const signedFor = signedForOf(events, entry.to);
+    const toOwner = signedFor !== null && (await botCardOf(store, entry.to).catch(() => null)) === null ? signedFor : null;
+    const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, toOwner, mailKind, text: request.text }).catch(() => []) : [];
     const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
     if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);
     return toolText(sent);

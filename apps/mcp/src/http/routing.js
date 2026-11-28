@@ -69,7 +69,9 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       join: (path, name, jobId, machineId) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name, jobId, machineId),
       get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
       read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
-      deliver: (line) => deliverMail(env, { jobMailboxes, askTex: (path, mailboxId) => controlPlane.askTexMail(session.accessToken, session.workspaceId, path, mailboxId) }, line),
+      deliver: (line) => deliverMail(env, { jobMailboxes, askTex: (path, mailboxId, forHandle) => controlPlane.askTexMail(session.accessToken, session.workspaceId, path, mailboxId, forHandle) }, line),
+      // The person's own Tex as the seat for an agent of theirs that holds none (`docs/decisions/note-mail.md`).
+      texSeat: (path) => controlPlane.texSeatMailbox(session.accessToken, session.workspaceId, path),
     },
     enumerable: false,
     writable: false,
