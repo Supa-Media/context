@@ -396,6 +396,8 @@ test/chatBlockers.test.mjs
 test/chatReach.test.mjs
 test/agentJobCheck.test.mjs
 test/agentJobRestart.test.mjs
+test/agentSplitJob.test.mjs
+test/startedClaim.test.mjs
 test/jobReportEntry.test.mjs
 test/jobReportReply.test.mjs
 test/agentHeartbeatFailure.test.mjs

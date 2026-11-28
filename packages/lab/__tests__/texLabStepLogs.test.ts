@@ -69,6 +69,7 @@ const entries: LedgerEntry[] = [
   run("jobReport", { jobReport: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }, { to: "report", report: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }),
   run("jobStart", { hasTitle: true, hasBrief: true, cloudBusy: 0 }, { to: "start", where: "cloud", slots: 3 }),
   run("partEnd", { cause: "unfinished", part: 1 }, { to: "carry", cause: "unfinished", room: true }),
+  run("split", { entries: [], picked: [{ id: "job-stay" }], resumable: ["job-stay", "job-days"] }, { restart: ["job-stay", "job-days"] }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   run("connect", { notes: ["areas/trips/plan.md"], question: "plan the trip", tainted: false, group: false }, { outcome: "connected", notes: 1, links: [{ from: "areas/trips/plan.md", to: "areas/trips/budget.md", why: "the same trip", there: "written", back: "written" }] }),
   run("noteRun", { path: "areas/trips/plan.md", noteText: "Fly out Friday.", anchor: { text: "Friday" }, ask: "make it Saturday", history: [], audience: "only the asker" }, { outcome: "answered", answer: "Changed it to Saturday.", replace: "Saturday", sources: ["areas/trips/plan.md"] }),

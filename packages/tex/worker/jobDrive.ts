@@ -71,6 +71,14 @@ export async function startDrive(storage: InboxStorage, resumes: number, now: nu
   await arm(storage, now, now);
 }
 
+/** Run the job's next pass now: a split's part asleep (`jobSleep.ts`) that mail or a text just came for. */
+export async function wakeDrive(storage: InboxStorage, now: number): Promise<void> {
+  const drive = await storage.get<Drive>(DRIVE_KEY);
+  if (drive === undefined || drive.dueAt <= now) return;
+  await storage.put<Drive>(DRIVE_KEY, { ...drive, dueAt: now });
+  await arm(storage, now, now);
+}
+
 /** Wake by `at`: a sooner alarm is kept, and one the storage cannot read is set. */
 async function arm(storage: InboxStorage, at: number, now: number): Promise<void> {
   if (storage.getAlarm === undefined) return await storage.setAlarm(at);

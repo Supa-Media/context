@@ -16,6 +16,8 @@
  *  8. `machineTurn` not waiting on `ask_first` → "a part waits for the computer owner's yes, then starts".
  *  9. `machineTurn` sleeping after a held read → "a read is held by the gateway until the run moves".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
+ * 13. Part end never choosing "sleep" → "sleeps instead of ending, its words reach the chat, and mail wakes it into its next part".
+ * 14. `steerJob` not calling `wakeDrive` → the same test, at the drive's due time.
  * 10. the carry status always using `MAX_JOB_ATTEMPTS` → "a computer job's part 11 continues, and the status says part 12 of at most 96" (saw "of at most 10").
  * 11. `machineTurn` not calling `onHandBack` → "a sign-in code said mid-part goes to the chat at once, once".
  * 12. the `limit` case not checking `endsOnHandBack` → "a part out of time whose last word was a sign-in code ends waiting, with the code".
@@ -28,6 +30,7 @@ import { JOB_LIMIT_MS, readStartedJobs, RUN_KEY, chatJobs, JOB_STALE_MS, type Jo
 import { MemoryStorage } from "./memoryStorage.testing";
 import { refusedEnd } from "./machineTurn";
 import { isHandBack } from "./handBack";
+import { DRIVE_KEY } from "./jobDrive";
 
 const NOW = 1_800_000_000_000;
 const PHONE = "+15555550100";
@@ -470,5 +473,56 @@ describe("a computer part that hands the person a sign-in code (2026-11-05, job 
     const second = world({ reads: [{ state: "ended", said: [{ seq: 1, text: CODE_LINE }], steps: [{ seq: 2, tool: "Bash", target: "gh" }], result: { outcome: "failed", error: "crashed" } }] });
     await runJob(failed, second.deps);
     expect(second.reports.some((update) => update.state === "waiting")).toBe(false);
+  });
+});
+
+describe("a part of a split job that ends waiting sleeps until mail wakes it (Architect item #7, 2026-11-28)", () => {
+  const SPLIT = { path: "projects/lisbon/overview.md", name: "mac", split: "Lisbon week" };
+  const waitingCheck = { ok: true, verdict: "waiting", advice: "The cloud part's list of dinners." };
+
+  it("sleeps instead of ending, its words reach the chat, and mail wakes it into its next part", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run({ mail: SPLIT, noteAsked: true }), sent: 0 });
+    await storage.put(DRIVE_KEY, { pass: 1, tries: 0, overlaps: 0, dueAt: NOW + 10 * 60_000, resumes: 0 });
+    const { deps, reports, calls, clock } = world({
+      assign: [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }, { ok: true, runId: "run_000000000000000000000002", deadline: NOW + 60 * 60_000 }],
+      reads: [finished("Mailed the cloud part for its dinners; waiting on its list."), finished("Booked from the cloud part's list.")],
+      checks: [waitingCheck, { ok: true, verdict: "done" }],
+    });
+    const slept = await runJob(storage, deps);
+    expect(slept.kind).toBe("after");
+    expect(reports.filter((update) => update.texts?.length)).toMatchObject([{ state: "running", texts: ["Mailed the cloud part for its dinners; waiting on its list."], status: "The cloud part's list of dinners." }]);
+    expect(reports.some((update) => update.state === "waiting")).toBe(false);
+    expect((await storage.get<JobRun & { asleep?: number }>(RUN_KEY))?.asleep).toBeGreaterThan(NOW);
+    // Asleep, a pass that comes early uses up no part.
+    expect((await runJob(storage, deps)).kind).toBe("after");
+    expect(calls.filter((call) => call.path === "/agent/machine/assign")).toHaveLength(1);
+    // Mail from the cloud part wakes it now, and its next part is shown the mail.
+    clock.at = NOW + 20 * 60_000;
+    expect(await steerJob(storage, { id: "mail:1:cloud", text: "Dinners: Taberna, Prado.", mail: { from: "cloud", kind: "note", path: SPLIT.path } })).toBe(true);
+    expect((await storage.get<{ dueAt: number }>(DRIVE_KEY))?.dueAt).toBeLessThanOrEqual(Date.now());
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const assigns = calls.filter((call) => call.path === "/agent/machine/assign");
+    expect(assigns.map((call) => call.body.part)).toEqual([1, 2]);
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Booked from the cloud part's list."] });
+  });
+
+  it("a sleep that runs out with nothing come ends the job waiting, texting nothing again", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run({ mail: SPLIT, noteAsked: true }), sent: 0 });
+    const { deps, reports, clock } = world({ reads: [finished("Waiting on the cloud part's list.")], checks: [waitingCheck] });
+    const slept = await runJob(storage, deps);
+    expect(slept.kind).toBe("after");
+    clock.at = NOW + (slept.kind === "after" ? slept.ms : 0) + 1;
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports.at(-1)).toMatchObject({ state: "waiting", texts: [] });
+  });
+
+  it("a job on its own that ends waiting ends as before", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run({ mail: { path: SPLIT.path, name: "mac" }, noteAsked: true }), sent: 0 });
+    const { deps, reports } = world({ reads: [finished("It needs your GitHub code.")], checks: [waitingCheck] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports.at(-1)).toMatchObject({ state: "waiting" });
   });
 });

@@ -15,7 +15,7 @@ import type { PartEndChoice, PartEndInput } from "../../../packages/shared/src/j
 
 const { decidePartEnd } = partEndLib;
 
-const TO = new Set(["carry", "deliver", "end"]);
+const TO = new Set(["carry", "deliver", "end", "sleep"]);
 
 /** The bundled config's Part end limits, or none (the rule's defaults) while the node is on the shelf. */
 export function bundledLimits(config: { nodes?: { id: string; limits?: unknown }[] } = TEX_CONFIG): unknown {

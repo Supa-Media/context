@@ -33,6 +33,8 @@ import { readPictures, type OutgoingPicture } from "./outgoing";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
 import jobStartLib from "../../../packages/shared/src/jobStart.cjs";
 import jobResumeLib from "../../../packages/shared/src/jobResume.cjs";
+import jobSplitLib from "../../../packages/shared/src/jobSplit.cjs";
+import type { JobSplit } from "../../../packages/shared/src/jobSplit.d.cts";
 import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
@@ -41,7 +43,7 @@ import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd
 /** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
 export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
 export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; /** Their earlier texts still open when it started, oldest first (the gateway's `openAsk.js`). */ asked?: string[]; tainted?: true; mail?: JobProject; machine?: JobMachine; /** Started by a chat's own check-in, which nobody asked for: its report may end in silence (`jobTexts.ts`). */ unasked?: true };
-export type JobProject = { path: string; name: string; context?: string };
+export type JobProject = { path: string; name: string; context?: string; /** The split job it is a part of, by the plan's title; the path is its id (`jobSplit.cjs`). */ split?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
@@ -49,7 +51,7 @@ export type JobStep = { at: number; text: string; failed?: true; why?: string };
 export type StepHow = { failed?: true; why?: string; result?: string; held?: true; outside?: true; draft?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`packages/tex/gateway/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
 /** `part`: the part it is on (or ended on); `ends`: how its parts ended (`jobProgress.ts`), for `job_status`. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number; part?: number; ends?: PartEnd[]; split?: JobSplit };
 /** The advisor's call on a job's part that just ended (`packages/tex/gateway/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
@@ -200,10 +202,11 @@ const line = (value: unknown, max: number) => (typeof value === "string" ? value
 /** A split ask's shared note, read strictly (the gateway checked it too: `jobMailOf`). */
 export function readJobProject(value: unknown): JobProject | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { path, name, context } = value as Record<string, unknown>;
+  const { path, name, context, split } = value as Record<string, unknown>;
   if (typeof path !== "string" || path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md")) return null;
   if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,23}$/.test(name) || name === "everyone") return null;
-  return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}) };
+  const part = jobSplitLib.splitOf({ id: path, title: split });
+  return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}), ...(part ? { split: part.title } : {}) };
 }
 
 /** The computer a job runs on, read strictly; the gateway and the machine's owner rules check it again at every part. */
@@ -363,7 +366,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
     // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.
     .filter((entry, index) => all || entry.state === "running" || index < MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt, part, ends }) => ({
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt, part, ends, split }) => ({
       id,
       title,
       state,
@@ -372,6 +375,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       ...(state === "waiting" && resumeAt !== undefined ? { resumeAt } : {}),
       // The computer it runs on, so the gateway counts it against that computer's slots, not the cloud's.
       ...(typeof on === "string" ? { on } : {}),
+      ...(split ? { split } : {}),
       ...(finishedAt !== undefined ? { finishedAt } : {}),
       ...(status ? { status } : {}),
       // A finished job keeps its steps: what it did is all it will ever do (2026-10-31: the chat called a stopped job running).
@@ -457,7 +461,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.unasked ? { unasked: true as const } : {}), ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}) };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.unasked ? { unasked: true as const } : {}), ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}), ...(job.mail?.split ? { split: { id: job.mail.path, title: job.mail.split } } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });

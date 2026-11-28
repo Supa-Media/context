@@ -43,6 +43,7 @@ import { EMPTY_NOTICE, isEmptyAnswer, pointsAtWaitingAsk } from "./replyChecks.j
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
 import { stepOf } from "./standsCheck.js";
+import { startedClaimNotice } from "./startedClaim.js";
 
 /**
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
@@ -57,6 +58,7 @@ export function untriedWebCheck({ question = "", reaction = false, reported = fa
   let emptyNoticed = false;
   let sentNoticed = false;
   let offerNoticed = false;
+  let startNoticed = false;
   // Whether a call this turn was held for somebody's yes: a yes asked for then has something to send.
   let held = false;
   // What this turn's sends that went were: an email, or a Slack or Chat message (`sentBy`).
@@ -99,6 +101,12 @@ export function untriedWebCheck({ question = "", reaction = false, reported = fa
       if (!sentNoticed && !reported && falselySent(answer, { sent: sent.has("email"), sentOther: sent.has("other") })) {
         sentNoticed = true;
         return SENT_NOTICE;
+      }
+      // "Started it", "added a third part" with no job started or picked back up this turn (`startedClaim.js`).
+      const start = startNoticed || reported ? null : startedClaimNotice(answer, steps);
+      if (start !== null) {
+        startNoticed = true;
+        return start;
       }
       // A yes or 👍 asked for in its own words to an email, a message or a report it names, with nothing held: the yes
       // would reach nothing. Never a calendar: a change to their own needs no yes, and sharing one here is asked in words,
