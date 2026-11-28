@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { FormError } from "../../design/components/Input";
@@ -14,6 +14,7 @@ import {
   NAME_MIN_LENGTH,
 } from "../name";
 import type { OnboardingController } from "../useOnboarding";
+import { HeardChips } from "./HeardChips";
 import { useFieldFont } from "../../design/fieldFont";
 
 /**
@@ -43,7 +44,14 @@ import { useFieldFont } from "../../design/fieldFont";
  * the field is currently rejecting put `seyi olujide@context.lc` on screen
  * beside an error saying that is not a valid name.
  */
-export function NameStep({ controller }: { controller: OnboardingController }) {
+export function NameStep({
+  controller,
+  heard = <HeardChips />,
+}: {
+  controller: OnboardingController;
+  /** "How did you hear about us?" under Claim; the fixture passes the row with no server behind it. */
+  heard?: ReactNode;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const fieldFont = useFieldFont();
@@ -142,6 +150,8 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
           testID="welcome-name-submit"
         />
       </View>
+
+      {heard}
     </View>
   );
 }

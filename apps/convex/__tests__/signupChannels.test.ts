@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { FROM_APP_WINDOW_MS } from "../functions/signupChannels";
+import { FROM_APP_WINDOW_MS, HEARD_WINDOW_MS } from "../functions/signupChannels";
 import type { UsageExport } from "../functions/usagePeople";
 import { asUser, createUser, setupTest } from "./fixtures.helpers";
 
@@ -14,6 +14,7 @@ import { asUser, createUser, setupTest } from "./fixtures.helpers";
  * 1. `fromApp` without the window check: "an account older than an hour is never given a channel" fails.
  * 2. `recordSignupChannel` without the held check: "a channel is written once" fails.
  * 3. `exportRows` dropping the channel: "the export carries each new account's channel" fails.
+ * 4. `heard` without the direct check: "a channel a referrer named is never replaced" fails.
  */
 
 afterEach(() => {
@@ -100,5 +101,58 @@ describe("a sign-up's channel", () => {
     expect(byUser.get(withOne)?.channel).toBe("direct");
     expect(byUser.get(without)).toBeDefined();
     expect(byUser.get(without)?.channel).toBeUndefined();
+  });
+});
+
+describe("How did you hear about us?", () => {
+  test("with no referrer the answer becomes the channel, once, and shows as answered", async () => {
+    const t = setupTest();
+    const userId = await createUser(t, "heard@example.invalid");
+    const me = asUser(t, userId);
+    await me.mutation(api.functions.signupChannels.fromApp, { touch: {} });
+    expect(await me.query(api.functions.signupChannels.heardAsk, {})).toEqual({ ask: true });
+    expect(await me.mutation(api.functions.signupChannels.heard, { answer: "x" })).toBe(true);
+    expect((await channelsOf(t, userId)).map((r) => [r.channel, r.heard])).toEqual([["social", true]]);
+    expect(await me.query(api.functions.signupChannels.heardAsk, {})).toEqual({ ask: true, answered: "x" });
+    // A second answer changes nothing.
+    expect(await me.mutation(api.functions.signupChannels.heard, { answer: "ai" })).toBe(false);
+    expect((await channelsOf(t, userId)).map((r) => r.channel)).toEqual(["social"]);
+  });
+
+  test("answered before any channel was written, it is the channel", async () => {
+    const t = setupTest();
+    const userId = await createUser(t, "early@example.invalid");
+    expect(await asUser(t, userId).mutation(api.functions.signupChannels.heard, { answer: "friend" })).toBe(true);
+    expect((await channelsOf(t, userId)).map((r) => r.channel)).toEqual(["invite"]);
+  });
+
+  test("a channel a referrer named is never replaced, and the chips are not shown for it", async () => {
+    const t = setupTest();
+    const userId = await createUser(t, "seen@example.invalid");
+    const me = asUser(t, userId);
+    await me.mutation(api.functions.signupChannels.fromApp, { touch: { referrer: "https://www.google.com" } });
+    expect(await me.query(api.functions.signupChannels.heardAsk, {})).toEqual({ ask: false });
+    expect(await me.mutation(api.functions.signupChannels.heard, { answer: "x" })).toBe(false);
+    expect((await channelsOf(t, userId)).map((r) => r.channel)).toEqual(["search"]);
+  });
+
+  test("the waitlist row's referrer wins over an answer given before the page's touch arrived", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "wl@example.invalid", touch: { referrer: "https://t.co" } });
+    const userId = await createUser(t, "wl@example.invalid");
+    expect(await asUser(t, userId).mutation(api.functions.signupChannels.heard, { answer: "search" })).toBe(false);
+    expect((await channelsOf(t, userId)).map((r) => r.channel)).toEqual(["social"]);
+  });
+
+  test("an account older than a day is not asked and can't answer; signed out is never asked", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t = setupTest();
+    const userId = await createUser(t, "late@example.invalid");
+    vi.setSystemTime(Date.now() + HEARD_WINDOW_MS + 1000);
+    const me = asUser(t, userId);
+    expect(await me.query(api.functions.signupChannels.heardAsk, {})).toEqual({ ask: false });
+    expect(await me.mutation(api.functions.signupChannels.heard, { answer: "x" })).toBe(false);
+    expect(await channelsOf(t, userId)).toEqual([]);
+    expect(await t.query(api.functions.signupChannels.heardAsk, {})).toEqual({ ask: false });
   });
 });

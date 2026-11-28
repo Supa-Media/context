@@ -195,6 +195,10 @@ Growth metrics. The flow:
 4. **Into the sheet.** `usagePeople.exportRows` adds `channel` to each sign-up; `runUsage.js` writes a real exported
    channel over a held `unknown` or empty one, and keeps the held value when the export has none, so a hand
    correction survives. Accounts made before this shipped have no channel and stay `unknown`: nothing is backfilled.
+5. **"How did you hear about us?"** (Dev2, 2026-11-28). The handle screen shows five optional chips under Claim
+   (`HeardChips.tsx`) only when the browser saw no referrer, utm or ref and the account's channel is `direct` or not
+   yet written. One answer (`signupChannels.heard`, within a day of sign-up) replaces `direct` with search, ai,
+   social, invite or other; a channel anything else named is never replaced, and a second answer changes nothing.
 
 ## Configuration
 
