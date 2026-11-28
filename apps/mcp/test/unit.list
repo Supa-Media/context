@@ -496,6 +496,7 @@ test/orientSurveyInObject.test.mjs
 test/orientSiblingParallel.test.mjs
 
 test/savePhases.test.mjs
+test/writeStatusAhead.test.mjs
 test/bookkeepingBehind.test.mjs
 test/collabReplaceInObject.test.mjs
 test/readNoteInObject.test.mjs

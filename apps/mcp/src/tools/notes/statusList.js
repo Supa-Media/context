@@ -70,17 +70,34 @@ export function governingFolderOf(path) {
   return parts.join("/");
 }
 
+/** The `status` a note's text names, `""` for none. */
+function statusOf(content) {
+  const raw = noteProperties(content).status;
+  return typeof raw === "string" ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? "").trim() : "";
+}
+
+/**
+ * The list `statusAdvice` will read for `path`, asked now, while the note is being saved, where the text being saved
+ * names a status; `null` otherwise. The list is the governing folder's front notes and never the note itself
+ * (`governingFolderOf`), so asking before the save answers what asking after it would; the status is still read from
+ * the text that was stored. Never rejects unseen: a failure is the advice's own, which says nothing.
+ */
+export function statusListAhead(store, scope, rules, overrides, path, content) {
+  if (statusOf(content) === "") return null;
+  const reading = readStatusList(store, scope, rules, overrides, governingFolderOf(path));
+  reading.catch(() => {});
+  return reading;
+}
+
 /**
  * A line for `write_note` when the note's `status` is not one of its folder's
  * statuses, or null when it is (or it has none). Advice, never a refusal:
  * the file is the person's, and the board asks them which group it is in.
  */
-export async function statusAdvice(store, scope, rules, overrides, path, content) {
-  const raw = noteProperties(content).status;
-  const status = typeof raw === "string" ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? "").trim() : "";
+export async function statusAdvice(store, scope, rules, overrides, path, content, early = null) {
+  const status = statusOf(content);
   if (status === "") return null;
-  const folder = governingFolderOf(path);
-  const { list, from } = await readStatusList(store, scope, rules, overrides, folder);
+  const { list, from } = await (early ?? readStatusList(store, scope, rules, overrides, governingFolderOf(path)));
   if (isDeclaredStatus(status, list)) return null;
   const group = statusGroupOf(status, list);
   const where = from === null ? "this folder (the defaults)" : `${from}/`;
