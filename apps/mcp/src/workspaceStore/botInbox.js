@@ -30,7 +30,7 @@ export const BOT_INBOX_KINDS = Object.freeze(["mail", "routine"]);
 
 /** `ask`: 1 when a line waiting there asked for an answer (`[ask]`), kept until the bot answers in that note. */
 function addAskColumn(sql) {
-  const columns = all(sql.exec("PRAGMA table_info(ws_bot_inbox)")).map((column) => column.name);
+  const columns = all(sql.exec("SELECT name FROM pragma_table_info('ws_bot_inbox')")).map((column) => column.name);
   if (!columns.includes("ask")) sql.exec("ALTER TABLE ws_bot_inbox ADD COLUMN ask INTEGER NOT NULL DEFAULT 0");
 }
 
