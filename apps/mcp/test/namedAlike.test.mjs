@@ -10,6 +10,8 @@
  *   (ii)  namedAlike.js `namesAlike`: the folder check removed → "only notes in its own folder" fails.
  *   (iii) namedAlike.js `readWithNamedAlike`: listing at "private" in place of the caller's scope → "a note the caller
  *         cannot see is never named" fails.
+ *   (iv)  session.js `groupTurn`: the Lab group test chat half removed → "a Lab group test chat's read is told too"
+ *         fails (the Lab runs a group test chat on its user's own grant, so it was never told; Lab, 2026-11-28).
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -97,4 +99,25 @@ test("a Lab test chat's own notes are named alike beside one it wrote", async ()
   const stubbed = { content: [{ type: "text", text: "etag: lab-1\npath: band/zephyr-setlist.page.md\n\n# Z" }] };
   const result = await sandboxNamedAlike("read_note", { path: "band/zephyr-setlist.page.md" }, stubbed, gate);
   assert.match(header(result), new RegExp(`^${NAMED_ALIKE}: friday-setlist.page.md$`, "m"));
+});
+
+test("a Lab group test chat's read is told too, though it runs on the Lab user's own grant; a 1:1 test chat's is not", async () => {
+  const held = [
+    { path: "band/zephyr-setlist.page.md", body: "# Z", adds: [] },
+    { path: "band/friday-setlist.page.md", body: "# F", adds: [] },
+  ];
+  const gateOf = (kind) => ({
+    about: { kind },
+    call: async (op, fields) => (op === "note.list" ? { notes: held } : op === "note.get" ? { found: held.find((note) => note.path === fields.path) ?? null } : {}),
+    record() {},
+    keepWrite() {},
+  });
+  const readAs = async (kind) => {
+    const session = { scope: "private", workspaceId: "ws-own", actorClientId: "some-client" };
+    Object.defineProperty(session, "labSandbox", { value: gateOf(kind), enumerable: false });
+    return callToolForSession({ name: "read_note", arguments: { path: "band/zephyr-setlist.page.md" } }, workspaceStore({}, RULES), session);
+  };
+  const group = await readAs("group");
+  assert.match(header(group), new RegExp(`^${NAMED_ALIKE}: friday-setlist.page.md$`, "m"), group.content[0].text);
+  assert.doesNotMatch((await readAs("person")).content[0].text, new RegExp(NAMED_ALIKE));
 });
