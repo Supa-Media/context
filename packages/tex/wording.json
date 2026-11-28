@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 3323,
+  "total": 3320,
   "folders": [
     "packages/tex/worker",
     "packages/tex/gateway",
@@ -264,7 +264,7 @@
     "packages/tex/gateway/agent/planBigAsk.js": 23,
     "packages/tex/gateway/agent/privateAside.js": 8,
     "packages/tex/gateway/agent/progress.js": 11,
-    "packages/tex/gateway/agent/prompt.js": 51,
+    "packages/tex/gateway/agent/prompt.js": 48,
     "packages/tex/gateway/agent/promptBudget.js": 2,
     "packages/tex/gateway/agent/promptNames.js": 4,
     "packages/tex/gateway/agent/providers.js": 1,

@@ -30,7 +30,6 @@ import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway
 import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
 import { turnRouter } from "../../../packages/tex/gateway/agent/modelPlan.js";
 import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
-import { modelLine } from "../../../packages/tex/gateway/agent/prompt.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const ENV = {
@@ -123,7 +122,3 @@ test("an opinion text stays on main too: it asks the advisor, not a planner", as
   assert.deepEqual(gw.asked, [HAIKU]);
 });
 
-test("the model line says which model plans jobs", () => {
-  assert.match(modelLine(HAIKU, { main: HAIKU, think: OPUS, jobsOnly: true }), new RegExp(`${OPUS} plans those jobs`));
-  assert.match(modelLine(HAIKU, { main: HAIKU, think: OPUS }), /harder ones and long jobs go to/);
-});

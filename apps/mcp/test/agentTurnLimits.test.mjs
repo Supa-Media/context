@@ -126,22 +126,21 @@ test("a failed tool tells the model not to guess", async () => {
   assert.doesNotMatch(sent, /budget/, "the reason never reaches the model");
 });
 
-test("every turn is told which model answers it, and the ground rules, even with a production prompt", async () => {
+test("no turn is told which model answers it (Dev2, 2026-11-28), and every turn gets the ground rules, even with a production prompt", async () => {
   const ai = scripted([chat("Claude Haiku 5.5.")]);
   await turn(ai, {
     callTool: async () => ({ content: [] }),
     notes: { prompt: "You are Context." },
   });
   const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
-  // The model line is said in the person's turn, after the system prompt (`turn.js`): the request is read for it.
-  assert.match(JSON.stringify(ai.calls[0].input.messages), new RegExp(`AI model ${MODEL.replace(/[/.]/g, "\\$&")}`));
+  // How Tex is built is the team's to know: no part of the request names the model answering.
+  assert.doesNotMatch(JSON.stringify(ai.calls[0].input.messages), /AI model/);
   assert.match(system, /Never fill a gap with a guess/);
   assert.match(system, /To list the workspaces they can reach, call orient\./);
 
   const app = systemPrompt(null, { model: "claude-sonnet-5-5" });
-  assert.match(app, /AI model claude-sonnet-5-5/);
+  assert.doesNotMatch(app, /AI model|claude-sonnet-5-5/, "a model passed in is never said");
   assert.match(app, /Never fill a gap with a guess/);
-  assert.doesNotMatch(systemPrompt(null), /AI model/, "no model, no line");
 });
 
 test("the turn names its model before any tool call, for the usage breakdown", async () => {

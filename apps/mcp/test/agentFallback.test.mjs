@@ -73,9 +73,10 @@ test("a main model that fails hands the turn to the fallback, which answers, and
   assert.equal(fell.from, MAIN);
   assert.equal(fell.model, FALLBACK);
   assert.equal(fell.status, null, "a binding that threw has no status");
+  // No turn is told its model names: how Tex is built is the team's to know (Dev2, 2026-11-28).
   assert.ok(
-    JSON.stringify(ai.calls[2].messages).includes(FALLBACK),
-    "the fallback is told it is the one answering",
+    !JSON.stringify(ai.calls[2].messages).includes("written by the AI model"),
+    "the fallback is not told a model name to repeat",
   );
 });
 

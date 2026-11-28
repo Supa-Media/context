@@ -7,7 +7,7 @@
  *   note, the chat's own setup). Nothing per text: a byte that changes here costs the
  *   history's cache too (`aiGateway.js`, tex-stable-prefix test). The system prompt is sent with these two, each behind a
  *   cache breakpoint.
- * - `preamble`: what changes per text or per round: the time, the model answering,
+ * - `preamble`: what changes per text or per round: the time,
  *   who tagged it in a group, the thread it was typed in, the jobs running now, the calendar copy's age,
  *   the note open in front of them, what earlier texts used, the planner's or
  *   driver's words, and the nudge. It is said in the person's turn, just before
@@ -89,8 +89,6 @@ export function turnPrompt(place, answering, o) {
     texting: o.texting,
     pictures: o.pictures,
     notes: o.notes,
-    model: answering,
-    models: o.models,
     edits,
     continued: o.history.length > 0,
     used: usedTools(o.history),

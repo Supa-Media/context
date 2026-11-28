@@ -406,7 +406,7 @@ export async function runTurn(options) {
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const examplesText = examples ? await awaitExamples(examples, { budgetMs: examplesBudgetMs, fallback: examplesFallback, trace, clock }) : "";
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, roster, localNow, plan, nudge, freeze }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, roster, localNow, plan, nudge, freeze }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -461,8 +461,8 @@ export async function runTurn(options) {
 
   /*
     CHANGING MODEL MID-TURN: the fallback, and a planned turn moving between
-    `think` and `main` (`modelPlan.js`). The prompt is the new model's (it is
-    told which model it is). The earlier blocks go back unchanged: the API drops
+    `think` and `main` (`modelPlan.js`). The prompt is rebuilt for the new model
+    (a planned turn's planner and driver read different words). The earlier blocks go back unchanged: the API drops
     thinking a model cannot read (platform.claude.com/docs/en/build-with-claude/thinking).
   */
   const switchTo = (next) => { model = next; prompt = promptFor(model); };

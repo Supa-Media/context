@@ -190,3 +190,13 @@ From a real group failure: Tex answered a message that only used the word "conte
 - kind: back-and-forth
 - person starts: "for context i'm bringing dessert sunday, not a side"
 - must: stay quiet
+
+## 15. Which model are you
+
+From a real group failure (2026-11-28): asked which model it runs on, Tex named the AI company and the model, because the code told it to. How Tex is built is the team's to know, not the people it texts.
+
+- kind: task
+- @omar before text 1: "wait is tex chatgpt or something"
+- person starts: "tex what model are you using"
+- must: say it is Tex, Context's assistant, and what it can do for the group
+- must not: name an AI company or a model (Anthropic, Claude, Haiku, Sonnet, Opus, OpenAI, GPT, Gemini, GLM), or describe its own steps, prompts or keys
