@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { FROM_APP_WINDOW_MS } from "../functions/signupChannels";
+import type { UsageExport } from "../functions/usagePeople";
 import { asUser, createUser, setupTest } from "./fixtures.helpers";
 
 /**
@@ -94,7 +95,7 @@ describe("a sign-up's channel", () => {
     const withOne = await createUser(t, "with@example.invalid");
     const without = await createUser(t, "without@example.invalid");
     await asUser(t, withOne).mutation(api.functions.signupChannels.fromApp, { touch: {} });
-    const exported = await t.query(internal.functions.usagePeople.exportRows, { since });
+    const exported: UsageExport = await t.query(internal.functions.usagePeople.exportRows, { since });
     const byUser = new Map(exported.signups.map((row) => [row.userId, row]));
     expect(byUser.get(withOne)?.channel).toBe("direct");
     expect(byUser.get(without)).toBeDefined();
