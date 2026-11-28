@@ -23,6 +23,8 @@ other side was left behind. To tell which fix lowers that rate, the rate has to 
 - **The GitHub data source keeps the label as `follow_up`** in `pull-requests.csv` (`apps/mcp/src/data/connect/github.js`).
   It reads the label, which is metadata, and still never a body (data-and-metrics.md). Any team's repository can use
   the same `follow-up:<kind>` convention.
+  A pull request merged before the labeller began (#4484, 2026-11-27) has no label on GitHub, so its
+  `follow_up` stays blank by design: the sync has nothing to read for it, and it is in neither count below.
 - **The metric lives in the workspace's DevOps area beside Open to live:** follow-ups of all pull requests that
   state one, over a rolling 7 days,
   `count(github/pull-requests.follow_up where follow_up != none and follow_up != unstated) ÷

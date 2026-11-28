@@ -17,6 +17,7 @@ import { getWithLegacyFallback } from "../../storageLayout.js";
 import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { splitMessageAnchor } from "../../search/commsIndex.js";
+import { withSyncLine } from "../../data/sync/aboutStatus.js";
 import { phaseTook } from "../../mcp/phase.js";
 import { toolError, toolText } from "../results.js";
 import { ownHistoryRead, toolReadOwnHistory } from "./historyRead.js";
@@ -231,7 +232,8 @@ export const READ_NOTES_MAX = 100;
  * exactly as `read_note` reads it, side by side. Each note is its own part of
  * the answer, starting with its path; one that cannot be read says
  * "not found" in the same words whether it is missing or held back, as
- * `read_note` does.
+ * `read_note` does. A data source's about.md carries its `sync:` line here
+ * as in `read_note` (`data/sync/aboutStatus.js`).
  */
 export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
   if (!Array.isArray(pathsArg) || pathsArg.length === 0) return toolError("paths needs at least one note path: pass a list of note paths");
@@ -243,7 +245,7 @@ export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
     const named = paths.map((path) => splitMessageAnchor(normalizePath(path) ?? "").path).filter(Boolean);
     await view.prime(named);
   }
-  const results = await Promise.all(paths.map((path) => toolReadNote(view, scope, rules, overrides, path)));
+  const results = await Promise.all(paths.map((path) => toolReadNote(view, scope, rules, overrides, path).then((result) => withSyncLine(result, store))));
   const content = results.map((result, index) => {
     const text = result.content?.map((part) => part.text ?? "").join("\n") ?? "";
     return { type: "text", text: result.isError ? `path: ${paths[index]}\nerror: ${text}` : text };
