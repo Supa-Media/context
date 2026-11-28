@@ -12,7 +12,7 @@
  * the same thing.
  */
 
-import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { toolDefinitions } from "../contextMcp.js";
 import { callTexStore, texStoreStub } from "../texStore/wire.js";
 
 /** How long a change waits for another turn's before it runs anyway. */

@@ -78,7 +78,7 @@ import { browserWalls } from "./browserWalls.js";
 import { BROWSER_TOOLS, forReach, hasBrowser } from "./browserReach.js";
 import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
-import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { toolDefinitions } from "../contextMcp.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.js";
 import { CALENDAR_CHANGE, PREVIEW_LINE, SLACK_OFFER, WHEN, offersAHeldChange } from "../../../shared/src/texContract/heldOffer.cjs";

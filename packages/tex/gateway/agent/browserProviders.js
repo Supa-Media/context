@@ -21,7 +21,7 @@
  * be produced for another person without the secret.
  */
 
-import { fileWords, typeOfFile, wordsWithoutPages } from "../../../../apps/mcp/src/tools/readFile.js";
+import { fileWords, typeOfFile, wordsWithoutPages } from "../contextMcp.js";
 import { pdfLinks } from "../../../shared/src/texContract/pdfLinks.cjs";
 import { untilFree } from "./browserLease.js";
 import { TEX_CONFIG } from "./texConfig.js";

@@ -36,7 +36,7 @@
 
 import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
-import { toolIsWriting } from "../../../../apps/mcp/src/tools/registry.js";
+import { toolIsWriting } from "../contextMcp.js";
 import { actionOf } from "../../../shared/src/texContract/toolContract.cjs";
 import { sleepLineNote } from "./timeLog.js";
 import { WEB_READS } from "./doorTools.js";

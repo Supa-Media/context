@@ -4,9 +4,9 @@
  * `texEntryPoint.js`, which calls it, to keep that file to one job.
  */
 
+import { canonicalToolName } from "../contextMcp.js";
 import { doneLine } from "./doneLine.js";
 import { folded } from "./folded.js";
-import { canonicalToolName } from "../../../../apps/mcp/src/tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../../../shared/src/texContract/asks.cjs";
 import { EVERY_CHAT, armAsks, disarmAsks, disarmChat, disarmTexting, listAsks, settleByText as settleAsk, withdrawAsks } from "../asks.js";

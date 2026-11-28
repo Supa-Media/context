@@ -14,8 +14,7 @@
  * turn may call is unchanged: an action it does not hold is refused with what it can do instead.
  */
 
-import { UNLISTED_TOOLS, V2_ONLY_TOOLS } from "../../../../apps/mcp/src/tools/advertised.js";
-import { PRIVATE_TIER_ONLY_TOOLS, STAFF_ONLY_TOOLS, toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { UNLISTED_TOOLS, V2_ONLY_TOOLS, PRIVATE_TIER_ONLY_TOOLS, STAFF_ONLY_TOOLS, toolDefinitions } from "../contextMcp.js";
 import { OWN_READ_TOOLS } from "./sixTools.js";
 import { catalogue } from "./toolCatalogue.js";
 import { textingWriteTools } from "./textingWrites.js";

@@ -9,6 +9,8 @@
  *
  * 1. `callContextTool` dropping `options`: "a legacy caller keeps its option" fails.
  * 2. `heartbeat.js` importing `callToolForSession` again: "only the seam imports the gateway's MCP dispatcher" fails.
+ * 3. `steer.js` importing `toolIsWriting` from `tools/registry.js` again: "Tex reads Context's tool list only through
+ *    the seam" fails.
  */
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -18,7 +20,10 @@ import { fileURLToPath } from "node:url";
 
 import { callContextTool, contextTools } from "../../../packages/tex/gateway/contextMcp.js";
 import { callToolForSession } from "../src/tools/session.js";
-import { STAFF_ONLY_TOOLS } from "../src/tools/registry.js";
+import * as seam from "../../../packages/tex/gateway/contextMcp.js";
+import { STAFF_ONLY_TOOLS, toolDefinitions, toolIsWriting } from "../src/tools/registry.js";
+import { toolsForSession } from "../src/tools/advertised.js";
+import { ACTIONS } from "../src/tools/v2/actions.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { withServedTree } from "./servedTree.mjs";
@@ -73,9 +78,30 @@ function walk(dir, out = []) {
   return out;
 }
 
-test("only the seam imports the gateway's MCP dispatcher", () => {
-  const importers = walk(join(ROOT, "packages/tex"))
-    .filter((file) => /from\s+"[^"]*apps\/mcp\/src\/tools\/session\.js"/.test(readFileSync(file, "utf8")))
+const importersOf = (pattern) =>
+  walk(join(ROOT, "packages/tex"))
+    .filter((file) => pattern.test(readFileSync(file, "utf8")))
     .map((file) => relative(ROOT, file).split("\\").join("/"));
-  assert.deepEqual(importers, ["packages/tex/gateway/contextMcp.js"]);
+
+test("only the seam imports the gateway's MCP dispatcher", () => {
+  assert.deepEqual(importersOf(/(?:from\s+|import\s*\(\s*)"[^"]*apps\/mcp\/src\/tools\/session\.js"/), ["packages/tex/gateway/contextMcp.js"]);
+});
+
+test("Tex reads Context's tool list only through the seam, never a gateway tool module", () => {
+  assert.deepEqual(importersOf(/(?:from\s+|import\s*\(\s*)"[^"]*apps\/mcp\/src\/tools\/texSurface\.js"/), ["packages/tex/gateway/contextMcp.js"]);
+  const modules = /apps\/mcp\/src\/(?:tools\/(?:registry|advertised|readFile|forwardRule|shownEmail|v2\/actions|v2\/translate|v2\/speak)|orient\/manual|plugins\/enablement)\.js"/;
+  assert.deepEqual(importersOf(modules), []);
+});
+
+test("the seam's catalog is the gateway's own, and tools/list through it is the session's", async () => {
+  assert.deepEqual(seam.toolDefinitions(), toolDefinitions());
+  assert.equal(seam.STAFF_ONLY_TOOLS, STAFF_ONLY_TOOLS);
+  assert.equal(seam.ACTIONS, ACTIONS);
+  for (const name of ["write_note", "read_note", "send", "tex_dev"]) assert.equal(seam.toolIsWriting(name), toolIsWriting(name), name);
+  const store = await storeWith({ "projects/a.md": "# A" });
+  const session = { workspaceId: "w1", scope: "private", contexts: [] };
+  for (const shape of ["v1", "v2", "all"]) {
+    const names = (tools) => tools.map((tool) => tool.name);
+    assert.deepEqual(names(await seam.listContextTools(store, session, { shape })), names(await toolsForSession(session, store, { shape })), shape);
+  }
 });
