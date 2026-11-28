@@ -33,7 +33,7 @@ function itemLine(item) {
   const sender = typeof item.from === "string" && item.from !== "" ? ` from ${item.from}` : "";
   const at = when(item.at);
   const area = typeof item.area === "string" && item.area !== "" ? ` in ${item.area}` : "";
-  return `- mail${sender}${at ? `, ${at}` : ""}${area}: ${item.note}`;
+  return `- ${item.ask === true ? "ask (an answer is owed)" : "mail"}${sender}${at ? `, ${at}` : ""}${area}: ${item.note}`;
 }
 
 export async function botCheckAnswer(store, rawBot, full = null, now = Date.now(), boundOf = boundBotsOf) {
@@ -59,7 +59,12 @@ export async function botCheckAnswer(store, rawBot, full = null, now = Date.now(
   const items = answer.items.filter((item) => item && typeof item.note === "string");
   if (items.length === 0) return toolText("Nothing new. Check again in 5 minutes.");
   return toolText(
-    [`${items.length} new for ${bot}:`, ...items.map(itemLine), `Read one: fetch { id: "<path>", args: { mail: true } }, or its whole area first: orient { area: "<area>" }. Everything: ${everything}.`].join("\n"),
+    [
+      `${items.length} new for ${bot}:`,
+      ...items.map(itemLine),
+      `Read one: fetch { id: "<path>", args: { mail: true } }, or its whole area first: orient { area: "<area>" }. Everything: ${everything}.`,
+      "Answer in the note each line names, as a line of mail there: that is what tells the sender and clears it here.",
+    ].join("\n"),
   );
 }
 

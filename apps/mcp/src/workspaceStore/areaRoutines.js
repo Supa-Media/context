@@ -360,6 +360,8 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     spent,
     recordMail,
     inbox,
+    /** The folder doing the Areas job, or null (`mailRoute.js` reads which areas a bot holds under it). */
+    areasRoot,
     /** The area a routine note at `path` belongs to, or null for a path that is no area's routine. */
     areaOfRoutine(path) {
       return all(sql.exec("SELECT area FROM ws_area_routines WHERE path = ?", path))[0]?.area ?? null;

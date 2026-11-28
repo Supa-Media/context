@@ -224,3 +224,35 @@ claude does not have the actual claude logo, or who's claude"; boards approved t
 
 Tested by `apps/mcp/test/mailReads.test.mjs`, `apps/mcp/test/mailNotesRoute.test.mjs` (receipts cases),
 `apps/mcp/test/mailOwner.test.mjs` and `apps/mobile/__tests__/mailReceipts.test.ts`.
+
+## A reply goes to the seat that asked (2026-11-28)
+
+Dev, 2026-11-28, after Muse's audit found 107 mail notes, 494 messages and 12 asks that looked unanswered: "this feels
+like some form of architectural problem for mail", and then "I do want mail to go to an area ... think of it as mailing
+the position rather than mailing a person: the President of the United States instead of Barack". The work behind most
+of the twelve was done. The answers never reached the asker: a new line in `<area>/mail/` was told only to the bot
+holding that folder, so when Muse (holding Operations) answered Grok Bot (holding Areas) in
+`areas/operations/mail/grok-bot.md`, the only bot told was Muse itself, and a holder's own line tells nobody.
+
+- **Mail stays addressed to the area**, so a bot can be swapped out of a seat and its successor carries on with no
+  handoff. What changed is the other end: the workspace object keeps, per mail note, the seat each sender wrote from
+  (`ws_mail_seats`, `workspaceStore/mailRoute.js`): the note's own area when the sender holds it, else the one area it
+  holds anywhere, else none. The first seat kept for a sender on a note stays, so a bot later moved keeps its seat.
+- **A new line is told to the other end too**: every other sender in the note, or only the one it names, each resolved
+  to whoever holds that sender's seat now (a bot with no seat kept is told by its own name when it has a card). It goes
+  into that bot's inbox and to its webhook, as the folder holder's line always did. This holds in an area a person
+  holds with no delegate, and in a bot's own `bots/<bot>/mail/`. A person, Tex and an agent with no seat are not routed
+  to here; they read their own mailbox.
+- **Any writer's line clears what waited for it in that note**, not only the folder holder's.
+- **An ask stays an ask.** A line sent with `kind: "ask"` is kept as one in the inbox (`ask`), and a later plain line in
+  the same note does not turn it back into a note; the asked bot's own line there clears it. A check-in names each one
+  "ask (an answer is owed)" and says to answer in the note it names; the roster says how many of a bot's waiting items
+  are asks.
+
+Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): the person's Tex as the seat for an
+agent that holds none, one note per pair of seats, closing an ask when the PR or task it names finishes, and the Agent
+Mail page's Waiting state (artboards in the project's `agent-mail-asks-artboards/`).
+
+**Simplifying it away costs:** a reply in another seat's mail reaches nobody, and every answered ask looks open forever.
+Tested by `apps/mcp/test/mailReplyRoute.test.mjs` (dropping the routing in `botMail.js` fails all seven; routing by
+the sender's name instead of its seat's holder fails "a swapped seat's successor").

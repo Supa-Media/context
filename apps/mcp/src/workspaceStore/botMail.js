@@ -35,6 +35,7 @@
 import mail from "../../../../packages/shared/src/mail.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import fileKinds from "../../../../packages/shared/src/fileKinds.cjs";
+import { mailRoute } from "./mailRoute.js";
 
 const { parseMail } = mail;
 const { mailJoinName } = areaBots;
@@ -110,8 +111,10 @@ export function cardFolderBot(area, propsJson) {
  * @param {any} sql
  * @param {{rows: any, objects: any, facts: any, tell: (message: {bot: string, area: string, note: string, from: string}) => void, defer?: (work: () => void) => void}} deps
  */
-export function botMailWatch(sql, { rows, objects, facts, tell, routines = null, defer = (work) => queueMicrotask(work), now = Date.now }) {
+export function botMailWatch(sql, { rows, objects, facts, tell, routines = null, findAreasRoot = () => routines?.areasRoot?.() ?? null, defer = (work) => queueMicrotask(work), now = Date.now }) {
   for (const statement of SCHEMA) sql.exec(statement);
+  // The seat each sender writes from, so a reply reaches whoever holds the asking seat now (`mailRoute.js`).
+  const route = mailRoute(sql, { rows, facts, areasRoot: findAreasRoot, holderOf: botOfArea });
   const pending = new Map(); // noteId → whether only a fresh line may be told (its row landed, its bytes did not change)
   let scheduled = false;
 
@@ -147,28 +150,44 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     sql.exec("INSERT INTO ws_bot_mail (note_id, last) VALUES (?, ?) ON CONFLICT(note_id) DO UPDATE SET last = excluded.last", noteId, mark);
     if (onlyFresh && !(Date.parse(newest.at) >= now() - ROW_LANDED_FRESH_MS)) return;
     const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
+    if (about?.sealed) return;
     const holder = botOfArea(about?.props);
-    if (holder === null || about?.sealed) return;
-    const folderBot = cardFolderBot(area, about?.props);
+    const folderBot = holder === null ? null : cardFolderBot(area, about?.props);
     // A helper's note wakes only the bot whose own folder it is in, never an area's bot.
     if (folderBot === null && helperOfNote(row.path) !== null) return;
-    const bot = folderBot ?? mailJoinName(holder);
-    // What the bot said it used, and the routines it answered (`areaRoutines.js`).
-    routines?.recordMail(noteId, area, holder);
-    // Its own newest line here answers what waited for it in this note (`botInbox.js`).
-    const answered = lines.filter((event) => event.from.toLowerCase() === bot).pop();
-    if (answered !== undefined) {
-      routines?.inbox?.clear(bot, { noteId, note: row.path }, Date.parse(answered.at));
-      // A bot writing its own line is reached: it counts as checking in (`botInbox.js` `seen`).
-      routines?.inbox?.seen?.(bot, Date.parse(answered.at));
+    // The bot that holds this folder, or null where a person holds it with no delegate bot.
+    const bot = holder === null ? null : (folderBot ?? mailJoinName(holder));
+    const writer = newest.from.toLowerCase();
+    const at = Date.parse(newest.at);
+    const ask = newest.mailKind === "ask";
+    if (bot !== null) {
+      // What the bot said it used, and the routines it answered (`areaRoutines.js`).
+      routines?.recordMail(noteId, area, holder);
+      // Its own newest line here answers what waited for it in this note (`botInbox.js`).
+      const answered = lines.filter((event) => event.from.toLowerCase() === bot).pop();
+      if (answered !== undefined) {
+        routines?.inbox?.clear(bot, { noteId, note: row.path }, Date.parse(answered.at));
+        // A bot writing its own line is reached: it counts as checking in (`botInbox.js` `seen`).
+        routines?.inbox?.seen?.(bot, Date.parse(answered.at));
+      }
     }
-    if (newest.from.toLowerCase() === bot) return;
+    // Any writer's line answers what waited for it here, wherever the note sits (a reply in another seat's mail).
+    if (writer !== bot) routines?.inbox?.clear(writer, { noteId, note: row.path }, at);
+    // The seat this line was written from, kept so a reply later reaches whoever holds it then (`mailRoute.js`). A
+    // bot's own folder is mail to that bot, not a seat: only its correspondents' seats are kept there.
+    if (folderBot === null || writer !== bot) route.record(noteId, writer, route.seatOf(writer, folderBot === null ? area : null, bot));
+    // The other end of the conversation hears it too: the seat that asked, as whoever holds it now (Dev, 2026-11-28).
+    for (const other of route.recipients(noteId, lines, { from: writer, to: newest.to }, bot)) {
+      routines?.inbox?.add({ bot: other, noteId, note: row.path, kind: "mail", area, from: newest.from, at, ask });
+      tell({ bot: other, area, note: row.path, from: newest.from });
+    }
+    if (bot === null || writer === bot) return;
     // An area whose share of the bot's week is spent is held: the mail stays in the note, and the bot finds it there
     // (`docs/decisions/app-and-console/area-routines.md`).
     const found = routines?.budget(area) ?? null;
     if (found !== null && routines.spent(found)) return;
     // Kept for a bot that checks in, whether or not a webhook takes it; never the message.
-    routines?.inbox?.add({ bot, noteId, note: row.path, kind: "mail", area, from: newest.from, at: Date.parse(newest.at) });
+    routines?.inbox?.add({ bot, noteId, note: row.path, kind: "mail", area, from: newest.from, at, ask });
     tell({ bot, area, note: row.path, from: newest.from });
   }
 

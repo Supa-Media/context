@@ -28,6 +28,12 @@ export const MAX_PER_BOT = 50;
 export const MAX_CHECKS = 200;
 export const BOT_INBOX_KINDS = Object.freeze(["mail", "routine"]);
 
+/** `ask`: 1 when a line waiting there asked for an answer (`[ask]`), kept until the bot answers in that note. */
+function addAskColumn(sql) {
+  const columns = all(sql.exec("PRAGMA table_info(ws_bot_inbox)")).map((column) => column.name);
+  if (!columns.includes("ask")) sql.exec("ALTER TABLE ws_bot_inbox ADD COLUMN ask INTEGER NOT NULL DEFAULT 0");
+}
+
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
 const keyOf = (noteId, note) => (typeof noteId === "string" && noteId !== "" ? noteId : `path:${note}`);
 
@@ -40,6 +46,7 @@ const keyOf = (noteId, note) => (typeof noteId === "string" && noteId !== "" ? n
  */
 export function botInbox(sql, { rows = null, now = Date.now } = {}) {
   for (const statement of SCHEMA) sql.exec(statement);
+  addAskColumn(sql);
 
   function prune(bot, at) {
     sql.exec("DELETE FROM ws_bot_inbox WHERE at < ?", at - BOT_INBOX_KEPT_MS);
@@ -54,12 +61,12 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
 
   return {
     /** One item for `bot`: the note's row is kept once, with its newest time and sender. */
-    add({ bot, noteId = null, note, kind, area = null, from = null, at = now() }) {
+    add({ bot, noteId = null, note, kind, area = null, from = null, at = now(), ask = false }) {
       if (typeof bot !== "string" || bot === "" || typeof note !== "string" || note === "" || !BOT_INBOX_KINDS.includes(kind)) return;
       const name = mailJoinName(bot);
       const when = Number.isFinite(at) ? Math.min(at, now()) : now();
       sql.exec(
-        "INSERT INTO ws_bot_inbox (bot, note_key, note_id, note, kind, area, sender, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(bot, note_key) DO UPDATE SET note = excluded.note, kind = excluded.kind, area = excluded.area, sender = excluded.sender, at = MAX(at, excluded.at)",
+        "INSERT INTO ws_bot_inbox (bot, note_key, note_id, note, kind, area, sender, at, ask) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(bot, note_key) DO UPDATE SET note = excluded.note, kind = excluded.kind, area = excluded.area, sender = excluded.sender, at = MAX(at, excluded.at), ask = MAX(ask, excluded.ask)",
         name,
         keyOf(noteId, note),
         noteId,
@@ -68,6 +75,7 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
         area,
         from,
         when,
+        ask === true ? 1 : 0,
       );
       prune(name, now());
     },
@@ -99,7 +107,7 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
           continue;
         }
         if (!sees(path)) continue;
-        items.push({ kind: row.kind, note: path, area: row.area ?? null, from: row.sender ?? null, at: Number(row.at) });
+        items.push({ kind: row.kind, note: path, area: row.area ?? null, from: row.sender ?? null, at: Number(row.at), ask: Number(row.ask ?? 0) === 1 });
       }
       return items;
     },
@@ -123,15 +131,16 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
     checks() {
       return all(sql.exec("SELECT bot, at FROM ws_bot_checks ORDER BY bot")).map((row) => ({ bot: row.bot, at: Number(row.at) }));
     },
-    /** How many items wait for each bot in notes `sees` lets this reader read: `[{bot, count}]`. */
+    /** How many items wait for each bot in notes `sees` lets this reader read, and how many of them ask: `[{bot, count, asks}]`. */
     counts(sees = () => true) {
       const counted = new Map();
       for (const row of all(sql.exec("SELECT * FROM ws_bot_inbox ORDER BY bot"))) {
         const path = pathOf(row);
         if (path === null || !sees(path)) continue;
-        counted.set(row.bot, (counted.get(row.bot) ?? 0) + 1);
+        const was = counted.get(row.bot) ?? { count: 0, asks: 0 };
+        counted.set(row.bot, { count: was.count + 1, asks: was.asks + (Number(row.ask ?? 0) === 1 ? 1 : 0) });
       }
-      return [...counted].map(([bot, count]) => ({ bot, count }));
+      return [...counted].map(([bot, { count, asks }]) => ({ bot, count, asks }));
     },
   };
 }

@@ -30,9 +30,11 @@ function healthWords(state, bot) {
   if (state === null || typeof state !== "object" || !Array.isArray(state.checks)) return "";
   const name = mailJoinName(bot);
   const check = state.checks.find((row) => row?.bot === name);
-  const waiting = Array.isArray(state.inbox) ? Number(state.inbox.find((row) => row?.bot === name)?.count ?? 0) : 0;
+  const row = Array.isArray(state.inbox) ? state.inbox.find((each) => each?.bot === name) : undefined;
+  const waiting = Number(row?.count ?? 0);
+  const asks = Number(row?.asks ?? 0);
   const checked = typeof check?.at === "number" ? `last check-in ${when(check.at)}` : "never checked in";
-  return ` — ${checked}${waiting > 0 ? `; ${waiting} waiting in its inbox` : ""}`;
+  return ` — ${checked}${waiting > 0 ? `; ${waiting} waiting in its inbox${asks > 0 ? `, ${asks} of them ${asks === 1 ? "an ask" : "asks"} owed an answer` : ""}` : ""}`;
 }
 
 /** The workspace object's routines and week for this reader, or null. */
