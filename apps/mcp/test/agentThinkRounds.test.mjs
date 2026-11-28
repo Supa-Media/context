@@ -21,7 +21,7 @@
  *   `runTurn` not switching to `main` after the planning rounds
  *     → "think_rounds 1: round 0 plans on think, every later round drives on main" fails
  *   `switchTo` deleting the earlier rounds' blocks again
- *     → "the switch hands the planner's blocks on unchanged and re-tells the model who it is" fails
+ *     → "the switch hands the planner's blocks on unchanged and keeps no model names in its words" fails
  *   `runTurn` not retrying a 400 that names thinking without the blocks
  *     → "a 400 that names thinking is retried once without the blocks, and the round says so" fails
  *   `runTurn` booking every round's usage to `main`
@@ -142,10 +142,10 @@ test("the switch hands the planner's blocks on unchanged and re-tells the model 
   // The API drops what Haiku cannot read (platform.claude.com/docs/en/build-with-claude/thinking, "Switching models mid-conversation").
   assert.deepEqual(planned.content, [thought(1), call(1)], "Opus's blocks go to Haiku exactly as they came");
   assert.ok(planned.content.some((block) => block.type === "tool_use"), "but it sees the calls Opus made");
-  // The model line and the plan's words are said in the person's turn (`turn.js`): the whole request is read, minus its `model` field.
+  // The plan's words are said in the person's turn (`turn.js`); no model is told its name to repeat (Dev2, 2026-11-28).
   const systemText = (body) => JSON.stringify({ ...body, model: undefined });
-  assert.match(systemText(gw.bodies[0]), /claude-opus-5-5/);
-  assert.match(systemText(gw.bodies[1]), /claude-haiku-5-5/);
+  assert.doesNotMatch(systemText(gw.bodies[0]), /written by the AI model/);
+  assert.doesNotMatch(systemText(gw.bodies[1]), /written by the AI model/);
   // Haiku's own thinking rides along between its own rounds, as on any turn.
   const driven = gw.bodies[2].messages.filter((message) => message.role === "assistant");
   assert.ok(driven.at(-1).content.some((block) => block.type === "thinking"), "the driver keeps its own thinking");

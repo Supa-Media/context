@@ -465,8 +465,8 @@ test("a text the router calls lookup stays on the main model", async () => {
   const ai = fakeAi([clefSays("lookup")]);
   await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
   assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
-  // Asked which model it is, it names both it runs on, not only the one answering. Said in the person's turn (`turn.js`), so the whole request is read.
-  assert.match(JSON.stringify(gatewayCalls.at(-1)?.body), /written by the AI model anthropic\/claude-haiku-5-5\. You run on two models: anthropic\/claude-haiku-5-5 answers most texts, and harder ones and long jobs go to anthropic\/claude-opus-5-5/);
+  // Which models run Tex is the team's to know, not the person's (Dev2, 2026-11-28): no turn is told its model names.
+  assert.doesNotMatch(JSON.stringify(gatewayCalls.at(-1)?.body), /written by the AI model|which model you run on/);
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
 });
 
