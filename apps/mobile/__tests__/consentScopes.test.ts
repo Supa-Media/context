@@ -56,6 +56,8 @@ const TEAM = "team" as const;
  * asserted that. These helpers are what makes the sentence true.
  */
 const GATEWAY_SESSION_PATH = join(__dirname, "..", "..", "mcp", "src", "session.js");
+/** Where the scope strings `session.js` lists are defined, shared with Tex (`packages/shared`). */
+const SHARED_SCOPES_PATH = join(__dirname, "..", "..", "..", "packages", "shared", "src", "texContract", "scopes.cjs");
 const BACKEND_SCOPES_PATH = join(
   __dirname, "..", "..", "convex", "functions", "lib", "consentScopes.ts",
 );
@@ -82,7 +84,7 @@ function arrayMembers(source: string, pattern: RegExp): string[] {
 }
 
 function advertisedByTheGateway(): string[] {
-  const source = readFileSync(GATEWAY_SESSION_PATH, "utf8");
+  const source = `${readFileSync(GATEWAY_SESSION_PATH, "utf8")}\n${readFileSync(SHARED_SCOPES_PATH, "utf8")}`;
   return arrayMembers(source, /export const SUPPORTED_SCOPES\s*=\s*\[([\s\S]*?)\]/);
 }
 

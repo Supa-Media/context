@@ -20,7 +20,7 @@ import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { objectToken } from "../../../../apps/mcp/src/workspaceStore/access.js";
 import { workspaceClient } from "../../../../apps/mcp/src/workspaceStore/api.js";
 import { timedAccessStep } from "../../../../apps/mcp/src/workspaceStore/personClient.js";
-import { TEXTING_TOKEN_MS } from "../../../../apps/mcp/src/workspaceStore/personTexting.js";
+import { TEXTING_TOKEN_MS } from "../../../shared/src/texContract/texClients.cjs";
 import { randomToken } from "../../../../apps/mcp/src/oauth/responses.js";
 import { PHONE, textingPhoneHash } from "./textingPhone.js";
 

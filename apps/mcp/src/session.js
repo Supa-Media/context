@@ -45,6 +45,7 @@ import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
 import { SessionRefusal, normalizeSession } from "./sessionPayload.js";
 import { READS_AS_CHAT } from "./privacy/engine.js";
 import { PINNED_CONTEXT_NAME } from "./orient/globalNote.js";
+import { SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE, hasScope } from "../../../packages/shared/src/texContract/scopes.cjs";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -62,21 +63,10 @@ export { SessionRefusal };
 export { decodePathSegment, splitWorkspacePath } from "./workspacePath.js";
 export { storeForOpenedBinding, storeForSession } from "./sessionStore.js";
 
-/** Read every visible note. */
-export const SCOPE_READ = "context:read";
-/** Create, update, move, and archive notes. Implies capture. */
-export const SCOPE_WRITE = "context:write";
+/** The read, write and private scopes and `hasScope` are one copy in `packages/shared/src/texContract/scopes.cjs`. */
+export { SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE, hasScope };
 /** Drop a raw capture into inbox and nothing else. */
 export const SCOPE_CAPTURE = "context:capture";
-/**
- * Reach notes marked private.
- *
- * Not an operation — holding it lets a client *do* nothing new. It widens the
- * set of notes every other scope applies to, which is why it is the one scope
- * a person is asked about separately on the consent screen and the one a
- * client's request cannot decide.
- */
-export const SCOPE_PRIVATE = "context:private";
 
 /**
  * Everything a client may ask for, and everything both discovery documents
@@ -542,10 +532,6 @@ function effectiveScopes(grantScopes, role) {
     return effective.filter((scope) => scope !== SCOPE_READ);
   }
   return effective;
-}
-
-export function hasScope(session, scope) {
-  return Array.isArray(session?.scopes) && session.scopes.includes(scope);
 }
 
 /**

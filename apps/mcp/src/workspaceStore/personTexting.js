@@ -12,12 +12,10 @@
 
 import { ACCESS_HOMES, AccessRowRefused, TOKEN_HASH } from "./access.js";
 
-/** The texting client, as the control plane names it (`TEXTS_CLIENT_ID`). */
-export const TEXTS_CLIENT_ID = "context_texts";
+import { TEXTS_CLIENT_ID, TEXTING_TOKEN_MS } from "../../../../packages/shared/src/texContract/texClients.cjs";
+export { TEXTS_CLIENT_ID, TEXTING_TOKEN_MS };
 /** A texting connection's grant id: the object's own, never a control-plane id. */
 export const TEXTING_GRANT_PREFIX = "texts_";
-/** How long a texting token lives, as the control plane's `TEXTS_GRANT_TTL_MS`. */
-export const TEXTING_TOKEN_MS = 15 * 60 * 1000;
 
 export const TEXTING_OPS = Object.freeze({
   /** `{record}` → `{kept, revoked}`: the whole texting record, kept unless the one held is newer. */

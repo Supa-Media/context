@@ -22,7 +22,7 @@
  * run is not wrapped; its note is the standing ask.
  */
 
-import { activityHintOf } from "../../../../apps/mcp/src/live/activityHint.js";
+import { activityHintOf } from "../../../shared/src/texContract/activityHint.cjs";
 
 /** Their words ask for a note to be moved, filed, archived or cleared away. */
 export const ASKS_TO_MOVE =

@@ -63,7 +63,7 @@ function nothingChanged(name, result) {
  * nothing, and that is worse than none.
  */
 
-import { isPagePath } from "../../../../apps/mcp/src/pages.js";
+import { isPagePath } from "../../../shared/src/pages/parse.cjs";
 import noteAppLink from "../../../shared/src/noteAppLink.cjs";
 import { isTexOwnNote, noteWrite } from "./pageNotice.js";
 import { noteTitleOf, previewKey, previewSigningKey } from "../../../shared/src/notePreview.cjs";

@@ -44,7 +44,7 @@
  */
 
 import { pagesSection } from "./jobPages.js";
-import { PAGE_JOB_LINE } from "../../../../apps/mcp/src/pages.js";
+import { PAGE_JOB_LINE } from "../../../shared/src/pages/skill.cjs";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../../../../apps/mcp/src/machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";

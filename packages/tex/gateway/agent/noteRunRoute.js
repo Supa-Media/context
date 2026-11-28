@@ -31,7 +31,7 @@ import { personalNameFor } from "../../../../apps/mcp/src/context/identity.js";
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { appendNoteRun, listNoteRuns } from "./noteRunLog.js";
 import { isSheetCell } from "./noteRunSheet.js";
-import { isSheetPath, MAX_SHEET_ROWS } from "../../../../apps/mcp/src/sheets/csv.js";
+import { isSheetPath, MAX_SHEET_ROWS } from "../../../shared/src/sheetCsv.cjs";
 
 export const NOTE_RUN_PATH = "/tex/note-run";
 export const NOTE_RUNS_READ_PATH = "/tex/note-runs";

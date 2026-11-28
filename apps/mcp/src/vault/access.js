@@ -27,15 +27,8 @@
 
 export const LEVELS = ["use", "see"];
 export const EVERYONE = "*";
-/**
- * A key given to one Tex group chat (Dev2, 2026-11-12: "a group created automatically for that chat"), saved from a
- * link Tex texted there: `#chat:<the chat's key>`. Never a person or an `@group`, so only that chat's own turns count
- * it (`actorAccessOf`), and only to use.
- */
-export const CHAT_SHARE_PREFIX = "#chat:";
-export function chatShareTo(chatKey) {
-  return `${CHAT_SHARE_PREFIX}${chatKey}`;
-}
+import { CHAT_SHARE_PREFIX, chatShareTo } from "../../../../packages/shared/src/vaultShapes.cjs";
+export { CHAT_SHARE_PREFIX, chatShareTo };
 /** Most people, groups and workspace rows one key is given to. */
 export const MAX_SHARES = 200;
 

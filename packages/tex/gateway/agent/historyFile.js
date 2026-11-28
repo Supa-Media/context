@@ -9,7 +9,7 @@
  */
 
 import { CONVERSATIONS_FILE, CONVERSATIONS_VIEW_MARKER, HISTORY_FILE, HISTORY_VIEW_MARKER } from "../texStore/historyView.js";
-import { isChatHistoryPath } from "../../../../apps/mcp/src/notes/paths.js";
+import { isChatHistoryPath } from "../../../shared/src/texContract/chatHistoryPath.cjs";
 
 export { CONVERSATIONS_FILE, HISTORY_FILE };
 

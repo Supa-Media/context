@@ -22,7 +22,7 @@
 
 import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
-import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
+import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
 import { oneLine, renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, GO_PREFIX, RUNNING_PREFIX } from "./steer.js";

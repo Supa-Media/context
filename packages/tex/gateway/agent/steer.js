@@ -35,7 +35,7 @@
  */
 
 import { json } from "../util/responses.js";
-import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
+import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
 import { toolIsWriting } from "../../../../apps/mcp/src/tools/registry.js";
 import { actionOf } from "../../../shared/src/texContract/toolContract.cjs";
 import { sleepLineNote } from "./timeLog.js";

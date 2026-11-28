@@ -109,11 +109,7 @@ export function pageSkillMissing(content) {
   ].join("\n");
 }
 
-/** The line a background job is told about writing its result as a page. */
-export const PAGE_JOB_LINE =
-  "Write the deliverable as a page: a note named `<name>.page.md`. Read the page design skill first (orient about: \"pages\"): " +
-  "it says what goes first (the answer, then your pick as a vote), which block fits which facts (places, prices, tiers, itinerary, stats, timeline, contacts), " +
-  "and the stamp a page must carry; a page without it, or with a block that cannot be drawn, is refused with what to fix.";
+export { PAGE_JOB_LINE } from "../../../packages/shared/src/pages/skill.cjs";
 
 /**
  * What `orient about: "template <name>"` answers: one built-in page template

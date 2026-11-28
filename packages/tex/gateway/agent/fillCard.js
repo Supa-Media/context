@@ -17,7 +17,7 @@
 
 import { openForFill, VaultRefused } from "../../../../apps/mcp/src/vault/fill.js";
 import { isEntryId, readMeta, siteMatches } from "../../../../apps/mcp/src/vault/entries.js";
-import { CARD_PARTS, cardLabel, cardPartValue } from "../../../../apps/mcp/src/vault/card.js";
+import { CARD_PARTS, cardLabel, cardPartValue } from "../../../shared/src/vaultShapes.cjs";
 import { payAllowed, payTotal } from "../../../../apps/mcp/src/vault/pay.js";
 import { actorMayUse } from "../../../../apps/mcp/src/vault/access.js";
 import { vaultHolding } from "../../../../apps/mcp/src/vault/reach.js";

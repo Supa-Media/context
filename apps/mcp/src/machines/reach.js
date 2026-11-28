@@ -14,8 +14,8 @@
  * the chat's key from `jobChatOf`.
  */
 
-export const TEXTS_CLIENT_ID = "context_texts";
-export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "../../../../packages/shared/src/texContract/texClients.cjs";
+export { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID };
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 

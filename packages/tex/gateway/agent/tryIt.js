@@ -34,7 +34,7 @@ import { contextsFor, editsPinnedContext } from "../../../../apps/mcp/src/contex
 import { grantedToolsFor } from "./sixTools.js";
 import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
-import { SCOPE_PRIVATE, SCOPE_READ } from "../../../../apps/mcp/src/session.js";
+import { SCOPE_PRIVATE, SCOPE_READ } from "../../../shared/src/texContract/scopes.cjs";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { decisionEngine } from "./decide.js";
