@@ -100,6 +100,13 @@ export async function factJobs(store) {
 
 /** Notes one props request names: the control plane's `PROPS_REQUEST_PATHS`. */
 export const PROPS_REQUEST_PATHS = 100;
+/**
+ * Notes one props request names where the workspace's object answers it (`workspaceStore/facts.js`
+ * `PROPS_ASK_PATHS`): a folder or list read is one trip there instead of one a hundred notes (2026-11-28: 8.8 calls a
+ * request, p95 1,320 ms). Where the object does not serve it, the control plane is asked a hundred at a time
+ * (`http/routing.js`).
+ */
+export const OBJECT_PROPS_REQUEST_PATHS = 1_000;
 /** Props requests in flight at once for one tool call. */
 const PROPS_CONCURRENCY = 4;
 
@@ -121,8 +128,9 @@ const PROPS_CONCURRENCY = 4;
 export async function factProps(store, paths) {
   if (typeof store?.treeFacts !== "function") return null;
   const unique = [...new Set(paths)];
+  const size = typeof store.objectFacts === "function" ? OBJECT_PROPS_REQUEST_PATHS : PROPS_REQUEST_PATHS;
   const batches = [];
-  for (let at = 0; at < unique.length; at += PROPS_REQUEST_PATHS) batches.push(unique.slice(at, at + PROPS_REQUEST_PATHS));
+  for (let at = 0; at < unique.length; at += size) batches.push(unique.slice(at, at + size));
   const found = new Map();
   try {
     for (let at = 0; at < batches.length; at += PROPS_CONCURRENCY) {
