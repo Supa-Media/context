@@ -11,6 +11,10 @@ on:
       label:
         description: "The run job's runner label, or empty for GitHub's runner"
         value: ${{ jobs.ask.outputs.label }}
+    secrets:
+      TEX_RUNNER_ORIGIN:
+        description: "Where the Lab's runner is (set by deploy-tex-runner.yml)"
+        required: false
 
 permissions:
   id-token: write
@@ -25,7 +29,7 @@ jobs:
       - name: Ask the Lab's runner for a runner
         id: ask
         env:
-          ORIGIN: ${{ vars.TEX_RUNNER_ORIGIN }}
+          ORIGIN: ${{ secrets.TEX_RUNNER_ORIGIN }}
         run: |
           set -uo pipefail
           [ -n "$ORIGIN" ] || { echo "::warning::no TEX_RUNNER_ORIGIN; the run job runs on GitHub's runner"; exit 0; }

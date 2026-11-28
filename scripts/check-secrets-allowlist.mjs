@@ -62,6 +62,10 @@ const NOT_SYNCED = new Map([
     "The other half of the bootstrap — the PAT that writes GitHub secrets. Same reason.",
   ],
   [
+    "TEX_RUNNER_ORIGIN",
+    "Where the Lab's runner Worker answers (infra/tex-runner). Not a credential: deploy-tex-runner.yml writes it with GH_ADMIN_TOKEN after each deploy, as a secret only because the address names the account's workers.dev subdomain and that token writes secrets, not variables.",
+  ],
+  [
     "BENCH_SECRET_WRITER_TOKEN",
     "A fine-grained GitHub token (this repository only, Environments read/write and Metadata read, expires 2027-11-18) used by the Lab run and Tex replay writer jobs to store the rotated benchmark refresh token. It is minted in GitHub, not in 1Password: putting it through the vault sync would hand the credential that writes environment secrets to the same admin path this token exists to keep off branch code. A person rotates it before it expires.",
   ],

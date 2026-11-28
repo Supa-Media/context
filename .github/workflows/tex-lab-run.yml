@@ -340,6 +340,8 @@ jobs:
     permissions:
       id-token: write
     uses: ./.github/workflows/tex-lab-sandbox.yml
+    secrets:
+      TEX_RUNNER_ORIGIN: ${{ secrets.TEX_RUNNER_ORIGIN }}
 
   run:
     needs: [prep, lease, wait-turn, publish-pub, sandbox]

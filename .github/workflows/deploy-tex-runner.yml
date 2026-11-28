@@ -108,8 +108,8 @@ jobs:
           if [ -z "$GH_RUNNER_TOKEN" ]; then echo "::warning::no GH_ADMIN_TOKEN; Lab runs stay on GitHub's runners"; exit 0; fi
           printf '%s' "$GH_RUNNER_TOKEN" | pnpm exec wrangler secret put GH_RUNNER_TOKEN
 
-      # tex-lab-run.yml reads where the runner is from a repository variable. The address names the account's
-      # workers.dev subdomain, so it is masked here and kept out of the repository.
+      # tex-lab-sandbox.yml reads where the runner is from a repository secret, because the address names the
+      # account's workers.dev subdomain and this token writes secrets, not variables. Masked here.
       - name: Tell the Lab run workflow where the runner is
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -122,7 +122,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // empty')"
           [ -n "$sub" ] || { echo "::warning::no workers.dev subdomain"; exit 0; }
           echo "::add-mask::$sub"
-          gh variable set TEX_RUNNER_ORIGIN --repo "$GITHUB_REPOSITORY" --body "https://$WORKER_NAME.$sub.workers.dev"
+          printf '%s' "https://$WORKER_NAME.$sub.workers.dev" | gh secret set TEX_RUNNER_ORIGIN --repo "$GITHUB_REPOSITORY"
 
       - name: Summary
         if: always()
