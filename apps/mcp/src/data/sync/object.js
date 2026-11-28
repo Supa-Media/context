@@ -28,7 +28,9 @@
  *   note id joins `soon`, and an alarm is set to now. Once it has run, the alarm goes back to the hourly time that was
  *   set aside in `hourly`.
  * - **Status** (`op: "status"`): the last run of each source asked, by note id, for a reader the gateway has
- *   already judged able to read that source's `about.md`.
+ *   already judged able to read that source's `about.md`; with it the last good sync (its time and row count, kept
+ *   beside the last run so a failed run never erases it) and one plain status line (`syncLine`). The gateway shows
+ *   that line on a read of the `about.md` (`aboutStatus.js`).
  * - **Connect** (`op: "connect"`, only through the gateway's route, which has checked the caller is an owner): checks
  *   the pasted key with the app itself (`connect/apps.js`), seals it, keeps it in place of any earlier one, and arms
  *   the app's source by its `about.md`, run at once. A key the app refuses is not kept. An installed app (GitHub) is
@@ -99,6 +101,48 @@ function lastOf(source) {
   if (!source?.last) return null;
   const { at, outcome, said, rows } = source.last;
   return { at, outcome, ...(typeof said === "string" ? { said } : {}), ...(Number.isFinite(rows) ? { rows } : {}) };
+}
+
+/** A run that came back ok is the last good sync: its time, and its row count where it has one. */
+const goodSync = (at, outcome) => ({ at, ...(Number.isFinite(outcome.rows) ? { rows: outcome.rows } : {}) });
+
+/** A source's last good sync as its page reads it: `{at, rows?}`, or null. */
+function syncedOf(source) {
+  if (!source?.synced || !Number.isFinite(source.synced.at)) return null;
+  const { at, rows } = source.synced;
+  return { at, ...(Number.isFinite(rows) ? { rows } : {}) };
+}
+
+/** `2026-11-28 13:00 UTC`. */
+const whenOf = (ms) => `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+const rowsWords = (rows) => `${rows.toLocaleString("en-US")} ${rows === 1 ? "row" : "rows"}`;
+/** A sentence without its final full stop, so it can sit inside another sentence. */
+const unstopped = (said) => said.replace(/\.$/, "");
+
+/**
+ * One plain sentence saying where a source stands: never started, stopped, failed, last synced, or armed and not yet
+ * run. `now` is accepted for future use. Words and numbers only.
+ */
+export function syncLine(source, now) {
+  if (!source) return "Not syncing: this source hasn't been started. An owner or editor starts it from the Data page.";
+  const synced = syncedOf(source);
+  const since = synced ? ` · last synced ${whenOf(synced.at)}${Number.isFinite(synced.rows) ? ` · ${rowsWords(synced.rows)}` : ""}` : "";
+  const last = source.last ?? null;
+  if (source.stopped === true) {
+    const reason = typeof last?.said === "string" ? unstopped(last.said).replace(/^Stopped: /, "").trim() : "";
+    return `Stopped: ${reason === "" ? "it was stopped" : reason} (${source.kind === "app" ? "needs reconnecting" : "needs starting again"})${since}`;
+  }
+  if (last?.outcome === "failed" && Number.isFinite(last.at)) {
+    const said = typeof last.said === "string" && last.said !== "" ? unstopped(last.said) : "the sync failed";
+    return `Failed: ${said} (${whenOf(last.at)})${since}`;
+  }
+  if (last?.outcome === "ok" && Number.isFinite(last.at)) {
+    const rows = Number.isFinite(last.rows) ? last.rows : synced?.rows;
+    return `Last synced: ${whenOf(last.at)}${Number.isFinite(rows) ? ` · ${rowsWords(rows)}` : ""}`;
+  }
+  return Number.isFinite(source.armedAt)
+    ? `Not synced yet: started ${whenOf(source.armedAt)}; the first sync runs within the hour`
+    : "Not synced yet: the first sync runs within the hour";
 }
 
 /**
@@ -184,12 +228,13 @@ export function dataSyncClass(deps = {}) {
       if ((old === null || old.stopped === true) && live >= MAX_SOURCES) {
         return { error: "too_many", said: kind === "metric" ? `A workspace keeps at most ${MAX_SOURCES} right-now metrics.` : `A workspace syncs at most ${MAX_SOURCES} addresses.` };
       }
-      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(kind === "metric" || kind === "usage" ? { kind } : {}) };
+      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(old?.synced ? { synced: old.synced } : {}), ...(kind === "metric" || kind === "usage" ? { kind } : {}) };
       // Run now unless it ran under a minute ago and was not stopped: arming again never hammers an address.
       const recent = old !== null && old.stopped !== true && old.last && now - old.last.at < RERUN_AFTER_MS;
       if (!recent) {
         const { gone: _gone, ...outcome } = await this.oneRun(() => this.runOne(workspaceId, source, now));
         source.last = { at: now, ...outcome };
+        if (outcome.outcome === "ok") source.synced = goodSync(now, outcome);
         if (outcome.outcome === "stopped") source.stopped = true;
       }
       sources[noteId] = source;
@@ -253,7 +298,7 @@ export function dataSyncClass(deps = {}) {
       if (installed) {
         // GitHub's first run is not waited for: the alarm runs it, so this answers at once. A stopped source's last word
         // is not carried over, so the page never reads "stopped" for a source that is starting again.
-        const source = { noteId, armedBy, armedAt: now, last: old !== null && old.stopped !== true ? (old.last ?? null) : null, kind: "app", app };
+        const source = { noteId, armedBy, armedAt: now, last: old !== null && old.stopped !== true ? (old.last ?? null) : null, ...(old?.synced ? { synced: old.synced } : {}), kind: "app", app };
         const current = (await this.storage.get("sources")) ?? {};
         current[noteId] = source;
         await this.storage.put("sources", current);
@@ -261,9 +306,10 @@ export function dataSyncClass(deps = {}) {
         await this.runSoon(noteId);
         return { armed: true, last: lastOf(source) };
       }
-      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, kind: "app", app };
+      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(old?.synced ? { synced: old.synced } : {}), kind: "app", app };
       const { gone: _gone, ...outcome } = await this.oneRun(() => this.runOne(workspaceId, source, now));
       source.last = { at: now, ...outcome };
+      if (outcome.outcome === "ok") source.synced = goodSync(now, outcome);
       if (outcome.outcome === "stopped") source.stopped = true;
       sources[noteId] = source;
       await this.storage.put("sources", sources);
@@ -338,7 +384,7 @@ export function dataSyncClass(deps = {}) {
       return {
         sources: noteIds.map((noteId) => {
           const source = sources[noteId] ?? null;
-          return { noteId, armed: source !== null && source.stopped !== true, last: lastOf(source) };
+          return { noteId, armed: source !== null && source.stopped !== true, last: lastOf(source), synced: syncedOf(source), line: syncLine(source, this.now()) };
         }),
       };
     }
@@ -434,7 +480,7 @@ export function dataSyncClass(deps = {}) {
           if (!fresh || fresh.stopped === true || kindOf(fresh) !== kindOf(source)) return;
           // Its about.md is gone: nobody can ask its page about it again, so nothing is kept.
           if (gone === true) delete sources[noteId];
-          else sources[noteId] = { ...fresh, last: { at: now, ...outcome }, ...(outcome.outcome === "stopped" ? { stopped: true } : {}) };
+          else sources[noteId] = { ...fresh, last: { at: now, ...outcome }, ...(outcome.outcome === "ok" ? { synced: goodSync(now, outcome) } : {}), ...(outcome.outcome === "stopped" ? { stopped: true } : {}) };
           await this.storage.put("sources", sources);
         });
       }

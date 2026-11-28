@@ -28,6 +28,10 @@ export interface SourceSync {
   /** Whether it runs every hour now. */
   readonly armed: boolean;
   readonly last: SyncRun | null;
+  /** The last GOOD sync, kept when a later run fails or stops: when, and how many rows it wrote. */
+  readonly synced?: { readonly at: number; readonly rows?: number } | null;
+  /** The plain sentence for the sync's status, e.g. "Last synced: 2026-11-28 13:00 UTC · 2 rows", or absent. */
+  readonly line?: string;
 }
 
 /** `POST /@slug/files/data-sync` on the gateway that serves `mcpEndpoint`, or `null`. */
@@ -50,26 +54,46 @@ function runOf(value: unknown): SyncRun | null {
   return { at, outcome, ...(typeof said === "string" ? { said: said.slice(0, 500) } : {}), ...(typeof rows === "number" && Number.isFinite(rows) ? { rows } : {}) };
 }
 
+/** The last good sync, or null when the object kept none or it is malformed. */
+function syncedOf(value: unknown): { at: number; rows?: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const { at, rows } = value as Record<string, unknown>;
+  if (typeof at !== "number" || !Number.isFinite(at)) return null;
+  if (rows !== undefined && (typeof rows !== "number" || !Number.isFinite(rows))) return null;
+  return { at, ...(typeof rows === "number" ? { rows } : {}) };
+}
+
 /** One source's answer, or null for one this build cannot read. A right-now metric's names its note as `metric`. */
 export function readSourceSync(value: unknown): SourceSync | null {
   if (!value || typeof value !== "object") return null;
-  const { armed, last } = value as Record<string, unknown>;
+  const { armed, last, synced, line } = value as Record<string, unknown>;
   const fields = value as Record<string, unknown>;
   const about = typeof fields.about === "string" ? fields.about : fields.metric;
   if (typeof about !== "string" || about === "") return null;
-  return { about, armed: armed === true, last: runOf(last) };
+  const good = syncedOf(synced);
+  return {
+    about,
+    armed: armed === true,
+    last: runOf(last),
+    ...(good === null ? {} : { synced: good }),
+    ...(typeof line === "string" ? { line: line.slice(0, 500) } : {}),
+  };
 }
 
 /** What a source's status line reads (`words.ts` `sourceStatus`) from its sync's last run. */
 export function syncStateOf(sync: SourceSync | undefined): SyncState {
   const last = sync?.last ?? null;
-  if (last === null) return { known: sync !== undefined };
+  if (last === null) return { known: sync !== undefined, ...(sync !== undefined && sync.armed === false ? { stopped: true } : {}) };
+  // A failed or stopped run keeps the last good sync's time and rows, so the status still says when it last synced.
+  const good = last.outcome === "ok" ? null : (sync?.synced ?? null);
+  const rows = last.rows ?? good?.rows;
   return {
     known: true,
     ...(last.outcome === "ok" ? { syncedAt: last.at } : { failedAt: last.at }),
+    ...(good === null ? {} : { syncedAt: good.at }),
     ...(last.outcome === "stopped" || sync?.armed === false ? { stopped: true } : {}),
     ...(last.said === undefined ? {} : { said: last.said }),
-    ...(last.rows === undefined ? {} : { rows: last.rows }),
+    ...(rows === undefined ? {} : { rows }),
   };
 }
 

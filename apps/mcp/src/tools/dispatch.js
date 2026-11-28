@@ -55,6 +55,7 @@ import {
 import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolReadCalendar } from "./calendarRead.js";
 import { toolListNotes, toolReadNote, toolReadNotes } from "./notes/read.js";
+import { withSyncLine } from "../data/sync/aboutStatus.js";
 import { withRoutineBrief } from "../orient/routineBrief.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
@@ -185,6 +186,8 @@ async function runTool(name, args, store, scope, options = {}) {
       // out over the tree's listing as `orient` is: the plain store lists nothing, and the brief came back empty.
       {
         let read = await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
+        // A data source's about.md carries its sync status in the header (`data/sync/aboutStatus.js`).
+        read = await withSyncLine(read, store);
         // A group chat's Tex is told the notes beside it named alike (`notes/namedAlike.js`).
         if (options.namedAlike === true) read = await readWithNamedAlike(read, servedListingStore(store), scope, rules, overrides);
         if (options.fetchCap === true && args.full !== true) read = capWhole(read);

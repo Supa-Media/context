@@ -463,6 +463,19 @@ synced sheet says it is kept up to date (08),
   source. A source is run at most once a minute however often it is armed,
   and a workspace syncs at most 25 addresses. A url source sends nothing that
   signs in, so this stage keeps no vault key for one.
+- **Every source says when it last synced, how many rows, and why it
+  stopped** (2026-11-28, after GitHub stopped silently for about 11 hours on
+  2026-11-27). The object keeps the last good sync (time, and the rows the
+  source's sheets hold after that run) beside the last run, so a failure no
+  longer erases it, and answers one line per source: "Last synced: <time> ·
+  N rows", "Failed: <reason> (<time>)", "Stopped: <reason> (needs
+  reconnecting)", or "Not synced yet: started <time>". The line is shown, never
+  written: an MCP read of a source's `about.md` carries it as a `sync:` header
+  line (`data/sync/aboutStatus.js`), and the Data page reads the same fields.
+  The object does not rewrite `about.md`, because it is a person-edited note
+  with collaboration history and a run's only write path is a conditional put
+  of its sheets; an hourly rewrite would race editors and add an audit entry
+  per source per hour. Test: `apps/mcp/test/dataSyncStatusLine.test.mjs`.
 
 **What a simplification would cost.** Keeping the address read at arming
 lets an edited about.md reach a private network; re-setting the alarm
