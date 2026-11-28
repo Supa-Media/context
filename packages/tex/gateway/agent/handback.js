@@ -16,7 +16,7 @@
  * That turn's question is the line below, never anything the Worker sends.
  */
 
-import { browserHash } from "../../../shared/src/browserHandback.cjs";
+import { browserHash } from "../../../shared/src/texContract/browserHandback.cjs";
 export { browserHash };
 
 export const HANDED_BACK_QUESTION =

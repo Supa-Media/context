@@ -24,7 +24,7 @@
 import { sha256Hex } from "../util/sha256.js";
 import { TOLD } from "./conversation.js";
 import { TEXT_SOURCES } from "./sentOnItsOwn.js";
-import { READ_CHARS } from "../../../shared/src/ledgerReadChars.cjs";
+import { READ_CHARS } from "../../../shared/src/texContract/ledgerReadChars.cjs";
 export { READ_CHARS };
 
 export const LOG_PREFIX = ".context/agent/log/";

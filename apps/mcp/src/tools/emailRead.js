@@ -18,7 +18,7 @@ import { toolError, toolText } from "./results.js";
 import { aiAccessLine } from "./googleAiAccess.js";
 import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { inboxFolders, underInbox } from "../communications/inboxFolders.js";
-import { EMAIL_ID_PREFIX, ACCOUNT, REFUSED, parseEmailId } from "../../../../packages/shared/src/emailRead.cjs";
+import { EMAIL_ID_PREFIX, ACCOUNT, REFUSED, parseEmailId } from "../../../../packages/shared/src/texContract/emailRead.cjs";
 
 export { EMAIL_ID_PREFIX };
 

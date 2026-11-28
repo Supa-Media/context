@@ -22,7 +22,7 @@
  * refuses an input field the schema does not name, so the code ships first and the config turns it on.
  */
 
-import { MAX_YES, namesOrAnswers } from "../../../shared/src/consentYes.cjs";
+import { MAX_YES, namesOrAnswers } from "../../../shared/src/texContract/consentYes.cjs";
 export { MAX_YES, namesOrAnswers };
 
 /** The most of Tex's last text the judge is shown, from its end: the offer is usually the last line. */

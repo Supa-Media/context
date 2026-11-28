@@ -31,8 +31,8 @@
  * it further than "this is what they were looking at when they tapped".
  */
 
-import { folded } from "../../../../packages/shared/src/folded.cjs";
-import { offersAHeldChange } from "../../../../packages/shared/src/heldOffer.cjs";
+import { folded } from "../../../../packages/shared/src/texContract/folded.cjs";
+import { offersAHeldChange } from "../../../../packages/shared/src/texContract/heldOffer.cjs";
 
 const MIN_TEXT = 20;
 

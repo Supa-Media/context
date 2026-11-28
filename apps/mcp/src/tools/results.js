@@ -1,5 +1,5 @@
 /** The MCP tool-result shapes every tool handler returns. Moved verbatim out of `src/index.js`. */
-import { toolText, toolError } from "../../../../packages/shared/src/toolContract.cjs";
+import { toolText, toolError } from "../../../../packages/shared/src/texContract/toolContract.cjs";
 
 export { toolText, toolError };
 

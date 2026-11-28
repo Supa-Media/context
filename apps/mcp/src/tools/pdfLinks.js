@@ -1,4 +1,4 @@
-export { MAX_LINKS, MAX_INFLATED_BYTES, pdfLinks } from "../../../../packages/shared/src/pdfLinks.cjs";
+export { MAX_LINKS, MAX_INFLATED_BYTES, pdfLinks } from "../../../../packages/shared/src/texContract/pdfLinks.cjs";
 
 /** The lines `read_file` adds under a PDF's words, or nothing when it links nowhere. */
 export function linksSection(links) {

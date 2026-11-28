@@ -21,7 +21,7 @@
 
 import { getWithLegacyFallback } from "../../../../apps/mcp/src/storageLayout.js";
 import { normalizePath } from "../../../../apps/mcp/src/notes/paths.js";
-import { parseEmailId, REFUSED } from "../../../shared/src/emailRead.cjs";
+import { parseEmailId, REFUSED } from "../../../shared/src/texContract/emailRead.cjs";
 import { readableFileType, typeOfFile, MAX_FILE_BYTES } from "../../../../apps/mcp/src/tools/readFile.js";
 import { textPdf } from "./textPdf.js";
 import { readDownload } from "./downloads.js";

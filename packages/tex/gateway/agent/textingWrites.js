@@ -31,7 +31,7 @@
 import { routineFromPath, routineRootOf } from "../../../shared/src/routines.cjs";
 import { normalizePath } from "../../../../apps/mcp/src/notes/paths.js";
 import { isPlumbing } from "../../../../apps/mcp/src/privacy/engine.js";
-import { toolError } from "../../../shared/src/toolContract.cjs";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { datedDayWords } from "./dayWords.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { routineWhen } from "./routineWhen.js";

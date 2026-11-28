@@ -81,7 +81,7 @@ export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.js";
-import { CALENDAR_CHANGE, PREVIEW_LINE, SLACK_OFFER, WHEN, offersAHeldChange } from "../../../shared/src/heldOffer.cjs";
+import { CALENDAR_CHANGE, PREVIEW_LINE, SLACK_OFFER, WHEN, offersAHeldChange } from "../../../shared/src/texContract/heldOffer.cjs";
 export { offersAHeldChange };
 
 /** Words that say a change to their notes, list or calendar was made. */

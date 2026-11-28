@@ -16,7 +16,7 @@
  * Tex's own texts lately held the body word for word (`emailShown`, below; 2026-11-26).
  */
 
-import { folded } from "../../../../packages/shared/src/folded.cjs";
+import { folded } from "../../../../packages/shared/src/texContract/folded.cjs";
 
 /** A text that ends by asking whether to send: "Send?", "Send it? 👍 or 👎?", "Send to bram@x.com on his thread?". */
 const SEND_ASK = /(?:^|\n)\s*(?:(?:ok(?:ay)?\s+to|should\s+I|shall\s+I)\s+)?send(?:\s+(?:it|this|that|the email|the reply))?(?:\s+(?:to|on|as)\b[^?\n]{0,160})?\s*\?[\s\u{1F44D}\u{1F44E}or?]*$/iu;

@@ -9,7 +9,7 @@
  * (`test/appChatCards.test.mjs`).
  */
 
-import { EMAIL_TOOL } from "../../../shared/src/toolContract.cjs";
+import { EMAIL_TOOL } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** A body or a detail is cut to this many characters on the card. */
 export const CARD_TEXT_CAP = 24_000;

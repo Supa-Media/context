@@ -1,4 +1,4 @@
-import { AI_ACCESS_STEP } from "../../../../packages/shared/src/googleAiAccess.cjs";
+import { AI_ACCESS_STEP } from "../../../../packages/shared/src/texContract/googleAiAccess.cjs";
 export { AI_ACCESS_STEP };
 
 /** One line naming the accounts that wait for Allow AI access, or none. */

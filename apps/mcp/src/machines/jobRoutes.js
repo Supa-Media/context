@@ -48,7 +48,7 @@ import { aiGatewayConfig } from "../../../../packages/tex/gateway/agent/aiGatewa
 import { builtinModel, canRunBuiltin } from "../../../../packages/tex/gateway/agent/builtin.js";
 import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
-import { personHubUrl } from "../../../../packages/shared/src/personHub.cjs";
+import { personHubUrl } from "../../../../packages/shared/src/texContract/personHub.cjs";
 import { backgroundedBrief } from "./jobBackground.js";
 import { MAX_RUN_WAIT_MS } from "../workspaceStore/runWait.js";
 

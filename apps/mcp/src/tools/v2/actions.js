@@ -16,7 +16,7 @@
  * are deliberately absent: an action name is listed to everybody, so mapping
  * one would publish what the mask hides.
  */
-import { actionOf } from "../../../../../packages/shared/src/toolContract.cjs";
+import { actionOf } from "../../../../../packages/shared/src/texContract/toolContract.cjs";
 
 /** Top-level `write` fields, merged under the action's own `args`. */
 function withNote(call, extra = {}) {

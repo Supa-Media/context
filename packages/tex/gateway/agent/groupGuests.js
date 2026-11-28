@@ -20,7 +20,7 @@
 
 import { loadPrivacyState } from "../../../../apps/mcp/src/privacy/state.js";
 import { canSee, readsAsChat } from "../../../../apps/mcp/src/privacy/engine.js";
-import { toolError } from "../../../shared/src/toolContract.cjs";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { guestNameOf, numberOf } from "./groupNames.js";
 
 /** Whether this session reads only its chat's home, by the names its grant holds (its home-only grant reads as the chat). */

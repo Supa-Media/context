@@ -34,7 +34,7 @@ import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore } from 
 import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
 import { toolError } from "./results.js";
 import { heldFacts, okFromOf } from "./heldFacts.js";
-import { asksToFile } from "../../../../packages/shared/src/asksToFile.cjs";
+import { asksToFile } from "../../../../packages/shared/src/texContract/asksToFile.cjs";
 
 export { REPORT_TOOL };
 

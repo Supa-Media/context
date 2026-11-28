@@ -17,7 +17,7 @@
  *   why it went out.
  */
 
-import { OWN_SOURCES } from "../../../shared/src/texOwnSources.cjs";
+import { OWN_SOURCES } from "../../../shared/src/texContract/texOwnSources.cjs";
 export { OWN_SOURCES };
 
 const BY_ITSELF = /^\(Not a text from them\.\s*/;

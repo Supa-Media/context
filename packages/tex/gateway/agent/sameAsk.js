@@ -23,7 +23,7 @@
 import { approvalVerdict } from "./textedApprovals.js";
 import { folded } from "./folded.js";
 import { withdrawPending } from "../../../../apps/mcp/src/tools/approvals.js";
-import { toolError } from "../../../shared/src/toolContract.cjs";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** How far back an ask Tex showed still counts as "the one they just answered". */
 const LOOKBACK = 8;

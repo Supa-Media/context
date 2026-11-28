@@ -22,7 +22,7 @@
  * A table's bytes are read as text here rather than through Workers AI's
  * `toMarkdown`: a CSV is already words, and the facts need its real rows.
  */
-import { PART_CHARS, isTable, partLines, partOf } from "../../../../packages/shared/src/fileParts.cjs";
+import { PART_CHARS, isTable, partLines, partOf } from "../../../../packages/shared/src/texContract/fileParts.cjs";
 
 export { PART_CHARS };
 /** Duplicate rows named, at most, by line. */

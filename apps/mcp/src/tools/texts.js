@@ -15,7 +15,7 @@ import { chatsFor, listTextChats, namesFor, readTextChat, searchTexts } from "..
 import { textsCatchUp, textsClientOf } from "../communications/textsIndex.js";
 import { recordRead } from "../../../../packages/communications/src/backupReads.js";
 import { toolError, toolText } from "./results.js";
-import { TEXTS_ID_PREFIX } from "../../../../packages/shared/src/toolContract.cjs";
+import { TEXTS_ID_PREFIX } from "../../../../packages/shared/src/texContract/toolContract.cjs";
 
 export { TEXTS_ID_PREFIX };
 

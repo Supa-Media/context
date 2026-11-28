@@ -16,7 +16,7 @@
  */
 
 import { appOriginOf } from "./noteLinks.js";
-import { personHubUrl } from "../../../shared/src/personHub.cjs";
+import { personHubUrl } from "../../../shared/src/texContract/personHub.cjs";
 export { personHubUrl };
 
 const HOME = /^tex\/groups\/([a-z]+(?:-[a-z]+){1,4})$/;

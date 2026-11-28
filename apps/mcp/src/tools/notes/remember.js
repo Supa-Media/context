@@ -18,7 +18,7 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { inboxPath } from "../../communications/inboxFolders.js";
-import { MEMORY_FOLDER } from "../../../../../packages/shared/src/toolContract.cjs";
+import { MEMORY_FOLDER } from "../../../../../packages/shared/src/texContract/toolContract.cjs";
 
 const MAX_FACT_LENGTH = 500;
 const KINDS = new Set(["stated", "inferred"]);

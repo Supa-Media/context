@@ -11,8 +11,8 @@
  * round to file it (`claimCheck.js`).
  */
 
-import { asksToFile } from "../../../shared/src/asksToFile.cjs";
-import { REPORT_TOOL, toolError } from "../../../shared/src/toolContract.cjs";
+import { asksToFile } from "../../../shared/src/texContract/asksToFile.cjs";
+import { REPORT_TOOL, toolError } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** Whether a step filed the report: sent, or held for their yes. */
 const filed = (step) => (step.name === REPORT_TOOL || step.action === REPORT_TOOL) && (step.ok || step.held === true);

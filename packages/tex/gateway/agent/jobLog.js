@@ -7,7 +7,7 @@
 
 import { wallClock } from "../../../shared/src/routines.cjs";
 import { AgentRefusal } from "./turn.js";
-import { appendLogEntry, appendLogEntryWhy, clock, readWithEtag, refusalWords } from "../../../shared/src/jobLogEntries.cjs";
+import { appendLogEntry, appendLogEntryWhy, clock, readWithEtag, refusalWords } from "../../../shared/src/texContract/jobLogEntries.cjs";
 export { appendLogEntry, appendLogEntryWhy, clock, readWithEtag, refusalWords };
 
 const pad = (value) => String(value).padStart(2, "0");

@@ -5,7 +5,7 @@ import { chatSearchOn, chatSearchTool } from "../chatSearch.js";
 import { transcriptionForwarder } from "../../../../../apps/mcp/src/ingestion/transcription.js";
 import { markChatWords, markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
 import { carryCounts } from "../stretch.js";
-import { addressedTo } from "../../../../shared/src/toolContract.cjs";
+import { addressedTo } from "../../../../shared/src/texContract/toolContract.cjs";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
 import { backgroundSession, runningJobsOf } from "../background.js";

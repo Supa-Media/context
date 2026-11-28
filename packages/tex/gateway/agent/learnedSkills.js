@@ -34,7 +34,7 @@
  */
 
 import { readWithEtag } from "./jobLog.js";
-import { toolError } from "../../../shared/src/toolContract.cjs";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 
 export const LEARNED_SKILLS_FOLDER = "tex/skills";
 export const READ_LEARNED_SKILL_TOOL = "read_learned_skill";

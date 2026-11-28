@@ -19,7 +19,7 @@
 
 import { toolError } from "./results.js";
 import { heldFacts } from "./heldFacts.js";
-import { HANDLE, addressedTo } from "../../../../packages/shared/src/toolContract.cjs";
+import { HANDLE, addressedTo } from "../../../../packages/shared/src/texContract/toolContract.cjs";
 
 const handleOf = (value) => (typeof value === "string" ? value.trim().replace(/^@/, "").toLowerCase() : "");
 

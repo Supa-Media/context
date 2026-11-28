@@ -3,7 +3,7 @@
  * the handle is read off the grant, never off the request.
  */
 
-const { appOriginOf } = require("./noteAppLink.cjs");
+const { appOriginOf } = require("../noteAppLink.cjs");
 
 /**
  * The handle a person's own page lives at: the slug of the personal workspace

@@ -26,7 +26,7 @@
  */
 
 import { CollaborationError, commitUpdate, replaceText } from "@context/collaboration";
-import { etagHex } from "../../../../packages/shared/src/objectEtag.cjs";
+import { etagHex } from "../../../../packages/shared/src/texContract/objectEtag.cjs";
 import { HOMES, isRevisionKey } from "./api.js";
 import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";

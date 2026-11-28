@@ -61,7 +61,7 @@ import { GROUP_SELF_LINE, blockedLine, blockedOf, hasGuests, homeOnlyCallTool, h
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { askerMailOf, chatMailOf, chatMailPrompt, chatMailTools, ownNotesOf } from "./groupMail.js";
 import { chatCalendarOf, chatCalendarPrompt } from "./groupCalendar.js";
-import { toolError } from "../../../shared/src/toolContract.cjs";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
@@ -69,7 +69,7 @@ import { guestsOf, namesOf, numbersOf, shownWho, sizeOf, taggerLabel, whoIsWhoLi
 import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
 import { GROUP_RUN_LINE } from "./groupRunLine.js";
 export { GROUP_CODE_SIGN_IN_LINE } from "./groupSignIns.js";
-import { GROUP_OWN_ACCOUNT_TOOLS, TEXTS_GROUP_CLIENT_ID, actsOnOwnAccount, isGroupSession } from "../../../shared/src/groupSession.cjs";
+import { GROUP_OWN_ACCOUNT_TOOLS, TEXTS_GROUP_CLIENT_ID, actsOnOwnAccount, isGroupSession } from "../../../shared/src/texContract/groupSession.cjs";
 export { GROUP_OWN_ACCOUNT_TOOLS, TEXTS_GROUP_CLIENT_ID, actsOnOwnAccount, isGroupSession };
 
 /** Where a chat's memory record was kept in the bound workspace, and still is for a grant that names no chat. */

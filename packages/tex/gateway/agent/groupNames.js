@@ -14,7 +14,7 @@
  * the marks names use, on one short line, so it can't carry an instruction.
  */
 
-import { cleanName } from "../../../shared/src/personNameText.cjs";
+import { cleanName } from "../../../shared/src/texContract/personNameText.cjs";
 export { cleanName };
 
 const MAX_NAMES = 32;

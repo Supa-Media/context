@@ -43,7 +43,7 @@ import {
 import { SCOPE_PRIVATE, SCOPE_WRITE, hasScope } from "../session.js";
 import { json } from "../http/responses.js";
 import { projectBatch } from "./textsIndex.js";
-import { isGroupSession } from "../../../../packages/shared/src/groupSession.cjs";
+import { isGroupSession } from "../../../../packages/shared/src/texContract/groupSession.cjs";
 import { forgetUnsent } from "./messagesBackupFiles.js";
 import { MESSAGES_BACKUP_LOG_ROUTE } from "./messagesBackupRead.js";
 

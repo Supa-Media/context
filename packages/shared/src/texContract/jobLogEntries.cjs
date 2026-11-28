@@ -3,7 +3,7 @@
  * gateway's attention tool (`tools/attention.js`) writes a log the same way the scheduled turns do.
  */
 
-const { wallClock } = require("./routines.cjs");
+const { wallClock } = require("../routines.cjs");
 
 const pad = (value) => String(value).padStart(2, "0");
 

@@ -42,8 +42,8 @@ import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { bearerToken, resolveSession, SessionRefusal } from "../session.js";
 import { json } from "./responses.js";
-import { browserHash } from "../../../../packages/shared/src/browserHandback.cjs";
-import { ownHandle } from "../../../../packages/shared/src/personHub.cjs";
+import { browserHash } from "../../../../packages/shared/src/texContract/browserHandback.cjs";
+import { ownHandle } from "../../../../packages/shared/src/texContract/personHub.cjs";
 export { ownHandle };
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */

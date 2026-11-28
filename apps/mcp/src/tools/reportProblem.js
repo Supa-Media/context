@@ -17,7 +17,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
-import { REPORT_TOOL } from "../../../../packages/shared/src/toolContract.cjs";
+import { REPORT_TOOL } from "../../../../packages/shared/src/texContract/toolContract.cjs";
 
 export { REPORT_TOOL };
 /** Kept equal to `FEEDBACK_LIMITS.messageChars` in `@context/shared`. */
