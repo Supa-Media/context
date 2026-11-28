@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   deletePreview,
+  deployingPullRequests,
   isPreviewResource,
   openPullRequestNumbers,
   orphanNames,
@@ -233,4 +234,78 @@ test("a failing or truncated pull request list throws and deletes nothing", asyn
     openPullRequestNumbers("t", "owner/repo", { fetchImpl: async () => { throw new Error("network down"); } }),
     /network down/,
   );
+});
+
+test("a closed pull request whose preview deploy is still running is skipped by the sweep, and its Workers are left to that run", async () => {
+  const { api } = fakeCloudflare({
+    "/accounts/gateway/workers/scripts": [[{ id: "context-agent-pr7" }, { id: "context-mcp-pr7" }, { id: "context-router-pr7" }, { id: "context-mcp-pr8" }]],
+  });
+  const wranglerCalls = [];
+  const logs = [];
+  const result = await sweep({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" }, {
+    api,
+    log: (line) => logs.push(line),
+    runWrangler: (_env, _worker, args) => wranglerCalls.push(args[2]),
+    openPullRequests: async () => [],
+    deployingPullRequests: async (numbers) => {
+      assert.deepEqual(numbers, ["7", "8"], "asked once, with every closed number");
+      return ["7"];
+    },
+  });
+  assert.ok(wranglerCalls.length > 0, "pr8 is deleted");
+  assert.ok(wranglerCalls.every((name) => !name.includes("pr7")), `no wrangler delete may name pr7: ${wranglerCalls}`);
+  assert.ok(wranglerCalls.includes("context-mcp-pr8"));
+  assert.deepEqual(result.skipped, ["7"]);
+  assert.deepEqual(result.closed, ["7", "8"], "closed keeps the skipped number");
+  assert.ok(logs.includes("pull request #7 closed while its preview is still deploying; that run deletes it when it ends"));
+  assert.ok(!logs.includes("pull request #7 is not open; deleting its preview"));
+});
+
+test("if the deploy check throws, the sweep rejects and deletes nothing", async () => {
+  const { api, deleted } = fakeCloudflare({
+    "/accounts/gateway/workers/scripts": [[{ id: "context-mcp-pr7" }]],
+    "/accounts/gateway/workflows": [[{ name: "group-turn-pr7" }]],
+  });
+  const wranglerCalls = [];
+  await assert.rejects(
+    sweep({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" }, {
+      api,
+      log: () => {},
+      runWrangler: (_env, _worker, args) => wranglerCalls.push(args),
+      openPullRequests: async () => [],
+      deployingPullRequests: async () => { throw new Error("Could not read the branch of pull request #7 (HTTP 500)."); },
+    }),
+    /HTTP 500/,
+  );
+  assert.deepEqual(wranglerCalls, []);
+  assert.deepEqual(deleted, []);
+});
+
+test("deployingPullRequests finds the numbers with a run still going, reads each branch's runs once, and fails closed", async () => {
+  const requested = [];
+  const fetchImpl = async (url, options) => {
+    requested.push(url);
+    assert.equal(options.headers.Authorization, "Bearer t");
+    const json = (body) => new Response(JSON.stringify(body), { status: 200 });
+    if (url === "https://api.github.com/repos/owner/repo/pulls/7") return json({ head: { ref: "b1" } });
+    if (url === "https://api.github.com/repos/owner/repo/pulls/8") return json({ head: { ref: "b1" } });
+    if (url === "https://api.github.com/repos/owner/repo/pulls/9") return json({ head: { ref: "b2" } });
+    if (url === "https://api.github.com/repos/owner/repo/actions/workflows/deploy-preview.yml/runs?branch=b1&per_page=20") {
+      return json({ workflow_runs: [{ status: "in_progress" }] });
+    }
+    if (url === "https://api.github.com/repos/owner/repo/actions/workflows/deploy-preview.yml/runs?branch=b2&per_page=20") {
+      return json({ workflow_runs: [{ status: "completed" }, { status: "completed" }] });
+    }
+    return new Response("{}", { status: 404 });
+  };
+  const deploying = await deployingPullRequests("t", "owner/repo", ["7", "8", "9"], { fetchImpl });
+  assert.deepEqual([...deploying].sort(), ["7", "8"]);
+  assert.equal(requested.filter((url) => url.includes("/runs?")).length, 2, "one runs request per branch");
+
+  const failing = async () => new Response("{}", { status: 500 });
+  await assert.rejects(deployingPullRequests("t", "owner/repo", ["7"], { fetchImpl: failing }), /HTTP 500/);
+  const notAList = async (url) => (url.includes("/pulls/")
+    ? new Response(JSON.stringify({ head: { ref: "b1" } }), { status: 200 })
+    : new Response(JSON.stringify({ workflow_runs: "nope" }), { status: 200 }));
+  await assert.rejects(deployingPullRequests("t", "owner/repo", ["7"], { fetchImpl: notAList }), /not a list/);
 });

@@ -16,6 +16,11 @@ name: Preview cleanup
 #                      so that preview lives until the next sweep.
 #   workflow_dispatch  one pull request (`pr`), or the sweep when `pr` is empty.
 #
+# A closed pull request whose preview is still deploying is skipped, not deleted.
+# Deleting its Workers mid-run failed that run on a service binding (Cloudflare
+# code 10143). The deploy run's own last step deletes the preview when it ends,
+# and the daily sweep is the backstop.
+#
 # There is no `pull_request` trigger. Scripts/check-workflow-triggers.mjs requires
 # any pull_request trigger to carry the default types, and this workflow only
 # needs the close, so a `closed`-only trigger is refused (rule A).
@@ -48,6 +53,10 @@ concurrency:
 
 permissions:
   contents: read
+  # Read the deploy runs of a closed pull request, to tell whether its preview is still deploying.
+  actions: read
+  # Read a closed pull request's branch, the other half of that check.
+  pull-requests: read
 
 jobs:
   cleanup:
@@ -92,7 +101,7 @@ jobs:
             exit 0
           fi
           for number in $numbers; do
-            node packages/sandbox/src/cleanup.mjs delete "$number"
+            node packages/sandbox/src/cleanup.mjs delete "$number" --unless-deploying
           done
 
       - name: Delete the requested preview

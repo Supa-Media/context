@@ -3,8 +3,15 @@
  * Delete what a closed pull request's preview left behind, and sweep for any
  * preview whose pull request is no longer open.
  *
- *   node packages/sandbox/src/cleanup.mjs delete <N>   one pull request's preview
+ *   node packages/sandbox/src/cleanup.mjs delete <N> [--unless-deploying]   one pull request's preview
  *   node packages/sandbox/src/cleanup.mjs sweep       every closed one, and a count
+ *
+ * A closed pull request whose preview deploy is still running is left to that
+ * run: its last step deletes the preview when the run ends, so deleting it
+ * mid-deploy would only break the run. With `--unless-deploying` (the branch
+ * delete path) and in the sweep, such a pull request is skipped. The daily
+ * sweep is the backstop if that run never reaches its last step. A plain
+ * `delete` (manual dispatch, the deploy run's own last step) always deletes.
  *
  * A preview is four Workers on workers.dev (`context-router-pr<N>`,
  * `context-agent-pr<N>`, `context-mcp-pr<N>`, `context-emulators-pr<N>`), two Workflows (`group-turn-pr<N>`,
@@ -23,7 +30,7 @@
  * account: buckets, D1 and Vectorize, when it differs), PREVIEW_R2_API_TOKEN
  * (the token that minted the scoped tokens, so it can list and revoke them;
  * CLOUDFLARE_API_TOKEN when unset), CONVEX_DEPLOY_KEY (the preview deploy key,
- * to delete the Convex preview), GITHUB_REPOSITORY and GH_TOKEN (sweep only). Tests: `node --test packages/sandbox/src/cleanup.test.mjs`.
+ * to delete the Convex preview), GITHUB_REPOSITORY and GH_TOKEN (the sweep, and `delete --unless-deploying`). Tests: `node --test packages/sandbox/src/cleanup.test.mjs`.
  */
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -249,8 +256,10 @@ export async function deletePreview(env, n, { log = console.log, runWrangler = w
 /**
  * Find every preview left behind, ask GitHub which pull requests are open, and
  * delete the previews of the rest. Live previews are counted against the ceiling.
+ * A closed pull request that `deployingPullRequests` names (a Set or an array
+ * of numbers, given the closed ones) is skipped: its deploy run deletes it.
  */
-export async function sweep(env, { log = console.log, runWrangler = wrangler, openPullRequests, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN), tokenApi = tokenClient(env, api), fetchImpl = fetch } = {}) {
+export async function sweep(env, { log = console.log, runWrangler = wrangler, openPullRequests, deployingPullRequests, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN), tokenApi = tokenClient(env, api), fetchImpl = fetch } = {}) {
   const scripts = (await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts`, "result"))
     .map((script) => script.id);
   // Throws when the list is truncated or fails: nothing below runs, so nothing is deleted.
@@ -281,15 +290,57 @@ export async function sweep(env, { log = console.log, runWrangler = wrangler, op
     ...workflowNumbers,
     ...tokenNumbers,
   ].filter((n) => !open.has(n)));
+  const closedSorted = [...closed].sort((a, b) => Number(a) - Number(b));
+  // Asked once, before any delete. It throws when GitHub cannot say, so nothing is deleted then.
+  const deploying = deployingPullRequests ? new Set([...(await deployingPullRequests(closedSorted))].map(String)) : new Set();
   const leftovers = [];
-  for (const n of [...closed].sort((a, b) => Number(a) - Number(b))) {
+  const skipped = [];
+  for (const n of closedSorted) {
+    if (deploying.has(n)) {
+      // The deploy run's own last step deletes this preview when the run ends.
+      log(`pull request #${n} closed while its preview is still deploying; that run deletes it when it ends`);
+      skipped.push(n);
+      continue;
+    }
     log(`pull request #${n} is not open; deleting its preview`);
     leftovers.push(...(await deletePreview(env, n, { log, runWrangler, api, tokenApi, fetchImpl })).map((line) => `#${n}: ${line}`));
   }
   const live = [...previews].filter((n) => open.has(n)).length;
-  log(`${live} live preview(s) of about ${PREVIEW_CEILING}; ${closed.size} closed preview(s) cleaned up.`);
+  log(`${live} live preview(s) of about ${PREVIEW_CEILING}; ${closed.size - skipped.length} closed preview(s) cleaned up.`);
   if (live >= PREVIEW_CEILING) log(`::warning::Live previews are at the ceiling of ${PREVIEW_CEILING}.`);
-  return { live, closed: [...closed], leftovers };
+  return { live, closed: [...closed], leftovers, skipped };
+}
+
+/**
+ * Which of the closed pull requests `numbers` still has a preview deploy running.
+ * Each one's branch is read from GitHub, then that branch's deploy-preview runs:
+ * a run that is not completed means the number is deploying. Runs are read once
+ * per branch. Fails closed: a failed or malformed reply throws, and the caller
+ * must then delete nothing.
+ */
+export async function deployingPullRequests(token, repo, numbers, { fetchImpl = fetch } = {}) {
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const runsByBranch = new Map();
+  const deploying = new Set();
+  for (const n of numbers.map(String)) {
+    const pr = await githubJson(fetchImpl, `https://api.github.com/repos/${repo}/pulls/${n}`, headers, `pull request #${n}`);
+    const ref = pr?.head?.ref;
+    if (typeof ref !== "string" || ref === "") throw new Error(`Could not read the branch of pull request #${n}.`);
+    if (!runsByBranch.has(ref)) {
+      const body = await githubJson(fetchImpl, `https://api.github.com/repos/${repo}/actions/workflows/deploy-preview.yml/runs?branch=${encodeURIComponent(ref)}&per_page=20`, headers, `the deploy runs of pull request #${n}`);
+      if (!Array.isArray(body?.workflow_runs)) throw new Error(`Could not read the deploy runs of pull request #${n} (not a list).`);
+      runsByBranch.set(ref, body.workflow_runs);
+    }
+    if (runsByBranch.get(ref).some((run) => run?.status !== "completed")) deploying.add(n);
+  }
+  return deploying;
+}
+
+/** One GitHub GET, parsed. Any status other than ok throws, naming what was asked for. */
+async function githubJson(fetchImpl, url, headers, what) {
+  const response = await fetchImpl(url, { headers });
+  if (!response.ok) throw new Error(`Could not read ${what} (HTTP ${response.status}).`);
+  return response.json();
 }
 
 /**
@@ -317,9 +368,21 @@ export async function openPullRequestNumbers(token, repo, { fetchImpl = fetch } 
 
 async function main(argv) {
   const env = process.env;
-  const [command, value] = argv;
+  const [command, value, flag] = argv;
   if (command === "delete") {
-    if (!/^[1-9][0-9]{0,6}$/.test(value ?? "")) throw new Error("usage: cleanup.mjs delete <pull request number>");
+    const usage = "usage: cleanup.mjs delete <pull request number> [--unless-deploying]";
+    if (!/^[1-9][0-9]{0,6}$/.test(value ?? "")) throw new Error(usage);
+    // An unknown flag is refused rather than ignored: a typo must not turn a guarded delete into an unguarded one.
+    if (flag !== undefined && flag !== "--unless-deploying") throw new Error(usage);
+    if (flag === "--unless-deploying") {
+      const repo = env.GITHUB_REPOSITORY;
+      if (!repo) throw new Error("delete --unless-deploying needs GITHUB_REPOSITORY");
+      // Throws when GitHub cannot say, so the preview is kept rather than deleted on a guess.
+      if ((await deployingPullRequests(env.GH_TOKEN, repo, [value])).has(value)) {
+        console.log(`pull request #${value} closed while its preview is still deploying; that run deletes it when it ends`);
+        return;
+      }
+    }
     const left = await deletePreview(env, value);
     if (left.length > 0) process.exitCode = 1;
     return;
@@ -327,7 +390,10 @@ async function main(argv) {
   if (command === "sweep") {
     const repo = env.GITHUB_REPOSITORY;
     if (!repo) throw new Error("sweep needs GITHUB_REPOSITORY");
-    const { leftovers } = await sweep(env, { openPullRequests: () => openPullRequestNumbers(env.GH_TOKEN, repo) });
+    const { leftovers } = await sweep(env, {
+      openPullRequests: () => openPullRequestNumbers(env.GH_TOKEN, repo),
+      deployingPullRequests: (numbers) => deployingPullRequests(env.GH_TOKEN, repo, numbers),
+    });
     if (leftovers.length > 0) process.exitCode = 1;
     return;
   }

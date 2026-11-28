@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, seedPlan, storeStorageToken } from "./seed.mjs";
+import { getFunctionName } from "convex/server";
+
+import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, seedPlan, storeStorageToken, writeFixtureNote } from "./seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(
@@ -167,4 +169,64 @@ test("the production mirror gets storage on a preview, so group chat homes open 
   // failed opening its store (binding_null), Lab test chats included.
   assert.deepEqual(seedPlan("context-lc"), { storage: true, notes: false });
   assert.deepEqual(seedPlan("lumio"), { storage: true, notes: true });
+});
+
+/** A fake Convex client: each function name maps to a handler, and every call is recorded by name. */
+function fakeFixtureClient(handlers) {
+  const calls = [];
+  return {
+    calls,
+    action: async (reference, args) => {
+      const name = getFunctionName(reference);
+      calls.push(name);
+      const handler = handlers[name];
+      if (!handler) throw new Error(`unexpected call ${name}`);
+      return handler(args);
+    },
+  };
+}
+
+/** An error shaped like a Convex error: `error.data.code` is what the seed reads. */
+function convexError(code) {
+  return Object.assign(new Error(`convex ${code}`), { data: { code } });
+}
+
+test("a fixture create that hits CONFLICT is read back, so the note counts as existing and nothing throws", async () => {
+  let reads = 0;
+  const note = { path: "projects/plan.md", text: "# Plan", etag: "e-plan" };
+  const client = fakeFixtureClient({
+    "functions/files:readNote": () => {
+      reads += 1;
+      if (reads === 1) throw convexError("FILE_NOT_FOUND");
+      return note;
+    },
+    "functions/files:writeNote": () => { throw convexError("CONFLICT"); },
+  });
+  const result = await writeFixtureNote(client, { workspaceId: "ws1", path: "projects/plan.md", text: "# Plan" });
+  assert.deepEqual(result, { existing: note, written: undefined });
+  assert.deepEqual(client.calls, ["functions/files:readNote", "functions/files:writeNote", "functions/files:readNote"]);
+});
+
+test("a fixture write that fails for another reason is rethrown", async () => {
+  const client = fakeFixtureClient({
+    "functions/files:readNote": () => { throw convexError("FILE_NOT_FOUND"); },
+    "functions/files:writeNote": () => { throw convexError("STORAGE_UNAVAILABLE"); },
+  });
+  await assert.rejects(
+    writeFixtureNote(client, { workspaceId: "ws1", path: "projects/plan.md", text: "# Plan" }),
+    (error) => error.data.code === "STORAGE_UNAVAILABLE",
+  );
+  assert.deepEqual(client.calls, ["functions/files:readNote", "functions/files:writeNote"], "no reread after a non-conflict error");
+});
+
+test("a CONFLICT on a write that passed an etag is a real conflict and is rethrown", async () => {
+  const client = fakeFixtureClient({
+    "functions/files:readNote": () => ({ path: "index.md", text: "# Old front page", etag: "e-old" }),
+    "functions/files:writeNote": () => { throw convexError("CONFLICT"); },
+  });
+  await assert.rejects(
+    writeFixtureNote(client, { workspaceId: "ws1", path: "index.md", text: "# New front page staging-personas-v1" }),
+    (error) => error.data.code === "CONFLICT",
+  );
+  assert.deepEqual(client.calls, ["functions/files:readNote", "functions/files:writeNote"], "an etag conflict is not retried by reading again");
 });
