@@ -5,7 +5,7 @@
  * - `pull-requests.csv`: one row per pull request, keyed `<repo>#<number>`, with when it was opened, merged and
  *   deployed, the commit its merge made on the default branch, the lines it added and removed, and the kind from its
  *   `follow-up:<kind>` label (`follow_up`, for the follow-up fix rate; a label, never the body). Kept 400 days. A run reads the ones updated in the last three
- *   days, then carries the history back toward 90 days, a slice a run, by when they were opened.
+ *   days, then carries the history back toward 90 days, a slice a run, by when they were opened. Kept rows opened before that window that still lack a merge commit are asked for it by number, the oldest 50 a run, until each has one.
  * - `deploys.csv`: one row per production deployment (an environment named production or prod), with its commit,
  *   when it started and finished, and how it ended. Kept 90 days.
  * - `workflow-runs.csv`: one row per finished Actions run, with its commit, on the repository's default branch, and every run of its
@@ -43,6 +43,8 @@ const DAY_MS = 86_400_000;
 export const GITHUB_DAYS = 90;
 const RECENT_MS = 3 * DAY_MS;
 export const MAX_REPOS = 10;
+/** Kept merged pull requests, oldest first, whose merge commit a run asks for by number when the read window did not reach them. */
+export const MERGE_BACKFILL_PER_RUN = 50;
 const MAX_PAGES = 10;
 const PRODUCTION = ["production", "Production", "prod", "Prod"];
 /** Production deploy workflow files whose runs are read on every branch, since a deploy runs on a branch of its own. */
@@ -459,6 +461,26 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
       const named = await mergeShas({ fetcher, token: minted.token, repo, numbers: pullRows.map((row) => Number(row.number)) });
       if (!named.ok) return failedOf(named);
       for (const row of pullRows) if (named.shas.has(Number(row.number))) row.merge_commit = mergeCommitOf(named.shas.get(Number(row.number)));
+    }
+    // Kept merged pull requests the read window did not reach keep an empty merge commit: the sheet's own empty cell is
+    // the cursor, so the oldest few are asked for by number each run. A row GitHub names no commit for gets "none", so
+    // it is not picked again. The backfill itself never changes a row's `deployed`; `fillDeployed` may still fill an empty one.
+    const readNow = new Set(out["pull-requests"].rows.map((row) => row.id));
+    const opened = (row) => {
+      const at = Date.parse(cellOf(row.opened));
+      return Number.isFinite(at) ? at : Number.POSITIVE_INFINITY;
+    };
+    const picked = (sheets["pull-requests"] ?? [])
+      .filter((row) => cellOf(row.repo) === repo && cellOf(row.merged) !== "" && cellOf(row.merge_commit) === "" && !readNow.has(String(row.id)))
+      .sort((a, b) => opened(a) - opened(b))
+      .slice(0, MERGE_BACKFILL_PER_RUN);
+    if (picked.length > 0) {
+      const named = await mergeShas({ fetcher, token: minted.token, repo, numbers: picked.map((row) => Number(cellOf(row.number))) });
+      if (!named.ok) return failedOf(named);
+      for (const row of picked) {
+        const number = Number(cellOf(row.number));
+        if (named.shas.has(number)) out["pull-requests"].rows.push({ ...pullOfSheet(row), merge_commit: mergeCommitOf(named.shas.get(number)) });
+      }
     }
     const kept = span("deploys");
     const fullDeploys = !Number.isFinite(kept.oldestMs) || kept.oldestMs > floor + DAY_MS;

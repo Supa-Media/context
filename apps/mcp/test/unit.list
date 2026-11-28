@@ -831,6 +831,7 @@ test/attachProjects.test.mjs
 test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
 test/dataSyncGithubReconnect.test.mjs
+test/dataSyncGithubBackfill.test.mjs
 test/dataSyncBackground.test.mjs
 test/dataSyncUsage.test.mjs
 test/areaRoutineBrief.test.mjs

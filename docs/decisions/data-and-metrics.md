@@ -235,7 +235,7 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   a bounded number of pages a run, never a call per pull request. That
   list answers with whole pull requests, since REST picks no fields; only
   the number and `merge_commit_sha` are taken. No body, review, comment,
-  commit message or file is kept.
+  commit message or file is kept. A kept row opened before the 90-day read window that still lacks its merge commit is asked for it the same way, by number, the oldest 50 a run, until each has one or GitHub names none (2026-11-28).
 - **Connecting answers at once; the first run happens behind it**
   (2026-11-25, after production showed the first run taking about 95
   seconds while the app gave up on every call after 30). Finishing the
