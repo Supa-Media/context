@@ -62,6 +62,10 @@ const NOT_SYNCED = new Map([
     "The other half of the bootstrap — the PAT that writes GitHub secrets. Same reason.",
   ],
   [
+    "TEX_RUNNER_GH_TOKEN",
+    "A fine-grained GitHub token (this repository only, Administration read/write and Metadata read, one year) that the Lab's runner Worker uses to register one just-in-time runner per Lab run. deploy-tex-runner.yml hands it to the Worker. Minted in GitHub, not in 1Password, for the same reason as BENCH_SECRET_WRITER_TOKEN: the admin path stays off branch code. A person rotates it before it expires.",
+  ],
+  [
     "TEX_RUNNER_ORIGIN",
     "Where the Lab's runner Worker answers (infra/tex-runner). Not a credential: deploy-tex-runner.yml writes it with GH_ADMIN_TOKEN after each deploy, as a secret only because the address names the account's workers.dev subdomain and that token writes secrets, not variables.",
   ],

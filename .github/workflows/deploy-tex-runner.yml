@@ -94,18 +94,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy
 
-      # The runner registers one just-in-time runner per run on the repository, which needs a token with admin on it:
-      # the PAT that already writes the repository's secrets. Absent, the Worker answers 503 and every Lab run stays
-      # on GitHub's runners.
+      # The runner registers one just-in-time runner per run on the repository, which needs a token with Administration
+      # read/write on it. TEX_RUNNER_GH_TOKEN is a fine-grained token for this repository only (Administration
+      # read/write, Metadata read): GH_ADMIN_TOKEN, which writes secrets, gets a 403 from runner registration.
+      # Absent, the Worker answers 503 and every Lab run stays on GitHub's runners.
       - name: Give the runner its GitHub token
         working-directory: infra/tex-runner
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GH_RUNNER_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          GH_RUNNER_TOKEN: ${{ secrets.TEX_RUNNER_GH_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "$GH_RUNNER_TOKEN" ]; then echo "::warning::no GH_ADMIN_TOKEN; Lab runs stay on GitHub's runners"; exit 0; fi
+          if [ -z "$GH_RUNNER_TOKEN" ]; then echo "::warning::no TEX_RUNNER_GH_TOKEN; Lab runs stay on GitHub's runners"; exit 0; fi
           printf '%s' "$GH_RUNNER_TOKEN" | pnpm exec wrangler secret put GH_RUNNER_TOKEN
 
       # tex-lab-sandbox.yml reads where the runner is from a repository secret, because the address names the
