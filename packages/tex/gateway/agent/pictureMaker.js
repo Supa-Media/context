@@ -61,7 +61,7 @@ import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { ensurePageDrawing } from "./visuals/pageDrawing.js";
 import { readTexNote } from "./aboutMe.js";
-import { isPagePath } from "../../../../apps/mcp/src/pages.js";
+import { isPagePath } from "../../../shared/src/pages/parse.cjs";
 import { MAX_HELD, cardCheckFor } from "./cardCheck.js";
 
 export const DRAW_TOOL = "draw_picture";

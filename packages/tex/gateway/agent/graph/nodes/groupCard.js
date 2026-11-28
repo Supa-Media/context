@@ -8,7 +8,7 @@
  */
 import { cardAsker, keepGroupCard } from "../../groupCard.js";
 import { ownDispatch } from "../../reflect.js";
-import { TEXTS_CLIENT_ID } from "../../../../../../apps/mcp/src/workspaceStore/personTexting.js";
+import { TEXTS_CLIENT_ID } from "../../../../../shared/src/texContract/texClients.cjs";
 
 export async function groupCardNode(input, io) {
   const { env, controlPlane, store, session } = io?.ctx ?? {};

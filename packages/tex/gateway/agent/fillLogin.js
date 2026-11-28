@@ -17,7 +17,7 @@
 
 import { openForFill, VaultRefused } from "../../../../apps/mcp/src/vault/fill.js";
 import { actorMayUse, isEntryId, listMeta, siteMatches } from "../../../../apps/mcp/src/vault/entries.js";
-import { entryType } from "../../../../apps/mcp/src/vault/fields.js";
+import { entryType } from "../../../shared/src/vaultShapes.cjs";
 import { openVault, otherVaultNames, vaultHolding } from "../../../../apps/mcp/src/vault/reach.js";
 
 /**

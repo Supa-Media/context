@@ -25,7 +25,7 @@
  */
 
 import { json } from "../util/responses.js";
-import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
+import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
 import { contextTools } from "../contextMcp.js";
 import { jobMailOf } from "./background.js";

@@ -45,7 +45,7 @@ import { TRAVEL_TIME_DEFINITION } from "./travelTime.js";
 import { VISUAL_DEFINITION } from "./visuals/index.js";
 import { readDayTool } from "./weekHistory.js";
 import { computerTools } from "../../../../apps/mcp/src/machines/texActions.js";
-import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "../../../../apps/mcp/src/machines/reach.js";
+import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "../../../shared/src/texContract/texClients.cjs";
 import { learnedSkillSession } from "./learnedSkills.js";
 
 /** What a factory is handed: nothing it can reach. Its definitions never read these; its calls never run here. */

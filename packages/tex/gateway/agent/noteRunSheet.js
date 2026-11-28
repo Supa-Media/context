@@ -12,7 +12,7 @@
  * change it.
  */
 
-import { isCommentsColumn, parseSheet } from "../../../../apps/mcp/src/sheets/csv.js";
+import { isCommentsColumn, parseSheet } from "../../../shared/src/sheetCsv.cjs";
 
 /** The most of the sheet's table the model is shown, in characters. */
 export const RUN_SHEET_CHARS = 24_000;

@@ -18,11 +18,11 @@
  */
 
 import { newEntryId, writeEntry, listMeta, actorMayUse, siteMatches } from "../../../../apps/mcp/src/vault/entries.js";
-import { entryType } from "../../../../apps/mcp/src/vault/fields.js";
-import { chatShareTo } from "../../../../apps/mcp/src/vault/access.js";
+import { entryType } from "../../../shared/src/vaultShapes.cjs";
+import { chatShareTo } from "../../../shared/src/vaultShapes.cjs";
 import { openVault } from "../../../../apps/mcp/src/vault/reach.js";
 import { openForFill } from "../../../../apps/mcp/src/vault/fill.js";
-import { newPassword } from "../../../../apps/mcp/src/vault/newPassword.js";
+import { newPassword } from "../../../shared/src/vaultShapes.cjs";
 import { savedLoginOn } from "./fillLogin.js";
 
 /** Roles whose grant may add to a workspace's vault: the same editor clearance a vault_add link needs. */

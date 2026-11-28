@@ -15,9 +15,9 @@
  * already have keeps its form. The prompt's line says it first; this is the floor.
  */
 
-import { activityHintOf } from "../../../../apps/mcp/src/live/activityHint.js";
-import { isPagePath } from "../../../../apps/mcp/src/pages.js";
-import { PAGE_SKILL } from "../../../../apps/mcp/src/pageSkill.js";
+import { activityHintOf } from "../../../shared/src/texContract/activityHint.cjs";
+import { isPagePath } from "../../../shared/src/pages/parse.cjs";
+import { PAGE_SKILL } from "../../../shared/src/pages/skill.cjs";
 import { ASKS_FOR_PAGE } from "./theirNotes.js";
 
 /** They asked, in so many words, for a plain note: the one case a new note is not a page. */

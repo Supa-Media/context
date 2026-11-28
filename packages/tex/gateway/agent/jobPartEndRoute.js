@@ -8,7 +8,7 @@
  * `job -> partEnd` wire; and while the node is still on the shelf (no wire), the same rule on its default limits.
  */
 import { json } from "../util/responses.js";
-import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
+import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
 import { borrowJob } from "./graph/jobHandles.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { TEX_CONFIG, texConfigOf } from "./texConfig.js";

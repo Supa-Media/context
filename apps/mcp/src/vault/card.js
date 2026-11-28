@@ -13,10 +13,8 @@
  * (`apps/convex/functions/vault.ts`).
  */
 
-/** A card's fields, in the order a checkout asks for them. `exp` is never stored: it is made from the month and year. */
-export const CARD_FIELDS = Object.freeze(["number", "exp_month", "exp_year", "cvc", "name", "postal_code"]);
-/** The parts a checkout box can be: the stored fields, and `exp` for one MM/YY box. */
-export const CARD_PARTS = Object.freeze(["number", "exp", "exp_month", "exp_year", "cvc", "name", "postal_code"]);
+import { CARD_FIELDS, CARD_PARTS, cardLabel, cardPartValue } from "../../../../packages/shared/src/vaultShapes.cjs";
+export { CARD_FIELDS, CARD_PARTS, cardLabel, cardPartValue };
 
 const MAX_NAME = 100;
 const MAX_POSTAL = 16;
@@ -27,7 +25,6 @@ const BRANDS = [
   { brand: "mastercard", pattern: /^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/, lengths: [16], cvc: 3 },
   { brand: "discover", pattern: /^(6011|65|64[4-9])/, lengths: [16, 19], cvc: 3 },
 ];
-const BRAND_NAMES = { amex: "Amex", visa: "Visa", mastercard: "Mastercard", discover: "Discover", card: "Card" };
 
 /** Whether a string of digits passes the Luhn check every card number carries. */
 export function luhn(digits) {
@@ -99,21 +96,4 @@ export function cardSummary(values) {
     expMonth: text(values?.exp_month),
     expYear: text(values?.exp_year),
   };
-}
-
-/** "Visa ••4242, expires 08/29": how a card is named to an AI and in a list. */
-export function cardLabel(meta) {
-  const card = meta?.card;
-  if (!card || typeof card.last4 !== "string") return "card";
-  return `${BRAND_NAMES[card.brand] ?? "Card"} ••${card.last4}, expires ${card.expMonth}/${String(card.expYear).slice(-2)}`;
-}
-
-/** One checkout box's value: a stored field, or `exp` as MM/YY. Null when the card has none. */
-export function cardPartValue(part, field) {
-  if (part === "exp") {
-    const month = field("exp_month");
-    const year = field("exp_year");
-    return month && year ? `${month}/${year.slice(-2)}` : null;
-  }
-  return CARD_FIELDS.includes(part) ? field(part) : null;
 }
