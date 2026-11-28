@@ -388,6 +388,7 @@ test/texStoreTicketCache.test.mjs
 test/texMerge.test.mjs
 test/texStoreMove.test.mjs
 test/texRouting.test.mjs
+test/texStoreReadsContract.test.mjs
 test/texRoster.test.mjs
 test/texMail.test.mjs
 test/texAlarms.test.mjs
