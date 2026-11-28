@@ -232,6 +232,7 @@ export class WorkspaceStore {
         this.state.waitUntil?.(sent);
       },
     });
+    store.botMail = botMail;
     this.store = store;
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => {

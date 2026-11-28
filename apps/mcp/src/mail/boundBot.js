@@ -1,5 +1,5 @@
 /**
- * Which bots this connection is in the workspace a store addresses (`tools/notes/botBind.js`; Dev, 2026-11-26:
+ * Which bots this connection is in the workspace a store addresses, each with the one area it holds as `seat` (`tools/notes/botBind.js`; Dev, 2026-11-26:
  * "anything that login writes shows as Grok Bot ... instead of Cursor"). The workspace's own object keeps the bindings
  * by grant (`workspaceStore/mailBots.js`), never the control plane, so the gateway asks it once per actor, only when
  * it signs or reads mail. `[{ bot, name }]`, empty where none; a workspace whose notes are not in an object has none.
@@ -59,7 +59,9 @@ export function boundBotsOf(store) {
           .then(async (answer) => {
             if (answer?.served !== true) return [];
             const bots = (Array.isArray(answer.bots) ? answer.bots : []).flatMap((each) =>
-              typeof each?.bot === "string" && each.bot !== "" ? [{ bot: each.bot, name: typeof each.name === "string" && each.name !== "" ? each.name : each.bot }] : [],
+              typeof each?.bot === "string" && each.bot !== ""
+                ? [{ bot: each.bot, name: typeof each.name === "string" && each.name !== "" ? each.name : each.bot, ...(typeof each.seat === "string" && each.seat !== "" ? { seat: each.seat } : {}) }]
+                : [],
             );
             if (bots.length > 0) return bots;
             const copied = await carried(store, client, grantId);
@@ -108,4 +110,29 @@ export async function bindBot(store, { bot, name }) {
   // Asked again next time, so the answer holds every bot this connection is, the new one with them.
   asked.delete(store.actor);
   return { ok: true };
+}
+
+/** A seat's name in mail: its folder's last part, as a mail name (`areas/operations` → "operations"). */
+export function seatMailName(seat) {
+  const last = String(seat ?? "").split("/").filter(Boolean).pop() ?? "";
+  const word = last.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 40).replace(/-+$/, "");
+  return word === "" ? null : word;
+}
+
+/**
+ * Where a bot's mail with another seat is kept (Dev, 2026-11-28: "mailing the President, not Barack"): one note per
+ * pair of seats, named for the writing bot's seat, so a successor in that seat carries on in the same note. A bot that
+ * names a note after itself in another folder's mail (`<folder>/mail/<bot>.md`) and holds exactly one area writes in
+ * `<folder>/mail/<seat>.md` instead. Null when nothing moves: a bot with no seat or several, a note named for
+ * anybody else, or the bot's own seat's mail (a holder writes there under the asker's note).
+ */
+export function seatNoteOf(bots, path) {
+  const match = typeof path === "string" ? /^(.*\/)?mail\/([a-z0-9][a-z0-9-]{0,39})\.md$/.exec(path) : null;
+  if (match === null || !Array.isArray(bots)) return null;
+  const folder = (match[1] ?? "").replace(/\/$/, "");
+  const bot = bots.find((each) => each.bot === match[2]);
+  if (bot === undefined || typeof bot.seat !== "string" || bot.seat === "" || folder === bot.seat) return null;
+  const name = seatMailName(bot.seat);
+  if (name === null || name === match[2]) return null;
+  return { path: `${match[1] ?? ""}mail/${name}.md`, bot: bot.bot, seat: bot.seat };
 }

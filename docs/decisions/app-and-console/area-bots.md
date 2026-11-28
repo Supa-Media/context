@@ -66,7 +66,12 @@ keeps its notes there and knows what its modes ask of it.
   with the first message as note mail; the note's own mail box answers after
   that. A bot joins each note under its name (lowercase, as mail names are)
   and answers in it. The `mail/` folder is never a plain folder or a sub-area
-  on the List, the Chart or in `orient`.
+  on the List, the Chart or in `orient`. A bot that holds exactly one area
+  writes in another folder's mail under that area's name, not its own
+  (`<area>/mail/<seat>.md`, one note per pair of seats; Dev, 2026-11-28:
+  "mailing the President, not Barack"): a note it names after itself is kept
+  in the seat's note instead, and the answer says where
+  (`mail/boundBot.js` `seatNoteOf`). Notes from before stay where they are.
 - **A bot sends its own logo's bytes, never a link** (the owner, 2026-11-25,
   option "Bot sends the image itself", after a Socials bot's setup stalled:
   its prompt had it pass a logo URL, an outside fetch the sharing judge runs
