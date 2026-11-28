@@ -10,6 +10,7 @@ import {
   revokeBucketToken,
 } from "./lib/cloudflare";
 import { MANAGED_R2_API_TOKEN_SECRET, managedAccountId, managedBucketName } from "./lib/managedStorage";
+import { isIsolatedPreview } from "./lib/previewDeployment";
 
 /**
  * Erasing a deleted workspace's managed bucket, retried until it is done.
@@ -198,10 +199,15 @@ export const runManagedErasure = internalAction({
     let token: "revoked" | "absent" | "not_for_bucket" | undefined;
     let error: string | undefined;
     if (claim.tokenPending && claim.tokenId !== undefined) {
-      try {
-        token = await revokeBucketToken({ apiToken, accountId, bucket: claim.bucket, tokenId: claim.tokenId });
-      } catch (failure) {
-        error = errorCode(failure);
+      // A preview's key is the operator token, which is not this bucket's: it is never revoked (`previewKey.ts`).
+      if (isIsolatedPreview()) {
+        token = "not_for_bucket";
+      } else {
+        try {
+          token = await revokeBucketToken({ apiToken, accountId, bucket: claim.bucket, tokenId: claim.tokenId });
+        } catch (failure) {
+          error = errorCode(failure);
+        }
       }
     }
 

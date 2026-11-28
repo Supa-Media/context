@@ -14,6 +14,8 @@ import {
 } from "./lib/managedProvisioningFns/migrationRun";
 import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
+import { previewBucketKey } from "./lib/managedProvisioningFns/previewKey";
+import { isIsolatedPreview } from "./lib/previewDeployment";
 import { openMoverPageHandler } from "./lib/managedProvisioningFns/moverDoor";
 import { deleteManagedStorageAfterRetention } from "./lib/managedProvisioningFns/handoffDelete";
 import {
@@ -301,11 +303,15 @@ export const provisionManagedStorage = internalAction({
     const bucket = managedBucketName(args.workspaceId);
 
     try {
-      const permissionGroupId = await resolvePermissionGroupId({
-        apiToken,
-        accountId,
-        name: R2_BUCKET_WRITE_PERMISSION_GROUP,
-      });
+      // A preview's token cannot mint, so its bucket's key is the operator token (`previewKey.ts`); no permission group.
+      const preview = isIsolatedPreview();
+      const permissionGroupId = preview
+        ? null
+        : await resolvePermissionGroupId({
+          apiToken,
+          accountId,
+          name: R2_BUCKET_WRITE_PERMISSION_GROUP,
+        });
 
       try {
         await createR2Bucket({
@@ -328,14 +334,16 @@ export const provisionManagedStorage = internalAction({
         }
       }
 
-      const minted = await createBucketScopedToken({
-        apiToken,
-        accountId,
-        bucket,
-        jurisdiction: "default",
-        permissionGroupId,
-        name: scopedTokenName(bucket),
-      });
+      const minted = permissionGroupId === null
+        ? await previewBucketKey({ apiToken })
+        : await createBucketScopedToken({
+          apiToken,
+          accountId,
+          bucket,
+          jurisdiction: "default",
+          permissionGroupId,
+          name: scopedTokenName(bucket),
+        });
 
       /*
         The minted value is itself a Cloudflare API token and is never stored:
@@ -356,12 +364,15 @@ export const provisionManagedStorage = internalAction({
       if (standing.bindingId === null) {
         // Served at once on a temporary credential while the key just minted
         // settles; `null` keeps the old wait (`managedProvisioningFns/temporaryKey.ts`).
-        const temporary = await issueTemporaryCredential({
-          apiToken,
-          accountId,
-          bucket,
-          workspaceId: args.workspaceId,
-        });
+        // A preview's key is the operator token itself, so no parent-credential temporary is needed (`previewKey.ts`).
+        const temporary = permissionGroupId === null
+          ? null
+          : await issueTemporaryCredential({
+            apiToken,
+            accountId,
+            bucket,
+            workspaceId: args.workspaceId,
+          });
         await ctx.runMutation(
           internal.functions.managedProvisioning.completeManagedProvisioning,
           {

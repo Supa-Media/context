@@ -9,6 +9,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { emptyAndDeleteR2Bucket, revokeApiToken } from "../cloudflare";
 import { MANAGED_R2_API_TOKEN_SECRET, managedAccountId, managedBucketName } from "../managedStorage";
+import { isIsolatedPreview } from "../previewDeployment";
 
 export async function deleteManagedStorageAfterRetention(
   ctx: ActionCtx,
@@ -38,6 +39,8 @@ export async function deleteManagedStorageAfterRetention(
 }
 
 async function revokeRetiredToken(ctx: ActionCtx, tokenId: string): Promise<void> {
+  // A preview's key is the operator token itself, so there is nothing of this bucket's to revoke (`previewKey.ts`).
+  if (isIsolatedPreview()) return;
   const accountId = managedAccountId();
   const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
     name: MANAGED_R2_API_TOKEN_SECRET,
@@ -65,6 +68,11 @@ async function deleteManagedResources(ctx: ActionCtx, args: { workspaceId: Id<"w
   }
   // Revoke even when emptying fails: leaving a standing bucket credential is
   // strictly worse than leaving an unreachable bucket for operator cleanup.
+  // A preview's key is the operator token, so it is not revoked here, only the bucket is emptied and deleted (`previewKey.ts`).
+  if (isIsolatedPreview()) {
+    if (bucketFailure !== undefined) throw bucketFailure;
+    return null;
+  }
   const revoked = await revokeApiToken({ apiToken, accountId, tokenId: args.tokenId });
   if (bucketFailure !== undefined) throw bucketFailure;
   if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
