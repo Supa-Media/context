@@ -33,8 +33,10 @@ the host of one job changes. Everything else in the workflow stays on GitHub.
 - **One label per run attempt** (`tex-lab-<run>-<attempt>`), so no other job
   can take the runner.
 - **The registering token never reaches the container.** `GH_RUNNER_TOKEN`
-  (the repository admin PAT, set by `deploy-tex-runner.yml`) lives only in the
-  Worker; the container gets the one-runner configuration and nothing else.
+  (`TEX_RUNNER_GH_TOKEN`, a fine-grained token on this repository only with
+  Administration read/write and Metadata read, set by `deploy-tex-runner.yml`;
+  the secrets-writing admin PAT got a 403 from runner registration on
+  2026-11-28) lives only in the Worker; the container gets the one-runner configuration and nothing else.
   `tex-lab-run.yml` still never names the admin token.
 - **It never fails a run.** With `TEX_LAB_RUNNER` not `sandbox`, no origin, no
   token, or a runner that is not online within 150 seconds, the `run` job runs
