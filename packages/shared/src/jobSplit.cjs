@@ -14,9 +14,11 @@
  *   - a part that ends waiting sleeps until mail or a text wakes it, instead of ending or using up parts
  *     (`packages/shared/src/jobPartEnd.cjs` `sleep`, `packages/tex/worker/jobSleep.ts`).
  *
- * Plain CommonJS with no imports, so the gateway and the texting Worker read the same rules. This is the config's
+ * Plain CommonJS, needing only `fileKinds.cjs`, so the gateway and the texting Worker read the same rules. This is the config's
  * Split job node (`split`): its code, as `jobPartEnd.cjs` is Part end's.
  */
+
+const { isNotePath } = require("./fileKinds.cjs");
 
 const MAX_TITLE = 80;
 const MAX_PATH = 1024;
@@ -26,7 +28,7 @@ function splitOf(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const id = typeof value.id === "string" ? value.id.trim() : "";
   const title = typeof value.title === "string" ? value.title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) : "";
-  if (id === "" || id.length > MAX_PATH || /[\u0000-\u001f]/.test(id) || !id.endsWith(".md") || title === "") return null;
+  if (id === "" || id.length > MAX_PATH || /[\u0000-\u001f]/.test(id) || !isNotePath(id) || title === "") return null;
   return { id, title };
 }
 
