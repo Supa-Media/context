@@ -70,8 +70,9 @@ export function jobReportOf(body, { chatTurn, job }) {
   // How it ended, as facts (the Worker's `JobEnd`), read as strictly as node did's.
   const facts = didFactsOf(value.end);
   const end = facts !== null && facts.action === "job" ? facts : null;
-  // The workspaces it read that someone in its group can't open (`roomCheck.js`): its words count as read from them.
-  const roomRead = (Array.isArray(value.roomRead) ? value.roomRead : []).filter((slug) => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)).slice(0, 24);
+  // The workspaces it read that someone in its group can't open, and the private notes it read (`private:<key>`;
+  // `roomCheck.js`): its words count as read from them.
+  const roomRead = (Array.isArray(value.roomRead) ? value.roomRead : []).filter((entry) => typeof entry === "string" && (/^[a-z0-9][a-z0-9-]{0,63}$/.test(entry) || /^private:@?[A-Za-z0-9][^\s]{0,299}$/.test(entry))).slice(0, 48);
   return { title, state: value.state, texts, ...(roomRead.length > 0 ? { roomRead } : {}), ...(end ? { end } : {}), ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
 }
 

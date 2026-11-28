@@ -129,3 +129,27 @@ Tests: `apps/convex/__tests__/textGroupAskerReach.test.ts` (with its sabotage re
 `apps/convex/__tests__/textGroupBlockers.test.ts`, `apps/convex/__tests__/controlPlane/texLabWorldReach.test.ts`,
 `packages/tex/worker/groupAskedRuns.test.ts`, `apps/mcp/test/chatReach.test.mjs`, `apps/mcp/test/chatBlockers.test.mjs`, `apps/convex/__tests__/textGroupHolders.test.ts`,
 `apps/mcp/test/groupHolders.test.mjs`.
+
+## Private notes and secrets stay out of the group unless named (2026-11-28)
+
+Dev2 feared a general group ask ("what are the v2l action items rn") drawing on a personal note that mentioned the
+group and wasn't meant to be public yet, and Tex posting a folder's notes when it wasn't sure which one was meant. The
+asker's reach stays as above. What a group may be *told* narrows, by code at the Room check
+(`packages/tex/gateway/agent/roomCheck.js`):
+
+- **A private note goes to the group only when its asker names that note**: its path or a link, every word of its
+  file name, or every word of its first heading. Dev2: "if i tell tex a specific note even if marked private it
+  should still be able to read right" — yes. Almost every personal note is private (the default) and almost every
+  shared-workspace note is team, so a general ask draws on the team notes. To keep a shared note out of groups, make
+  it private. No new setting was added for this (Dev2 chose reusing `private` over a new "not for groups" mark).
+- **A secret read this turn never goes to the group**, named or not: a passcode, password, PIN or account number word
+  followed by a value something read this turn holds (`secretIn`).
+- A draft carrying either is held for the asker 1:1 like any other hold, and never recorded as a room hold: a yes
+  there opens a workspace for the room, and neither is one.
+- A read says `visibility:`; a group's search marks a private hit `(private note)` (`apps/mcp/src/tools/search.js`
+  `PRIVATE_HIT_LABEL`, only for the group client). The chat's own home is the room's and never counts.
+- Tex asks which note before posting when more than one could be meant (`packages/tex/src/texPrompt/rules.md`).
+
+What a simplification would cost: dropping the naming skip makes "share my gulag trip note" fail; dropping the hold
+lets a general ask post a private note's plans. Tests: `apps/mcp/test/roomPrivate.test.mjs`,
+`apps/mcp/test/searchPrivateHits.test.mjs` (each with its sabotage record).

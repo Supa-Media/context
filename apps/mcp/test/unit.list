@@ -255,6 +255,7 @@ test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
 test/searchEverywhereBoost.test.mjs
+test/searchPrivateHits.test.mjs
 test/searchEvidence.test.mjs
 test/searchPriors.test.mjs
 test/searchSharedWords.test.mjs
@@ -839,6 +840,7 @@ test/blankFields.test.mjs
 test/explainContext.test.mjs
 test/chatStyle.test.mjs
 test/roomCheck.test.mjs
+test/roomPrivate.test.mjs
 test/heldShare.test.mjs
 test/setsRunParallel.test.mjs
 test/setsJudges.test.mjs
