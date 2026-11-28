@@ -22,12 +22,14 @@ const SENDING_MS = 120_000;
 const HEAD = /^Here's the email I'd send(?: from @[^\s']+'s email)?:$/;
 /** The old card's yes paragraph, still read in asks sent before 2026-11-27: "Give it a 👍", or "@name, give it a 👍". */
 const YES = /^(?:Give it a 👍|@[^\s,]+, give it a 👍)/u;
-/** The first line of a copy `emailCopy` writes: its sender, its recipients, or the thread it answers. */
+/** The first line of a copy `emailCopy` writes: its sender or its recipients (or, before 2026-11-28, the thread line). */
 const COPY_START = /^(?:From: |To: |\(A reply inside the existing email thread\.\)$)/;
 /** The copy's lines that make an ask no card: a forwarded email, or attachments (`email.js` `emailCopy`). */
 const NOT_A_CARD = ["(Below this goes the forwarded email", "(Attached:"];
-/** The line `emailCopy` writes for a reply in the existing thread. */
+/** The line `emailCopy` wrote for a reply before 2026-11-28, still read in older asks; a reply now shows by its subject. */
 const THREAD = "(A reply inside the existing email thread.)";
+/** A reply's subject (`email.js` `readEmail`): a "Re:" email always answers one, and every reply opens with it. */
+const REPLY_SUBJECT = /^\s*re\s*:/i;
 
 /**
  * Reads one held email back out of an ask: Tex's own words with the copy `emailCopy` wrote under them, or the old card.
@@ -69,7 +71,8 @@ function headersAt(lines, start) {
     else if (line.startsWith("Subject: ")) headers.subject = line.slice("Subject: ".length);
     else return null;
   }
-  return headers.to === null || headers.subject === null ? null : { headers, end: index };
+  if (headers.to === null || headers.subject === null) return null;
+  return { headers: { ...headers, thread: headers.thread || REPLY_SUBJECT.test(headers.subject) }, end: index };
 }
 
 /**

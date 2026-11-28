@@ -27,11 +27,17 @@ describe("parseAskEmail reads the copy out of the ask for one email", () => {
   });
 
   it("joins several recipients and copies, and marks a reply inside its thread", () => {
-    const reply = { ...EMAIL, to: ["b@y.com", "c@y.com"], cc: ["d@z.com", "e@z.com"], replyTo: "msg-1" };
+    const reply = { ...EMAIL, subject: "Re: Hi", to: ["b@y.com", "c@y.com"], cc: ["d@z.com", "e@z.com"], replyTo: "msg-1" };
     const parsed = parseAskEmail(askFor(reply));
     assert.equal(parsed.to, "b@y.com, c@y.com");
     assert.equal(parsed.cc, "d@z.com, e@z.com");
     assert.equal(parsed.thread, true);
+    assert.equal(parsed.subject, "Re: Hi");
+  });
+
+  it("still reads an ask from before 2026-11-28 whose copy had the thread line", () => {
+    const old = "Drafted it.\n\nTo: b@y.com\nSubject: Hi\n(A reply inside the existing email thread.)\n\nHello";
+    assert.deepEqual(parseAskEmail(old), { from: null, to: "b@y.com", cc: "", subject: "Hi", thread: true, body: "Hello" });
   });
 
   it("keeps an empty body, and a body whose lines look like the yes line's neighbours", () => {

@@ -108,7 +108,7 @@ test("a held email's body is rewritten, its copy and key follow, and nothing els
   assert.deepEqual(JSON.parse(lines[0]), { event: "held_email_edit", outcome: "edited" });
 });
 
-test("a reply keeps its thread line and its in_reply_to, and only the body changes", async () => {
+test("a reply keeps its Re: subject and its in_reply_to, and only the body changes", async () => {
   const store = createMemoryStore();
   store.actor = { ...TEX };
   const reply = { ...EMAIL, in_reply_to: "email:me@example.test/18cafe" };
@@ -117,7 +117,8 @@ test("a reply keeps its thread line and its in_reply_to, and only the body chang
   assert.equal(result.ok, true);
   assert.equal(result.record.args.in_reply_to, reply.in_reply_to);
   assert.equal(result.record.args.body, "Hi again");
-  assert.ok(result.record.detail.includes("(A reply inside the existing email thread.)"));
+  assert.match(result.record.detail, /^Subject: Re: /m);
+  assert.ok(!result.record.detail.includes("existing email thread"));
 });
 
 test("another person's held email is not found", async () => {
