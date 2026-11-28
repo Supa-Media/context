@@ -3,6 +3,7 @@
 Every section title of [the texting assistant](../texting-assistant.md) and its files, moved here from [the decisions index](../README.md) when that passed 1,000 lines. Titles are unchanged, so citations by title still resolve.
 
 
+- [Tex becomes its own service (2026-11-28)](./tex-service.md)
 - [A WhatsApp group's people are kept, and trusted before sending until they change (2026-11-12)](./group-members.md)
 - [Keys the AI gateway holds pay first (2026-11-13)](./gateway-keys.md)
 - [Every model Tex calls knows today's date, and every text it reads has one (2026-11-10)](./dates-everywhere.md)
