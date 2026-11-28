@@ -183,3 +183,16 @@ test("text_privately naming the tagger in to is their own follow-up, never a cal
   const asGuest = await privateAsideTool({ group: guest, ledger: {} }).call({ to: "@gus", what: "Go over their week." });
   assert.equal(JSON.parse(said(asGuest)).has_account, false);
 });
+
+test("a group chat's send list names text_privately with its args; a 1:1's never does", async () => {
+  // Battle of the Bots, 2026-11-28: Haiku thought "the send tool's listed actions don't include it" and handed the 1:1
+  // follow-up to a background job, which cannot text anyone 1:1. The catalogue had no text_privately.
+  const { fixedCarriers } = await import("../../../packages/tex/gateway/agent/sixToolsFixed.js");
+  const { sixToolsOver } = await import("../../../packages/tex/gateway/agent/sixTools.js");
+  const sendOf = (kind) => {
+    const shown = fixedCarriers(kind);
+    return sixToolsOver([...shown.values()], null, { shown }).tools.find((tool) => tool.name === "send").description;
+  };
+  assert.match(sendOf("group"), /text_privately: .*args: what\*/);
+  assert.doesNotMatch(sendOf("one"), /text_privately/);
+});
