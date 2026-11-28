@@ -17,6 +17,7 @@
 import favicon48 from "./favicon-48.png";
 import favicon192 from "./favicon-192.png";
 import appleTouchIcon from "./apple-touch-icon.png";
+import { APEX_ROBOTS_TXT } from "./robotsTxt";
 
 export const ICON_PATHS = {
   ico: "/favicon.ico",
@@ -90,15 +91,18 @@ export function staticAsset(body: ArrayBuffer, type: string): Response {
 export const ROBOTS_PATH = "/robots.txt";
 
 /**
- * The apex allows every crawler everything: what reaches a crawler is already
- * decided per path (`route.ts`), and private pages are behind sign-in, not
- * behind this file. It exists so the answer is rules rather than HTML, which
- * is what both the crawler card and the SPA fallback returned for it.
+ * The apex's file is Cloudflare's managed AI-crawler list with GPTBot and
+ * ClaudeBot allowed (`robotsTxt.ts`): search engines may index everything,
+ * the content signal says no training, and every training crawler but those
+ * two is disallowed, because Seyi wants those two to crawl. What reaches a
+ * crawler is still decided per path (`route.ts`), and private pages are behind
+ * sign-in, not behind this file. It is served from the Worker so the answer is
+ * rules rather than HTML, which is what both the crawler card and the SPA
+ * fallback returned for it.
+ *
+ * `body` is Tex's variant on a Tex host (`texHost.ts`); the apex's otherwise.
  */
-const ROBOTS_TXT = "User-agent: *\nAllow: /\n";
-
-/** `body` is Tex's variant on a Tex host (`texHost.ts`); the apex's otherwise. */
-export function robotsResponse(body: string = ROBOTS_TXT): Response {
+export function robotsResponse(body: string = APEX_ROBOTS_TXT): Response {
   return new Response(body, {
     status: 200,
     headers: {
