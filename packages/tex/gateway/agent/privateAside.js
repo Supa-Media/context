@@ -28,7 +28,7 @@ export const TEXT_PRIVATELY = "text_privately";
 export const PRIVATE_ASIDE_SEND_ACTIONS = {
   text_privately: {
     tool: TEXT_PRIVATELY,
-    summary: "In a group chat, text whoever tagged you in their own chat with you, for anything sensitive (a card, an ID, a one-time code): never asked for here.",
+    summary: "In a group chat, follow up with whoever tagged you in their own chat with you: something sensitive to ask them for, or something of theirs to give or go over there.",
   },
 };
 
@@ -109,14 +109,14 @@ export function privateAsideTool({ group, ledger }) {
     tool: {
       name: TEXT_PRIVATELY,
       description:
-        "Text whoever tagged you in their own chat with you, for something sensitive this group mustn't see: a card, an ID, an account number, " +
-        "a one-time code a site sent them. what: what you need from them and what it is for, in a sentence. " +
-        "Their own Tex texts them right after your answer, and when they reply there it is passed back here. " +
-        "Here, say only that you'll text them; never ask for it or give the steps in this chat.",
+        "Follow up with whoever tagged you in their own chat with you, for what is theirs alone and not for this group: something sensitive you need " +
+        "from them (a card, an ID, a one-time code), or something of theirs to give them or go over with them there (their own notes, a summary, a draft, a question). " +
+        "what: what their own Tex should do there, in a sentence. Their own Tex, which reads all of their notes and calendar, texts them right after your answer, " +
+        "and can post back here what they choose to share. Here, say only that you'll text them; never the details.",
       inputSchema: {
         type: "object",
         properties: {
-          what: { type: "string", description: "What you need from them and what it's for, in a sentence." },
+          what: { type: "string", description: "What their own Tex should do with them there, in a sentence." },
           to: { type: "string", description: "calendar clash: its owner's handle" },
         },
         required: ["what"],
@@ -134,12 +134,13 @@ export function privateAsideTool({ group, ledger }) {
   };
 }
 
+/** What the group's model is told once an aside is kept: facts, never words to say (`no-scripted-wording`). */
+function sentFacts(group) {
+  return { texted_privately: `@${group.from}`, when: "right after your answer", this_group_sees: "nothing of it" };
+}
+
 function sentLine(group) {
-  return (
-    `@${group.from} is texted this in their own chat with you right after your answer. ` +
-    "In this chat say only, in a few words, that you'll text them for it (\"Sure thing, I'll text you for the login\"); " +
-    "never the link, the details or how to give them."
-  );
+  return JSON.stringify(sentFacts(group));
 }
 
 /**
@@ -158,6 +159,6 @@ export function withPrivateLinks(group, ledger, callTool) {
     if (words === "") return text("That link could not be made right now. Try again in a minute.", true);
     const what = name === "vault_view_link" ? "a private link to see what's saved" : `a private link to save ${clip(args?.name, 80) || clip(args?.site, 80) || "it"}`;
     keep(ledger, { what, texts: [words] });
-    return text(`The link was made and goes to @${group.from} alone. ${sentLine(group)} Once they save, you're told here and carry on by yourself.`);
+    return text(JSON.stringify({ link_made: true, ...sentFacts(group), once_they_save: "you are told here and carry on" }));
   };
 }

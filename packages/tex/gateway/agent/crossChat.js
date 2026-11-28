@@ -90,7 +90,7 @@ export function crossChatOf(body, { chatTurn, job }) {
 export function crossChatQuestion(event) {
   if (event.kind === "answer" && event.held === true) return `(${JSON.stringify({ event: "held_from_group", group: event.from, ...(event.key ? { chat: event.key } : {}) })})`;
   if (event.kind === "answer" && event.calendar === true) return `(${JSON.stringify({ event: "calendar_check_from_group", group: event.from, ...(event.key ? { chat: event.key } : {}) })})`;
-  if (event.kind === "answer" && event.state === "aside") return `(Not a text from them. Tex in ${event.from} needs this from them here, not in front of the group: "${event.what}")`;
+  if (event.kind === "answer" && event.state === "aside") return `(${JSON.stringify({ event: "follow_up_from_group", group: event.from, ...(event.key ? { chat: event.key } : {}) })})`;
   if (event.kind === "ask") return `(Not a text from anyone here. Tex in ${event.from} asks you${event.do ? " to do something" : ""}: "${event.what}")`;
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
 }
@@ -131,20 +131,21 @@ export function crossChatPrompt(event, { group = null } = {}) {
 }
 
 /**
- * A group chat's sensitive ask, in the tagger's own 1:1 (`privateAside.js`): text them for it here, and pass back what
- * the group needs. A vault link's own words come in `texts`, written by the gateway, and go to them exactly.
+ * A group chat's follow-up with its tagger, in their own 1:1 (`privateAside.js`; Dev2, 2026-11-25 and 2026-11-27): what
+ * the group's Tex wants done here (something sensitive to ask them for, or something of theirs to give or go over), as
+ * data. A vault link's own words come in `texts`, written by the gateway. What to text them, and what to pass back to
+ * the group with `ask_chat`, is the model's own, taught by the Lab's prompt module.
  */
 function asidePrompt(event) {
-  const link = event.texts.length > 0 ? `\nThe private link and its words, from Context itself:\n<<<\n${event.texts.join("\n\n")}\n>>>\nText them the link exactly as written.` : "";
-  const back = event.key ? `chat "${event.key}"` : "that group";
-  return (
-    `\n\nTHIS RUN TEXTS THEM FOR SOMETHING SENSITIVE. They asked you in ${event.from} for something that needs this from them, ` +
-    "and it is asked here, in their own chat with you, so the group never sees it. Text them now in a line or two: which group and task it is for, and what you need. " +
-    "Never say it in the group, and never ask them to send it there." +
-    link +
-    ` When they answer here with what the group's task needs (a code, a detail), pass it on with send action ask_chat, do true, ${back}, saying what it is for, so Tex there carries on; ` +
-    "a login or card they save on the link carries the group on by itself, with nothing to pass."
-  );
+  const facts = {
+    group: event.from,
+    ...(event.key ? { chat: event.key } : {}),
+    follow_up: event.what,
+    the_group_sees: "nothing of this chat",
+    ...(event.texts.length > 0 ? { private_link_words: event.texts, send_link_words: "exactly as written" } : {}),
+    back_to_the_group: event.key ? `send ask_chat, do true, chat "${event.key}"` : "not reachable from here",
+  };
+  return `\n\n${JSON.stringify({ follow_up_from_group: facts })}`;
 }
 
 /**
@@ -181,6 +182,12 @@ export function chatNamed(groups, named) {
   return near.length === 1 ? near[0] : null;
 }
 
+/** The group a follow-up run (`state` `aside`) came from, among the person's groups; null for any other run. */
+export function backTo(event, groups) {
+  if (event?.kind !== "answer" || event.state !== "aside" || typeof event.key !== "string" || !Array.isArray(groups)) return null;
+  return groups.find((chat) => chat && chat.key === event.key) ?? null;
+}
+
 /** A fresh ask's id. */
 export function crossAskId() {
   return `x${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
@@ -201,8 +208,13 @@ export function crossCountsOf(value) {
  * config wire; an ask it lets go is pushed to `ledger.crossAsks`.
  */
 export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate }) {
-  if (event !== null || counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
+  if (counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
   if (group !== null || !Array.isArray(groups)) return null;
+  // A run another chat started asks nobody (one hop), but for a group's follow-up with its tagger (`privateAside.js`),
+  // which answers back to that one group only: "share this part" there (Dev2, 2026-11-27: "a two way loop indeed").
+  const back = event === null ? null : backTo(event, groups);
+  if (event !== null && back === null) return null;
+  if (back !== null) groups = [back];
   return {
     tool: {
       name: ASK_CHAT,
