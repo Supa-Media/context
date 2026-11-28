@@ -2,11 +2,14 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { NameStep } from "../features/onboarding/steps/NameStep";
+
+// "How did you hear about us?" reads the account from the server; its own screen test is `heardChips.test.ts`.
+jest.mock("../features/onboarding/steps/HeardChips", () => ({ HeardChips: () => null }));
 import { ConnectionsStep } from "../features/onboarding/redesign/ConnectionsStep";
 import { ForkStep, type ForkOffer } from "../features/onboarding/redesign/ForkStep";
 import { PaymentStep } from "../features/onboarding/redesign/PaymentStep";

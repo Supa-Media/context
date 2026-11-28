@@ -12,6 +12,7 @@ import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { fakeNoteRunFetch, setTexInNoteFixture, texInNoteFixture } from "../console/files/comments/tex/fixtureTransport";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
+import { HeardFixture } from "../onboarding/HeardFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 import { ProjectsFixture } from "./projects/ProjectsFixture";
 import { CastStudioFixture } from "./CastStudioFixture";
@@ -65,6 +66,8 @@ export interface FixtureParams {
   /** `screen=app-frame-visual`: how many tabs are open, for a full strip. */
   tabs?: string | string[];
   screen?: string | string[];
+  /** `screen=heard`: `0` draws the handle screen without the "How did you hear about us?" row. */
+  heard?: string | string[];
   /** No `screen`: `1` draws the open note as moved to the trash. */
   trashed?: string | string[];
   /**
@@ -183,6 +186,9 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     `/welcome` needs a session and a deployment, and the three screens behind
     that step are all layouts — the one class jsdom cannot check.
   */
+  // The handle screen with "How did you hear about us?" under Claim; `heard=0` draws it without the row.
+  if (first(params.screen) === "heard") return <HeardFixture shown={first(params.heard) !== "0"} />;
+
   if (first(params.screen) === "first-run-storage") {
     const at = first(params.at);
     return (

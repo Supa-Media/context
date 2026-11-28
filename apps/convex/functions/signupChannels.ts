@@ -20,6 +20,7 @@ import { normalizeEmail, signupChannelOf, type FirstTouch, type SignupFacts } fr
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { query } from "../_generated/server";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { getAuthUserId } from "./lib/signedIn";
 import { hasLiveInvite } from "./lib/referrals";
@@ -124,3 +125,66 @@ export async function scheduleSignupChannel(
 ): Promise<void> {
   await ctx.scheduler.runAfter(0, internal.functions.signupChannels.atCreation, { userId, ...facts });
 }
+
+/**
+ * "How did you hear about us?" (Dev2, 2026-11-28, boards c1 and c2 in project
+ * files `signup-channel-chip/`): the chips under Claim on the handle screen,
+ * and the channel each names. Asked only when nothing said where the person
+ * came from, so it only ever replaces `direct` (or no channel yet), once.
+ */
+export const HEARD_ANSWERS = { search: "search", ai: "ai", x: "social", friend: "invite", other: "other" } as const;
+export type HeardAnswer = keyof typeof HEARD_ANSWERS;
+
+/** How long after sign-up the question may be answered: the first run happens right after. */
+export const HEARD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const answerValidator = v.union(v.literal("search"), v.literal("ai"), v.literal("x"), v.literal("friend"), v.literal("other"));
+
+type Ask = { ask: false } | { ask: true; answered?: HeardAnswer };
+
+/** Whether to show the chips, and the answer already given. */
+export const heardAsk = query({
+  args: {},
+  returns: v.union(v.object({ ask: v.literal(false) }), v.object({ ask: v.literal(true), answered: v.optional(answerValidator) })),
+  handler: async (ctx): Promise<Ask> => {
+    const userId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+    if (userId === null) return { ask: false };
+    const user = await ctx.db.get(userId);
+    if (user === null || Date.now() - user._creationTime > HEARD_WINDOW_MS) return { ask: false };
+    const row = await ctx.db.query("signupChannels").withIndex("by_user", (q) => q.eq("userId", userId)).first();
+    if (row === null) return { ask: true };
+    if (row.heard === true) {
+      const answered = (Object.keys(HEARD_ANSWERS) as HeardAnswer[]).find((key) => HEARD_ANSWERS[key] === row.channel);
+      return answered === undefined ? { ask: true } : { ask: true, answered };
+    }
+    return row.channel === "direct" ? { ask: true } : { ask: false };
+  },
+});
+
+/**
+ * The person's answer. Becomes the channel only where nothing better is known:
+ * no channel yet (after the server has tried the waitlist row and invitations)
+ * or `direct`. A channel a referrer, a link or an invitation named is never
+ * replaced, and a second answer changes nothing.
+ */
+export const heard = mutation({
+  args: { answer: answerValidator },
+  returns: v.boolean(),
+  handler: async (ctx, { answer }) => {
+    const userId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+    if (userId === null) return false;
+    const user = await ctx.db.get(userId);
+    if (user === null || Date.now() - user._creationTime > HEARD_WINDOW_MS) return false;
+    // What the server knows on its own comes first: the waitlist row's touch, an invitation.
+    await recordSignupChannel(ctx, userId);
+    const row = await ctx.db.query("signupChannels").withIndex("by_user", (q) => q.eq("userId", userId)).first();
+    const channel = HEARD_ANSWERS[answer];
+    if (row === null) {
+      await ctx.db.insert("signupChannels", { userId, channel, at: Date.now(), heard: true });
+      return true;
+    }
+    if (row.heard === true || row.channel !== "direct") return false;
+    await ctx.db.patch(row._id, { channel, heard: true });
+    return true;
+  },
+});

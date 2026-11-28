@@ -197,7 +197,7 @@ function handleScreen() {
     claim: async () => {},
     canClaim: true,
   } as unknown as OnboardingController;
-  return render(createElement(NameStep, { controller }));
+  return render(createElement(NameStep, { controller, heard: null }));
 }
 
 /** The in-console "You're set up." card. */
