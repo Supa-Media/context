@@ -22,21 +22,15 @@
  * A table's bytes are read as text here rather than through Workers AI's
  * `toMarkdown`: a CSV is already words, and the facts need its real rows.
  */
+import { PART_CHARS, isTable, partLines, partOf } from "../../../../packages/shared/src/fileParts.cjs";
 
-/** Most characters handed back in one part. */
-export const PART_CHARS = 100_000;
+export { PART_CHARS };
 /** Duplicate rows named, at most, by line. */
 const MAX_EXAMPLES = 3;
 /** Columns totalled, at most. */
 const MAX_TOTALS = 6;
 
-const TABLE_TYPES = new Set(["text/csv", "text/tab-separated-values"]);
-const TABLE_NAME = /\.(?:csv|tsv)$/i;
-
-/** Whether a file is a table whose facts are worked out here. */
-export function isTable(name, type) {
-  return TABLE_TYPES.has(String(type ?? "").split(";")[0].trim().toLowerCase()) || TABLE_NAME.test(String(name ?? ""));
-}
+export { isTable };
 
 /** One CSV (or TSV) line's cells, quotes honoured. A quoted cell spanning lines is rare in an export and is read as two rows. */
 export function cells(line, delimiter = ",") {
@@ -163,29 +157,7 @@ export function factLines(facts) {
   return lines;
 }
 
-/**
- * One part of `text` from `from`: at most `PART_CHARS`, ending at a line break
- * when there is one, so no row is cut in two. `{ part, from, to, total }`, or
- * null when `from` is past the end.
- */
-export function partOf(text, from = 0) {
-  const total = text.length;
-  const start = Number.isInteger(from) && from > 0 ? from : 0;
-  if (start > 0 && start >= total) return null;
-  let to = Math.min(total, start + PART_CHARS);
-  if (to < total) {
-    const lineEnd = text.lastIndexOf("\n", to);
-    if (lineEnd > start) to = lineEnd + 1;
-  }
-  return { part: text.slice(start, to), from: start, to, total };
-}
-
-/** The lines that say which part this is and how to read the next one. */
-export function partLines(part, next) {
-  const lines = [`characters: ${part.from} to ${part.to} of ${part.total}`];
-  if (part.to < part.total) lines.push(`more: ${next(part.to)} reads the next part; read every part before you total anything`);
-  return lines;
-}
+export { partLines, partOf };
 
 /** A date cell as `YYYY-MM-DD`: "2026-08-03", "08/03/2026", "8/3/26"; null for anything else. */
 export function isoDate(value) {

@@ -19,9 +19,7 @@
 
 import { toolError } from "./results.js";
 import { heldFacts } from "./heldFacts.js";
-
-/** A handle as `functions/lib/names.ts` allows one. */
-const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
+import { HANDLE, addressedTo } from "../../../../packages/shared/src/toolContract.cjs";
 
 const handleOf = (value) => (typeof value === "string" ? value.trim().replace(/^@/, "").toLowerCase() : "");
 
@@ -61,12 +59,4 @@ export function offerFor(session, { who, tool, detail, noun }) {
   return heldFacts({ copy: detail, okFrom: who, account: who });
 }
 
-/**
- * Whether words someone said yes or 👍 to were put to them by name (Tex names whom an offer or a group's ask is
- * for), so a yes in a group counts as the yes to that preview only from the person it asks. The handle is read
- * whole: "@jo" is not named by "@joan".
- */
-export function addressedTo(words, who) {
-  if (typeof words !== "string" || !HANDLE.test(who ?? "")) return false;
-  return new RegExp(`(?:^|[^a-z0-9-])@${who}(?![a-z0-9-])`, "i").test(words);
-}
+export { addressedTo };

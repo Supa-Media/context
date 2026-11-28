@@ -13,7 +13,7 @@
  */
 
 import { listSkillNames, learnedSkillSession, readLearnedSkills, READ_LEARNED_SKILL_TOOL, SKILL_READS, skillWriteRefusal } from "./learnedSkills.js";
-import { toolError } from "../../../../apps/mcp/src/tools/results.js";
+import { toolError } from "../../../shared/src/toolContract.cjs";
 
 /** Where a home keeps its skills. */
 export function chatSkillsFolder(home) {

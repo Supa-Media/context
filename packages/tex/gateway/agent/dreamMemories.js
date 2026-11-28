@@ -11,7 +11,7 @@
  * since it last ran and keeps the lasting ones in `tex/about.md`.
  */
 
-import { MEMORY_FOLDER } from "../../../../apps/mcp/src/tools/notes/remember.js";
+import { MEMORY_FOLDER } from "../../../shared/src/toolContract.cjs";
 import { inboxPath } from "../../../../apps/mcp/src/communications/inboxFolders.js";
 import { dayOf } from "./jobLog.js";
 

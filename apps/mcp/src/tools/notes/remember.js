@@ -18,18 +18,13 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { inboxPath } from "../../communications/inboxFolders.js";
+import { MEMORY_FOLDER } from "../../../../../packages/shared/src/toolContract.cjs";
 
 const MAX_FACT_LENGTH = 500;
 const KINDS = new Set(["stated", "inferred"]);
 /** Context's own files at the root: never an agent's to edit line by line. */
 const RESERVED = new Set(["index.md", "privacy.md", "activity.md"]);
-/**
- * Where a fact with no note goes: its own folder in the inbox, so memories do
- * not mix with everything else waiting there (the owner, 2026-10-07). The name
- * is ours, so the control plane lists it among the paths a share preview must
- * not confirm (`PRODUCT_MANDATED_PATHS`).
- */
-export const MEMORY_FOLDER = "inbox/memories";
+export { MEMORY_FOLDER };
 /** New inbox notes for one day's facts are numbered past this many collisions, then refused. */
 const MAX_INBOX_ATTEMPTS = 20;
 

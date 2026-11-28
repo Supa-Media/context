@@ -16,6 +16,7 @@
  * are deliberately absent: an action name is listed to everybody, so mapping
  * one would publish what the mask hides.
  */
+import { actionOf } from "../../../../../packages/shared/src/toolContract.cjs";
 
 /** Top-level `write` fields, merged under the action's own `args`. */
 function withNote(call, extra = {}) {
@@ -248,8 +249,4 @@ export const ACTIONS = {
 /** The v2 tools whose calls carry an `action`. */
 export const ACTION_TOOLS = new Set(Object.keys(ACTIONS));
 
-/** The action a call names, with `write`'s default. */
-export function actionOf(tool, args) {
-  if (tool === "write" && (args.action === undefined || args.action === null || args.action === "")) return "save";
-  return args.action;
-}
+export { actionOf };

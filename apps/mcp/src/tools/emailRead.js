@@ -15,11 +15,12 @@
 import { searchOne } from "./search.js";
 import { fileWords, pdfPagesPart, QUOTATION, typeOfFile } from "./readFile.js";
 import { toolError, toolText } from "./results.js";
-import { AI_ACCESS_STEP, aiAccessLine } from "./googleAiAccess.js";
+import { aiAccessLine } from "./googleAiAccess.js";
 import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { inboxFolders, underInbox } from "../communications/inboxFolders.js";
+import { EMAIL_ID_PREFIX, ACCOUNT, REFUSED, parseEmailId } from "../../../../packages/shared/src/emailRead.cjs";
 
-export const EMAIL_ID_PREFIX = "email:";
+export { EMAIL_ID_PREFIX };
 
 const NOTE_HITS = 10;
 /** Where synced mail lands when a mailbox's own folder is not known. */
@@ -40,20 +41,7 @@ export function notesQueryOf(query) {
   return words.join(" ");
 }
 
-const ACCOUNT = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
-const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-export const REFUSED = {
-  invalid: "That is not a search or an email this can read.",
-  not_allowed: "This connection cannot read the person's email: only their own personal workspace's mail, with private access.",
-  no_mailbox: "The person has no Gmail connected. They can connect one with manage connect_google.",
-  rate_limited: "Too many email reads this hour. Try again later, or look in their synced mail notes by date.",
-  reconnect_required: "Their Gmail sign-in stopped working, so it cannot be read and its mail has stopped syncing. They need to reconnect it with manage connect_google.",
-  ai_access_needed: `AI access isn't allowed yet for their Gmail, so it can't be read. ${AI_ACCESS_STEP}`,
-  not_found: "Gmail no longer has that email, or that attachment.",
-  too_large: "That attachment is over the 10 MB a file is read at.",
-  unavailable: "Gmail did not answer just now.",
-};
+export { REFUSED };
 
 function oneLine(text, most = 200) {
   const line = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -267,16 +255,7 @@ async function notesHits(store, scope, rules, overrides, query, folders) {
   return hits.slice(0, NOTE_HITS);
 }
 
-/** `email:<address>/<id>`, or null. */
-export function parseEmailId(id) {
-  if (typeof id !== "string" || !id.startsWith(EMAIL_ID_PREFIX)) return null;
-  const rest = id.slice(EMAIL_ID_PREFIX.length);
-  const slash = rest.lastIndexOf("/");
-  if (slash === -1) return null;
-  const address = rest.slice(0, slash).toLowerCase();
-  const messageId = rest.slice(slash + 1);
-  return ACCOUNT.test(address) && MESSAGE_ID.test(messageId) ? { address, messageId } : null;
-}
+export { parseEmailId };
 
 export async function toolReadEmail(store, args) {
   const parsed = parseEmailId(typeof args?.id === "string" ? args.id.trim() : "");

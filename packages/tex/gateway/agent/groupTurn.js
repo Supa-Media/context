@@ -61,7 +61,7 @@ import { GROUP_SELF_LINE, blockedLine, blockedOf, hasGuests, homeOnlyCallTool, h
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { askerMailOf, chatMailOf, chatMailPrompt, chatMailTools, ownNotesOf } from "./groupMail.js";
 import { chatCalendarOf, chatCalendarPrompt } from "./groupCalendar.js";
-import { toolError } from "../../../../apps/mcp/src/tools/results.js";
+import { toolError } from "../../../shared/src/toolContract.cjs";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";

@@ -15,8 +15,9 @@ import { chatsFor, listTextChats, namesFor, readTextChat, searchTexts } from "..
 import { textsCatchUp, textsClientOf } from "../communications/textsIndex.js";
 import { recordRead } from "../../../../packages/communications/src/backupReads.js";
 import { toolError, toolText } from "./results.js";
+import { TEXTS_ID_PREFIX } from "../../../../packages/shared/src/toolContract.cjs";
 
-export const TEXTS_ID_PREFIX = "texts:";
+export { TEXTS_ID_PREFIX };
 
 export const TEXTS_REFUSED = {
   not_allowed: "This connection cannot read the person's texts: only their own personal workspace's owner, with private access, and never from a group chat.",

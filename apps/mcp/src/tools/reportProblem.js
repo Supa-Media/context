@@ -17,8 +17,9 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { REPORT_TOOL } from "../../../../packages/shared/src/toolContract.cjs";
 
-export const REPORT_TOOL = "report_problem";
+export { REPORT_TOOL };
 /** Kept equal to `FEEDBACK_LIMITS.messageChars` in `@context/shared`. */
 export const MAX_REPORT_CHARS = 4_000;
 

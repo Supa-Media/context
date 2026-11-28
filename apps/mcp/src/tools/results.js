@@ -1,11 +1,7 @@
 /** The MCP tool-result shapes every tool handler returns. Moved verbatim out of `src/index.js`. */
+import { toolText, toolError } from "../../../../packages/shared/src/toolContract.cjs";
 
-export function toolText(text) {
-  return { content: [{ type: "text", text }] };
-}
-export function toolError(text) {
-  return { content: [{ type: "text", text }], isError: true };
-}
+export { toolText, toolError };
 
 export function writePermissionError(operation = "destination") {
   return toolError(
