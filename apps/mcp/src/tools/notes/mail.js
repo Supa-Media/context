@@ -26,7 +26,7 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 import { botCardOf } from "./botBind.js";
-import { botFor, boundBotsOf } from "../../mail/boundBot.js";
+import { botFor, boundBotsOf, seatNoteOf } from "../../mail/boundBot.js";
 import { makeMailNote } from "./mailNoteMade.js";
 
 /** A note in a bot's or an area's mail folder, where every agent line says what it used. */
@@ -115,8 +115,25 @@ export function mailGuard({ events, from, to, mailKind, role, now }) {
   return null;
 }
 
-/** `write_note`'s `mail` argument: join, or send one message. */
+/**
+ * `write_note`'s `mail` argument: join, or send one message. A bot that holds one seat and names a note after itself in
+ * another folder's mail writes in the note named for its seat (`mail/boundBot.js` `seatNoteOf`), and is told where.
+ */
 export async function toolMailNote(store, scope, rules, overrides, args) {
+  const seatNote = store.actor?.helper || typeof args?.path !== "string" ? null : seatNoteOf(await boundBotsOf(store), args.path);
+  if (seatNote === null) return mailNoteAt(store, scope, rules, overrides, args);
+  // A mailbox joined on the note named for the bot stays there; one on the seat's note goes on.
+  const box = typeof args.mailbox === "string" && typeof store.mail?.get === "function" ? await store.mail.get(args.mailbox).catch(() => null) : null;
+  const { mailbox: _old, ...rest } = args;
+  const moved = { ...rest, path: seatNote.path, ...(box?.path === seatNote.path ? { mailbox: args.mailbox } : {}) };
+  const result = await mailNoteAt(store, scope, rules, overrides, moved);
+  if (result?.isError) return result;
+  // Only the facts: the note it was kept in and the seat that names it (the bot's prompt says why, `areaBots.cjs`).
+  const where = ["mail: kept in", seatNote.path, `(seat: ${seatNote.seat})`].join(" ");
+  return toolText(`${result.content[0].text}\n${where}`);
+}
+
+async function mailNoteAt(store, scope, rules, overrides, args) {
   const request = args.mail;
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     return toolError('mail must be an object: pass { join: "name" } to join, or { text, to } to send');

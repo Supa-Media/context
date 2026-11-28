@@ -85,6 +85,8 @@ export function mailRoute(sql, { rows, facts, areasRoot, holderOf }) {
   const seatOn = (noteId, sender) => all(sql.exec("SELECT seat FROM ws_mail_seats WHERE note_id = ? AND sender = ?", noteId, sender))[0]?.seat ?? null;
 
   return {
+    /** Every area `bot` holds now (its seats), read from the areas' about.md notes. */
+    seatsOf: (bot) => areasHeldBy(bot),
     /** The seat `sender` writes from in `area`'s mail: that area when it holds it, else its one area, else null. */
     seatOf(sender, area, areaHolder) {
       if (isPerson(sender) || sender === "tex") return null;

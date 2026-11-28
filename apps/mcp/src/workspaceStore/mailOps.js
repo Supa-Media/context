@@ -44,6 +44,16 @@ export class MailAskRefused extends Error {}
 
 export const isMailOp = (op) => OPS.has(op);
 
+/** The one area `bot` holds here, or null (`botMail.js` `seatOf`); never fails a bound ask. */
+function seatOf(store, bot) {
+  try {
+    const seat = store.botMail?.seatOf?.(bot) ?? null;
+    return typeof seat === "string" && seat !== "" ? seat : null;
+  } catch {
+    return null;
+  }
+}
+
 const NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const text = (value, max) => typeof value === "string" && value !== "" && value.length <= max;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,7 +104,11 @@ export async function serveMail(store, op, fields, judge, { now = Date.now, wait
   if (store.rows.home() !== HOMES.OBJECT || !store.sql) return { served: false };
   if (op === MAIL_OPS.BIND || op === MAIL_OPS.BOUND) {
     const bots = (store.mailBots ??= mailBots(store.sql));
-    if (op === MAIL_OPS.BOUND) return { served: true, bots: bots.of(fields.grantId) };
+    // Each with the one area it holds, if it holds one: its mail with another seat is kept under that seat's name.
+    if (op === MAIL_OPS.BOUND) return { served: true, bots: bots.of(fields.grantId).map((each) => {
+      const seat = seatOf(store, each.bot);
+      return seat === null ? each : { ...each, seat };
+    }) };
     return { served: true, ...bots.bind(fields.grantId, { bot: fields.bot, name: fields.name }) };
   }
   if (!text(fields.path, 1024)) throw new MailAskRefused("a mail ask names its note's path");

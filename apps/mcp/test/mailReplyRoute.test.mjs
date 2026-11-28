@@ -94,7 +94,7 @@ function world() {
     watch.drain();
   };
   const waiting = (bot) => routines.inbox.check(bot);
-  return { send, waiting, told, props, routines, tick: (ms) => (clock += ms) };
+  return { send, waiting, told, props, routines, seatOf: (bot) => watch.seatOf(bot), tick: (ms) => (clock += ms) };
 }
 
 test("the reply reaches the seat that asked, not only the folder's holder", { skip }, () => {
@@ -180,4 +180,20 @@ test("a check-in says which waiting lines are asks, and where to answer", { skip
   assert.match(text, new RegExp(OPS_MAIL));
   assert.match(text, /Answer in the note each line names/);
   assert.doesNotMatch(text, /four to Seyi/, "never the message's words");
+});
+
+// One note per pair of seats (`mail/boundBot.js` `seatNoteOf`): the object says which one area each bot holds, and a
+// reply in the note named for the asking seat reaches whoever holds that seat now.
+test("the object names the one area a bot holds, and a seat's note routes to its holder now", { skip }, () => {
+  const w = world();
+  assert.equal(w.seatOf("grok-bot"), "areas");
+  assert.equal(w.seatOf("muse"), "areas/operations");
+  assert.equal(w.seatOf("nova"), null, "a bot holding no area has no seat");
+  const SEAT_NOTE = "areas/operations/mail/areas.md";
+  w.send(SEAT_NOTE, "grok-bot", "What's the top savings move?");
+  w.props.set("areas/about.md", { owner: "@kim", delegate: "Nova" });
+  assert.equal(w.seatOf("nova"), "areas", "the successor holds the seat");
+  w.tick(60_000);
+  w.send(SEAT_NOTE, "muse", "Cancel Devin Pro first.");
+  assert.deepEqual(w.waiting("nova").map((item) => item.note), [SEAT_NOTE], "the successor hears the reply in the seat's note");
 });

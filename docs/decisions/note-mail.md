@@ -260,11 +260,20 @@ with a card, which signs for its person too), and wakes Tex only when the mailbo
 answers whoever wrote, and texts the person only when the mail needs them, as before. The mailboxes are still the
 control plane's until they move with the rest of `noteMailboxes` (`@supa projects/off-convex/plan.md`).
 
-Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): one note per pair of seats, closing an ask when the PR or task it names finishes, and the Agent
+**One note per pair of seats.** A bot that holds exactly one area and writes in another folder's mail in a note named
+after itself (`<folder>/mail/<bot>.md`, as its prompt and its routines' `answer_in` say) writes in the note named for
+its seat instead (`<folder>/mail/<seat>.md`, `mail/boundBot.js` `seatNoteOf`; the object answers which area each bound
+bot holds on `ws.mail.bound`). The answer names the note, so the bot reads and joins it there. A swapped-in bot in the
+same seat writes in the same note and reads the whole history. A bot with no seat or several, a person, and a note
+named for anybody else are left where they write. Notes from before stay where they are; moving them in is not done
+(their mailboxes are keyed by path in the control plane).
+
+Not yet (proposal `@supa products/context-lc/agent-mail-open-asks-proposal.md`): closing an ask when the PR or task it names finishes, and the Agent
 Mail page's Waiting state (artboards in the project's `agent-mail-asks-artboards/`).
 
 **Simplifying it away costs:** a reply in another seat's mail reaches nobody, and every answered ask looks open forever.
 Tested by `apps/mcp/test/mailReplyRoute.test.mjs` (dropping the routing in `botMail.js` fails all seven; routing by
 the sender's name instead of its seat's holder fails "a swapped seat's successor"). The Tex seat: `apps/convex/__tests__/noteMail/texMail.test.ts` (dropping the
 `forHandle` check fails "wakes only the person the agent works for") and `apps/mcp/test/texMail.test.mjs` (dropping
-`toOwner` from `wakeTex` fails "a line to an agent with no seat wakes its person's Tex").
+`toOwner` from `wakeTex` fails "a line to an agent with no seat wakes its person's Tex"). The seat's note: `apps/mcp/test/mailSeatNote.test.mjs` (writing where the bot named fails "a seated bot's note is
+kept under its seat").

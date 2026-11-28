@@ -213,6 +213,11 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
   }
 
   return {
+    /** The one area `bot` holds, or null when it holds none or several: the seat its mail is kept under. */
+    seatOf(bot) {
+      const held = route.seatsOf(bot);
+      return held.length === 1 ? held[0] : null;
+    },
     noted(key, change) {
       const match = typeof key === "string" ? NOTE_KEY.exec(key) : null;
       if (match === null || change?.changed !== true) return;
