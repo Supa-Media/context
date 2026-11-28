@@ -149,6 +149,10 @@ asker's reach stays as above. What a group may be *told* narrows, by code at the
 - A read says `visibility:`; a group's search marks a private hit `(private note)` (`apps/mcp/src/tools/search.js`
   `PRIVATE_HIT_LABEL`, only for the group client). The chat's own home is the room's and never counts.
 - Tex asks which note before posting when more than one could be meant (`packages/tex/src/texPrompt/rules.md`).
+  So it knows when that is, a group's `read_note` names the notes in the same folder whose file names share a word
+  with it (`named_alike:` in the header, `apps/mcp/src/tools/notes/namedAlike.js`), listed at the group's own scope.
+  In the Lab, Tex opened the setlist it remembered and posted it with two newer setlists beside it, because nothing
+  it read showed them (2026-11-28). Test: `apps/mcp/test/namedAlike.test.mjs`.
 
 What a simplification would cost: dropping the naming skip makes "share my gulag trip note" fail; dropping the hold
 lets a general ask post a private note's plans. Tests: `apps/mcp/test/roomPrivate.test.mjs`,

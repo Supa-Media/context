@@ -39,6 +39,7 @@ import { ControlPlaneError } from "../controlPlane/client.js";
 import { failureText, logCallFailure } from "../mcp/publicError.js";
 import { bareEtagArguments } from "./etagPlace.js";
 import { takePartialEtags } from "./partialEtag.js";
+import { readWithNamedAlike } from "./notes/namedAlike.js";
 import { toolReadNotePart, wantsPart } from "./notes/readPart.js";
 import { toolWriteNotePart, withoutBlankPart, writesPart } from "./notes/writePart.js";
 import { capBatch, capWhole } from "./notes/readCapped.js";
@@ -182,10 +183,13 @@ async function runTool(name, args, store, scope, options = {}) {
       // A model's fetch of a long note is its outline and first part unless it asks for full (`readCapped.js`).
       // An area's routine comes with its run brief after the note, never cut by the cap (`orient/routineBrief.js`), worked
       // out over the tree's listing as `orient` is: the plain store lists nothing, and the brief came back empty.
-      if (options.fetchCap === true && args.full !== true) {
-        return withRoutineBrief(capWhole(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job })), servedListingStore(store), scope, rules, overrides, args.path);
+      {
+        let read = await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
+        // A group chat's Tex is told the notes beside it named alike (`notes/namedAlike.js`).
+        if (options.namedAlike === true) read = await readWithNamedAlike(read, servedListingStore(store), scope, rules, overrides);
+        if (options.fetchCap === true && args.full !== true) read = capWhole(read);
+        return withRoutineBrief(read, servedListingStore(store), scope, rules, overrides, args.path);
       }
-      return withRoutineBrief(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job }), servedListingStore(store), scope, rules, overrides, args.path);
     case "read_notes":
       if (options.fetchCap === true) return capBatch(await toolReadNotes(store, scope, rules, overrides, args.paths));
       return toolReadNotes(store, scope, rules, overrides, args.paths);

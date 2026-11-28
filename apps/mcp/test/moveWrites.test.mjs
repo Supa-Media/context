@@ -6,7 +6,9 @@
 // nothing written; a caller judged by the team scope moves only what it may see; a refusal (TAKEN, CHANGED) queues
 // nothing and, for a move that would narrow, leaves the access set as it was; a trash moves into the old copies with
 // no narrowing; the audit line travels with the change only when a person is named; a body without a scope, or
-// without from and to, is a 422.
+// without from and to, is a 422; and a moved note's own rule is rendered at its new name in the same transaction (an
+// archived private note stays private). Sabotage, confirmed to fail here: the `keepRules` after the move in
+// moveWrites.js removed (the two "at its new name" tests fail, 2026-11-28).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -455,6 +457,27 @@ test("an archive goes under the folder doing the Archive's job, at the note's ow
   assert.equal(answer.ok, true, JSON.stringify(answer));
   assert.equal(answer.to, "archive/projects/plan.md");
   assert.equal(pathOf(store, "row-plan"), "archive/projects/plan.md");
+});
+
+test("a private note archived into a team Archive stays private there: the object's rules name it at its new path", async () => {
+  // A note with no rule of its own, in a folder with none, is private by default; the Archive is open to the team.
+  const object = objectStore();
+  object.store.rows.put([
+    { id: "row-lab", path: "lab", kind: "folder", at: 1 },
+    { id: "row-probe", noteId: "0190aaaa-0000-7000-8000-0000000000ee", path: "lab/probe.md", kind: "file", storageKey: "notes/probe.md", etag: "e-probe", at: 1 },
+  ]);
+  await push(object.store, setOf(5, [...SET_ROWS, { token: "row-archive", kind: "folder", path: "archive", base: "team", grantees: [] }]));
+  const answer = await (await callMove(object.store, { from: "lab/probe.md", archive: ARCHIVE_ASK, ...OWNER })).json();
+  assert.equal(answer.to, "archive/lab/probe.md", JSON.stringify(answer));
+  const notes = object.store.rows.rules("member").notes;
+  assert.deepEqual(notes.filter((note) => note.path.endsWith("probe.md")), [{ path: "archive/lab/probe.md", visibility: "private" }]);
+});
+
+test("a note with a rule of its own keeps it at its new name after a plain move", async () => {
+  const { store } = await ready();
+  await callMove(store, { from: "projects/plan.md", to: "projects/sub/plan.md", ...OWNER });
+  const paths = store.rows.rules("member").notes.map((note) => note.path);
+  assert.ok(paths.includes("projects/sub/plan.md") && !paths.includes("projects/plan.md"), JSON.stringify(paths));
 });
 
 test("an archive whose name is taken takes the next numbered name, as firstFreePath does", async () => {
