@@ -9,6 +9,8 @@
  *    followed an ok arm, so the carried-over `synced` hid it.)
  * 2. `withSyncLine` answering for any note, not only a source's about.md: "a read that is not a data source's about.md
  *    is returned unchanged" fails.
+ * 3. `toolReadNotes` joining its reads without withSyncLine: "a batch read carries each data source's sync line, and an
+ *    ordinary note gets none" fails.
  */
 
 import { test } from "node:test";
@@ -17,6 +19,8 @@ import assert from "node:assert/strict";
 import { SYNC_EVERY_MS, syncLine } from "../src/data/sync/object.js";
 import { SYNC_LINE_WAIT_MS, dataSyncStubFor, withSyncLine } from "../src/data/sync/aboutStatus.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
+import { toolReadNotes } from "../src/tools/notes/read.js";
+import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { skip, ABOUT, GOOD_URL, NOW, arm, dataObject, noteId, send, status, world } from "./dataSyncWorld.mjs";
 
 const HOUR = SYNC_EVERY_MS;
@@ -229,6 +233,27 @@ test("a read of a url source's about.md carries its sync line in the header; not
   assert.equal(Object.keys(shown).includes("opened"), false, "and stays out of what the client sees");
   // The about.md is never written: the status is on the read only, and the sync object was asked for it alone.
   assert.equal(w.data.objects.size, 1);
+});
+
+test("a batch read carries each data source's sync line, and an ordinary note gets none", { skip }, async () => {
+  const w = await world();
+  assert.equal((await arm(w, w.alice)).status, 200);
+  const notes = { "data/status/about.md": ABOUT(GOOD_URL), "data/other/about.md": ABOUT("https://other.example.com/x.json"), "notes/plain.md": "Just a note.\n" };
+  const ids = { "data/status/about.md": noteId(1, "pAlice"), "data/other/about.md": noteId(2, "pAlice"), "notes/plain.md": noteId(3, "pAlice") };
+  const store = {
+    async get(key) { const t = notes[key]; return t === undefined ? null : { key, etag: "e1", size: t.length, text: async () => t, httpMetadata: {} }; },
+    async head(key) { const t = notes[key]; return t === undefined ? null : { key, etag: "e1", size: t.length }; },
+    async noteIdAt(path) { return ids[path] ?? null; },
+    dataSyncStub: dataSyncStubFor(w.env),
+    actor: { workspaceId: "pAlice" },
+  };
+  const out = await toolReadNotes(store, "private", [], new PrivacyOverrides(), Object.keys(notes));
+  assert.equal(out.content.length, 3);
+  assert.notEqual(out.isError, true);
+  const [armed, other, plain] = out.content.map((part) => part.text);
+  assert.ok(armed.includes(`\nsync: Last synced: ${AT} · 2 rows\n`), armed);
+  assert.match(other, /\nsync: Not syncing: /);
+  assert.equal(plain, "etag: e1\npath: notes/plain.md\nvisibility: private\n\nJust a note.\n");
 });
 
 test("a read that is not a data source's about.md is returned unchanged", { skip }, async () => {

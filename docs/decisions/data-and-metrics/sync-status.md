@@ -15,7 +15,8 @@ on 2026-11-27. `apps/mcp/src/data/sync/object.js` (`syncLine`),
   started <time>". A re-arm or reconnect clears the stop. The line has words,
   times and counts only, never a key, an installation or a repository name.
 - **Shown, never written.** An MCP read of a source's `about.md` carries the
-  line as a `sync:` header line, asked of the workspace's own sync object for
+  line as a `sync:` header line, alone or in a batch read (`read_notes`, each
+  source's own line, from the same code), asked of the workspace's own sync object for
   a note the reader was already let to read, and given up after 2 seconds. The
   Data page reads the same fields. The object does not rewrite `about.md`:
   it is a person-edited note with collaboration history, and a run's only
