@@ -6,6 +6,7 @@
  */
 
 import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
+import { PROPS_REQUEST_PATHS } from "../tree/facts.js";
 import { attachHomeRoutineReports } from "../../../../packages/tex/gateway/agent/chatHomeSeal.js";
 import { deliverMail } from "../mail/deliver.js";
 import { runLabModel } from "../tools/runModel.js";
@@ -24,6 +25,9 @@ import { editsPinnedContext } from "../context/identity.js";
  * Every session has a control plane (`src/index.js` refuses a deployment without
  * one), so these are always attached.
  */
+/** Control-plane props asks in flight at once for one larger ask the object did not serve (`tree/facts.js`). */
+const CONTROL_PLANE_PROPS_CONCURRENCY = 4;
+
 export function attachLinkCalls(store, session, controlPlane, env) {
   Object.defineProperty(store, "links", {
     value: {
@@ -298,7 +302,23 @@ export function attachLinkCalls(store, session, controlPlane, env) {
           : typeof store.objectFacts === "function"
             ? await store.objectFacts(request)
             : null;
-      return fromObject ?? (await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request));
+      if (fromObject !== null) return fromObject;
+      // The object names up to `OBJECT_PROPS_REQUEST_PATHS` notes an ask; the control plane a hundred, so a larger
+      // props ask it did not serve goes there a hundred at a time, as it did before (`tree/facts.js`).
+      if (request?.ask === "props" && Array.isArray(request.paths) && request.paths.length > PROPS_REQUEST_PATHS) {
+        const parts = [];
+        for (let at = 0; at < request.paths.length; at += PROPS_REQUEST_PATHS) parts.push(request.paths.slice(at, at + PROPS_REQUEST_PATHS));
+        const props = [];
+        for (let at = 0; at < parts.length; at += CONTROL_PLANE_PROPS_CONCURRENCY) {
+          const answers = await Promise.all(parts.slice(at, at + CONTROL_PLANE_PROPS_CONCURRENCY).map((paths) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, { ...request, paths })));
+          for (const answer of answers) {
+            if (answer?.served !== true || !Array.isArray(answer.props)) return answer;
+            props.push(...answer.props);
+          }
+        }
+        return { served: true, props };
+      }
+      return await controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request);
     },
     enumerable: false,
     writable: false,

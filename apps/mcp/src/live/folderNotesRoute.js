@@ -30,7 +30,7 @@ export const FOLDER_NOTES_PATH = "/files/folder-notes";
 
 /** Notes one answer carries at most, as the control plane's page (`FOLDER_PAGE_ROWS`). */
 export const FOLDER_PAGE_NOTES = 2_000;
-/** Paths one facts ask names (`workspaceStore/facts.js` `PROPS_ASK_PATHS`). */
+/** Paths one facts ask names here, the app's folder page (the object takes up to `workspaceStore/facts.js` `PROPS_ASK_PATHS`). */
 const PROPS_PER_ASK = 100;
 /** Facts asks in flight at once. */
 const PROPS_CONCURRENCY = 8;

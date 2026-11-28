@@ -31,8 +31,8 @@ import { folderJobsAnswer } from "./jobsAnswer.js";
 import { dateFactAsks } from "./dateFacts.js";
 import { workspaceMailIndex } from "./mailIndex.js";
 
-/** Paths one props ask names (the control plane's `PROPS_AT_PATHS`). */
-export const PROPS_ASK_PATHS = 100;
+/** Paths one props ask names: a folder or list read's in one call (`tree/facts.js` `OBJECT_PROPS_REQUEST_PATHS`). */
+export const PROPS_ASK_PATHS = 1_000;
 /** Renamed paths one links ask answers (the control plane's `MOVE_RENAMES_CAP`). */
 export const LINK_ASK_NAMES = 2_000;
 /** More notes without facts than this and a move reads every note (the control plane's `MOVE_UNPARSED_CAP`). */
