@@ -54,7 +54,7 @@ import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { botPictureClash } from "../../notes/botPictureClash.js";
-import { statusAdvice } from "./statusList.js";
+import { statusAdvice, statusListAhead } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../../../../packages/tex/gateway/agent/aboutMe.js";
 import { isAboutNotePath, stampAboutLines } from "../../../../../packages/tex/gateway/agent/aboutLines.js";
@@ -468,6 +468,9 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
       `conflict: a collaboratively edited note already exists at ${path}; re-read it and include expected_etag to update it`,
     );
   }
+  // The folder's status list, asked while the note is saved rather than after it (`statusListAhead`): it reads other
+  // notes only, and the save no longer waits in line before it (2026-11-28: obj:ws.facts p50 94 ms on 40% of writes).
+  const statusList = isDrawingPath(path) ? null : statusListAhead(store, scope, rules, overrides, path, content);
   let collaborationResult = null;
   if (collaborationEligibleExisting) {
     try {
@@ -652,7 +655,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   // Said after the write, never instead of it: a status outside its folder's list is advice.
   const statusLine = isDrawingPath(path)
     ? null
-    : await phase(store, "write_status", () => statusAdvice(store, scope, rules, overrides, path, body).catch(() => null));
+    : await phase(store, "write_status", () => statusAdvice(store, scope, rules, overrides, path, body, statusList).catch(() => null));
   // Whether this created the note, for the live map's "pops in" (`live/activityHint.js`).
   return withActivityHint(toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
