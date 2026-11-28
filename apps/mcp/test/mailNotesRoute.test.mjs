@@ -10,6 +10,7 @@
 //  1. `canSee` dropped from `handleMailNotes` and `sees` from the index → "a member is never told of a private note's
 //     mail" fails.
 //  2. The etag check dropped from the index (a summary kept forever) → "a new message is read again" fails.
+import mail from "../../../packages/shared/src/mail.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -158,7 +159,7 @@ const ALICE_NOTES = {
   "areas/finance/about.md": "---\nowner: Finance\n---\n# Finance\n",
   "areas/finance/mail/seyi.md": `# Mail with Finance${mailBlock("- 2026-11-25T20:00:00.000Z @seyi to everyone: How much this month?", "- 2026-11-25T20:01:00.000Z finance (Grok) to everyone [used 2%]: $512 so far.")}`,
   "bots/grok-bot/mail/seyi.md": `# Mail with Grok Bot${mailBlock("- 2026-11-25T19:10:00.000Z @seyi to everyone: Please check your card.")}`,
-  "products/plan.md": `# Plan\n\nThe plan.${mailBlock("- 2026-11-25T18:00:00.000Z builder (Claude) joined", "- 2026-11-25T18:02:00.000Z builder (Claude) to reviewer: Can you check the cold path?")}`,
+  "products/plan.md": `# Plan\n\nThe plan.${mailBlock("- 2026-11-25T18:00:00.000Z builder (Claude) joined", "- 2026-11-25T18:02:00.000Z builder (Claude) to reviewer [ask]: Can you check the cold path?")}`,
   "areas/secret.md": `# Secret${mailBlock("- 2026-11-25T21:00:00.000Z @seyi to everyone: Only owners.")}`,
   "todo.md": "# Todo\n\nNo mail here, though it says ```mail once in passing.\n",
 };
@@ -193,7 +194,7 @@ test("a note's mail is summed up: how many, who joined, and the newest, cut shor
   assert.equal(mailSummaryOf("# Plain\n"), null);
   assert.equal(mailSummaryOf("Says ```mail but has no block.\n"), null);
   const summary = mailSummaryOf(ALICE_NOTES["products/plan.md"]);
-  assert.deepEqual(summary, { count: 1, joined: ["builder"], apps: { builder: "Claude" }, last: { at: "2026-11-25T18:02:00.000Z", from: "builder", to: "reviewer", used: null, text: "Can you check the cold path?" } });
+  assert.deepEqual(summary, { count: 1, joined: ["builder"], apps: { builder: "Claude" }, last: { at: "2026-11-25T18:02:00.000Z", from: "builder", to: "reviewer", used: null, text: "Can you check the cold path?" }, waiting: { at: "2026-11-25T18:02:00.000Z", from: "builder", to: "reviewer" } });
   const long = mailSummaryOf(`# Long${mailBlock(`- 2026-11-25T18:02:00.000Z builder to everyone: ${"x".repeat(1000)}`)}`);
   assert.equal(long.last.text.length, LAST_TEXT);
 });
@@ -207,7 +208,7 @@ test("every note with mail comes back, newest message first, from the object", {
   assert.equal(body.complete, true);
   assert.deepEqual(paths(body), ["areas/secret.md", "areas/finance/mail/seyi.md", "bots/grok-bot/mail/seyi.md", "products/plan.md"]);
   const finance = body.notes.find((note) => note.path === "areas/finance/mail/seyi.md");
-  assert.deepEqual(finance, { path: "areas/finance/mail/seyi.md", count: 2, joined: ["@seyi", "finance"], apps: { finance: "Grok" }, last: { at: "2026-11-25T20:01:00.000Z", from: "finance", to: "everyone", used: 2, text: "$512 so far." } });
+  assert.deepEqual(finance, { path: "areas/finance/mail/seyi.md", count: 2, joined: ["@seyi", "finance"], apps: { finance: "Grok" }, last: { at: "2026-11-25T20:01:00.000Z", from: "finance", to: "everyone", used: 2, text: "$512 so far." }, waiting: null });
   assert.ok(w.ns.ops.includes("ws.facts"), w.ns.ops.join(", "));
 });
 
@@ -386,4 +387,18 @@ test("an object that fails twice is unavailable: one more ask, never a loop", { 
   failingFacts(w, 2);
   const { status } = await ask(w, w.alice, {});
   assert.equal(status, 503);
+});
+
+// Agent Mail's Waiting state (`mail.cjs` `openAsk`, Dev, 2026-11-28): an ask waits until the one it went to answers.
+test("an ask waits until the one it went to answers, and an ask to everyone until anybody else does", () => {
+  const events = (...lines) => mail.parseMail(`# M${mailBlock(...lines)}`).events;
+  const ask = "- 2026-11-28T05:04:00.000Z muse to grok-bot [ask]: Take these four to Seyi?";
+  assert.deepEqual(mail.openAsk(events(ask)), { at: "2026-11-28T05:04:00.000Z", from: "muse", to: "grok-bot" });
+  assert.notEqual(mail.openAsk(events(ask, "- 2026-11-28T05:05:00.000Z finance to everyone: unrelated")), null, "someone else's line answers nothing");
+  assert.equal(mail.openAsk(events(ask, "- 2026-11-28T05:06:00.000Z grok-bot to muse: Done, Seyi said yes.")), null);
+  assert.equal(mail.openAsk(events(ask, "- 2026-11-28T05:06:00.000Z grok-bot to everyone: Seyi said yes.")), null);
+  const all = "- 2026-11-28T05:04:00.000Z muse to everyone [ask]: Who has the invoice?";
+  assert.notEqual(mail.openAsk(events(all, "- 2026-11-28T05:05:00.000Z muse to everyone: Anyone?")), null, "the asker's own line answers nothing");
+  assert.equal(mail.openAsk(events(all, "- 2026-11-28T05:06:00.000Z finance to everyone: I do.")), null);
+  assert.equal(mail.openAsk(events("- 2026-11-28T05:04:00.000Z muse to grok-bot: FYI only.")), null, "a note is never waiting");
 });
