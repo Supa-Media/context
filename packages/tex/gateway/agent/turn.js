@@ -58,7 +58,7 @@ import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { inSixNames } from "./promptNames.js";
 import { isParallelRead } from "./parallelReads.js";
-import { resultInV2Names } from "../../../../apps/mcp/src/tools/v2/speak.js";
+import { resultInV2Names } from "../contextMcp.js";
 import { withNextStep } from "./nextSteps.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";

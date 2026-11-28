@@ -22,7 +22,7 @@
  * as it, as the gateway already reads an `args` sent as JSON text (`coercedArguments`).
  */
 
-import { validateArguments } from "../../../../apps/mcp/src/tools/advertised.js";
+import { validateArguments } from "../contextMcp.js";
 
 /** What the call itself carries beside the action's own arguments: routing reads these, every action takes them. */
 const ADDRESSING = ["context", "mailbox", "person_said"];

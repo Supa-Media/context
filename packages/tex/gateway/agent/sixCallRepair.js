@@ -15,8 +15,7 @@
  * Only Tex's resolver runs this (`sixTools.js` `resolve`). MCP clients keep the gateway's own shape checks.
  */
 
-import { ACTIONS } from "../../../../apps/mcp/src/tools/v2/actions.js";
-import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { ACTIONS, toolDefinitions } from "../contextMcp.js";
 
 /** What every family call carries itself, never an action's own argument (`sixTools.js` `CALL_KEYS`). */
 const CALL_KEYS = new Set(["action", "args", "context", "mailbox", "person_said"]);

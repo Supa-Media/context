@@ -28,7 +28,7 @@
  */
 
 import { keepDownload, readDownload } from "./downloads.js";
-import { QUOTATION, fileWords, pdfPagesPart, typeOfFile } from "../../../../apps/mcp/src/tools/readFile.js";
+import { QUOTATION, fileWords, pdfPagesPart, typeOfFile } from "../contextMcp.js";
 import { isTable, partLines, partOf } from "../../../shared/src/texContract/fileParts.cjs";
 import { toolError, toolText } from "../../../shared/src/texContract/toolContract.cjs";
 

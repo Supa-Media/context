@@ -64,7 +64,7 @@ import { chatCalendarOf, chatCalendarPrompt } from "./groupCalendar.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
-import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { toolDefinitions } from "../contextMcp.js";
 import { guestsOf, namesOf, numbersOf, shownWho, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
 import { GROUP_RUN_LINE } from "./groupRunLine.js";

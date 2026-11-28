@@ -1,6 +1,6 @@
 /** Starts the side read of Tex's notes and sets up the answer checks and pictures. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { standingForwardTools } from "../../../../../apps/mcp/src/tools/forwardRule.js";
+import { standingForwardTools } from "../../contextMcp.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesPictures } from "../attachments.js";
 import { claimCheck, correctsTheAsk } from "../claimCheck.js";

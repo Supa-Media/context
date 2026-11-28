@@ -10,7 +10,7 @@
  * offers it; it opens nothing by itself.
  */
 
-import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
+import { toolDefinitions } from "../contextMcp.js";
 
 /** The reads a chat with shared mail is given: private-tier tools a group grant is never otherwise offered. */
 export const CHAT_MAIL_TOOLS = Object.freeze(["search_email", "read_email"]);

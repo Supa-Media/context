@@ -30,7 +30,7 @@ import { routineTimeZone } from "../routine.js";
 import { pagesOpenedBefore } from "../turnWeb.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { asksOn, groupsOn, readTexterGroups } from "../groupChats.js";
-import { lastShownSend } from "../../../../../apps/mcp/src/tools/shownEmail.js";
+import { lastShownSend } from "../../contextMcp.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheHistory(t) {
