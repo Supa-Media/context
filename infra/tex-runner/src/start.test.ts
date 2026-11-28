@@ -37,11 +37,13 @@ function fakeGitHub({ registerStatus = 201, onlineAfter = 1 } = {}) {
 function fakeRunners(fresh = true) {
   const started: unknown[][] = [];
   const stopped: string[] = [];
+  const released: string[] = [];
   const runners: Runners = {
     start: async (...args) => (started.push(args), fresh),
     stop: async (label) => void stopped.push(label),
+    release: async (label) => (released.push(label), true),
   };
-  return { runners, started, stopped };
+  return { runners, started, stopped, released };
 }
 
 const ask = (authorization?: string, path = "/v1/start", method = "POST") =>
@@ -107,9 +109,52 @@ describe("the Lab runner's door", () => {
     expect(none.status).toBe(503);
   });
 
-  it("has one door", async () => {
+  it("stops the asking run's own runner, and only main's tex-lab-sandbox.yml may ask", async () => {
+    const { sign, keys } = await signer();
+    const { runners, released } = fakeRunners();
+    const res = await handle(ask(await sign(), "/v1/stop"), { token: "t", runners, keys });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ label: "tex-lab-4242-2", stopped: true });
+    expect(released).toEqual(["tex-lab-4242-2"]);
+    // The label is the token's run and attempt: a request cannot name another run's runner.
+    const other = await handle(new Request("https://runner.test/v1/stop?label=tex-lab-1-1", { method: "POST", body: JSON.stringify({ label: "tex-lab-1-1" }), headers: { authorization: await sign() } }), { token: "t", runners, keys });
+    expect(((await other.json()) as { label: string }).label).toBe("tex-lab-4242-2");
+    expect(released).not.toContain("tex-lab-1-1");
+    // It needs no GitHub token of its own to stop a container.
+    expect((await handle(ask(await sign(), "/v1/stop"), { token: undefined, runners, keys })).status).toBe(200);
+    for (const claims of [
+      { job_workflow_ref: `${REPOSITORY}/.github/workflows/tex-lab-sandbox.yml@refs/heads/feature`, ref: "refs/heads/feature" },
+      { job_workflow_ref: WORKFLOWS.run },
+      { aud: "context-tex-eval" },
+      { repository: "someone/context" },
+    ]) {
+      const refused = fakeRunners();
+      expect((await handle(ask(await sign(claims), "/v1/stop"), { token: "t", runners: refused.runners, keys })).status).toBe(401);
+      expect(refused.released).toEqual([]);
+    }
+    const none = fakeRunners();
+    expect((await handle(ask(undefined, "/v1/stop"), { token: "t", runners: none.runners, keys })).status).toBe(401);
+    expect((await handle(ask(await sign({ run_id: "x" }), "/v1/stop"), { token: "t", runners: none.runners, keys })).status).toBeGreaterThanOrEqual(400);
+    expect(none.released).toEqual([]);
+  });
+
+  it("gives up at once on a runner removed while it was being asked for", async () => {
+    const { sign, keys } = await signer();
+    const github = fakeGitHub();
+    const fetcher = async (url: string, init: RequestInit = {}) =>
+      (init.method ?? "GET") === "GET" && url.endsWith("/runners/7") ? new Response(null, { status: 404 }) : github.fetcher(url, init);
+    const { runners, stopped } = fakeRunners();
+    let t = 0;
+    const res = await handle(ask(await sign()), { token: "t", runners, keys, fetcher, now: () => t, sleep: async (ms) => void (t += ms) });
+    expect(res.status).toBe(504);
+    expect(t).toBe(0);
+    expect(stopped).toEqual(["tex-lab-4242-2"]);
+  });
+
+  it("has two doors", async () => {
     expect((await handle(ask(undefined, "/v1/other"), { token: "t", runners: fakeRunners().runners })).status).toBe(404);
     expect((await handle(ask(undefined, "/v1/start", "GET"), { token: "t", runners: fakeRunners().runners })).status).toBe(405);
+    expect((await handle(ask(undefined, "/v1/stop", "GET"), { token: "t", runners: fakeRunners().runners })).status).toBe(405);
   });
 
   it("labels a run's attempt and nothing else", () => {

@@ -42,8 +42,19 @@ the host of one job changes. Everything else in the workflow stays on GitHub.
   token, or a runner that is not online within 150 seconds, the `run` job runs
   on `ubuntu-latest` as before, and a registered runner that did not come
   online is stopped and removed.
-- **It never outlives its job.** An alarm stops the container 200 minutes after
-  start (the job times out at 180) and removes a runner that never took it.
+- **It never outlives its run.** Once the `run` job is over, however it ended,
+  `tex-lab-run.yml`'s `sandbox-stop` job calls `tex-lab-sandbox.yml` with
+  `stop`, which asks the Worker's second door (`POST /v1/stop`) with the same
+  OIDC token: the container stops at once and a runner that never took its job
+  is removed. Before it (decided by the owner, 2026-11-28), a cancelled run left
+  both alive until the alarm. The Worker takes the run and attempt from the
+  token, never from the request, so a caller stops only its own run's runner,
+  and the label stays released until the deadline, so a start still in flight
+  when the run was cancelled brings nothing back. The alarm stays as the
+  backstop: it stops the container 200 minutes after start (the job times out
+  at 180) and removes a runner that never took it.
+  `infra/tex-runner/src/start.test.ts` fails if another workflow, a branch, or
+  another run's label can stop a runner.
 
 ## The risk it carries while this repository is public
 
