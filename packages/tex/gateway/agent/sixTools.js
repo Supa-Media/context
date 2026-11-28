@@ -33,6 +33,7 @@ import { COMPUTER_SEND_ACTIONS } from "../../../../apps/mcp/src/machines/texActi
 import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
 import { GUEST_NAME_SEND_ACTIONS, HOLDERS_SEND_ACTIONS } from "./groupGuestNames.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
+import { PRIVATE_ASIDE_SEND_ACTIONS } from "./privateAside.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
 import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
@@ -142,6 +143,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(SETTINGS_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: ownAndWhere }])),
   // Tex asking Tex in another chat, and a do-ask's signed line (`crossChat.js`): offered only while the config wires tools -> crossChatGate.
   ...Object.fromEntries(Object.entries(CROSS_CHAT_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  ...Object.fromEntries(Object.entries(PRIVATE_ASIDE_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   ...Object.fromEntries(Object.entries({ ...GUEST_NAME_SEND_ACTIONS, ...HOLDERS_SEND_ACTIONS }).map(([name, entry]) => [name, { ...entry, take: own }])), // a guest label's name (`groupGuestNames.js`); who here is in a named workspace (`groupHolders.js`)
 };
 

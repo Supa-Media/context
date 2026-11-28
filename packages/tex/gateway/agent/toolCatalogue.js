@@ -22,6 +22,7 @@ import { OPEN_PAGE_DEFINITION, SEARCH_WEB_DEFINITION } from "./computer.js";
 import { EARLIER_TEXTS_DEFINITION } from "./conversation.js";
 import { readThreadTool } from "./conversationThreads.js";
 import { crossAskTool, postInChatTool } from "./crossChat.js";
+import { privateAsideTool } from "./privateAside.js";
 import { delegateSession } from "./delegate.js";
 import { FILL_CARD_DEFINITION } from "./fillCard.js";
 import { FILL_LOGIN_DEFINITION } from "./fillLogin.js";
@@ -86,6 +87,8 @@ function build(kind) {
     () => holdersTool({ group, holders: async () => null }),
     () => crossAskTool({ group, groups: [], counts: {}, ledger: INERT.ledger, gate: async () => null }),
     () => postInChatTool({ event: { kind: "ask", do: true }, group: INERT.group, ledger: INERT.ledger }),
+    // A group's follow-up in the tagger's own chat: missing here until 2026-11-28, so a group's list never named it.
+    () => (group === null ? null : privateAsideTool({ group, ledger: {} })),
   ];
   const constants = [
     ADVISOR_DEFINITION, RESTART_TOOL, STATUS_TOOL, STEER_TOOL, START_JOB_DEFINITION, BROWSE_DEFINITION,
