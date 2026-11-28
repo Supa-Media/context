@@ -35,7 +35,7 @@ import { startBackfill } from "./ledgerBackfill.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
-import { EVERY_CHAT, disarmRecords, listPending, withdrawPending } from "../../../../apps/mcp/src/tools/approvals.js";
+import { EVERY_CHAT, disarmAsks, listAsks, withdrawAsks } from "../asks.js";
 import { appendEvents, checkEvents, EventRefusal } from "./log.js";
 import { cancelTurn, goTurn, handleSteer } from "./steer.js";
 
@@ -140,7 +140,7 @@ export async function handleGo(request, store, session) {
  * kept as said. `{ cancelled: true, answer: "", asked: 0, steps }`.
  */
 export async function cancelledTurn(store, session, { ledger, steer, steps }) {
-  await withdrawPending(store, { userId: session.actorUserId, ids: ledger.asked.map((asked) => asked.id) }).catch(() => {});
+  await withdrawAsks(store, session, ledger.asked.map((asked) => asked.id)).catch(() => {});
   if (steer !== null) await steer.clear();
   return json({ cancelled: true, answer: "", asked: 0, steps });
 }
@@ -152,8 +152,8 @@ export async function handleStale(request, store, session) {
   if (!Array.isArray(asks) || asks.length > MAX_STALE || !asks.every((id) => typeof id === "string" && ASK_ID.test(id))) return invalid("asks");
   const named = new Set(asks);
   // This person's own texted asks only: another person's record is never listed here.
-  const entries = (await listPending(store, { userId: session.actorUserId, texting: true, chat: EVERY_CHAT, ids: asks })).filter(({ record }) => named.has(record.id));
-  const stuck = entries.length === 0 ? 0 : await disarmRecords(store, entries);
+  const entries = (await listAsks(store, session, { texting: true, chat: EVERY_CHAT, ids: asks })).filter(({ record }) => named.has(record.id));
+  const stuck = entries.length === 0 ? 0 : await disarmAsks(store, session, entries);
   return json({ disarmed: entries.length - stuck });
 }
 

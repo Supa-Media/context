@@ -357,10 +357,10 @@ async function withCards(rows, { env, chatId, store, session, kept, now }) {
   const asks = rows.filter((row) => row.who === "tex" && typeof row.ask?.id === "string");
   if (asks.length === 0 || store === undefined || store === null) return;
   const ids = asks.map((row) => row.ask.id);
-  const [{ listPending, settledApprovedIds }, { cardOf }] = await Promise.all([import("../../../../apps/mcp/src/tools/approvals.js"), import("./appChatCards.js")]);
+  const [{ listAsks, settledApprovedIds }, { cardOf }] = await Promise.all([import("../asks.js"), import("./appChatCards.js")]);
   let pending, doneIds;
   try {
-    [pending, doneIds] = await Promise.all([listPending(store, { userId: session.actorUserId, ids, now }), settledApprovedIds(store, ids)]);
+    [pending, doneIds] = await Promise.all([listAsks(store, session, { ids, now }), settledApprovedIds(store, session, ids)]);
   } catch (error) {
     console.log(JSON.stringify({ event: "app_chat_cards", outcome: "unread", error: String(error?.name ?? "error").slice(0, 40) }));
     return;
@@ -379,8 +379,8 @@ async function withCards(rows, { env, chatId, store, session, kept, now }) {
 
 /** Arms one ask for the person's next yes, as a texted ask is armed when it goes out (`armForText`). */
 async function armOne({ store, session, now }, id) {
-  const { armForText } = await import("../../../../apps/mcp/src/tools/approvals.js");
-  await armForText(store, { userId: session.actorUserId, ids: [id], chat: null, now: now() });
+  const { armAsks } = await import("../asks.js");
+  await armAsks(store, session, { ids: [id], chat: null, now: now() });
 }
 
 /** What the chat object keeps for a card: `held`, or `sending` with the body that went. */
@@ -414,13 +414,13 @@ async function answerCard(ctx, body) {
     console.log(JSON.stringify({ event: "app_chat", op: "answer", outcome: "held" }));
     return json({ msgId: row.id, state: "held" });
   }
-  const { pendingById } = await import("../../../../apps/mcp/src/tools/approvals.js");
-  let record = await pendingById(ctx.store, id, { userId: ctx.session.actorUserId, now: ctx.now() });
+  const { askById } = await import("../asks.js");
+  let record = await askById(ctx.store, ctx.session, id, { now: ctx.now() });
   if (record === null) return refuse(409, "That one is no longer waiting.");
   if (body.body !== undefined && card.kind === "email" && body.body.replace(/\r\n/g, "\n").trim() !== String(card.body ?? "").trim()) {
     if (card.editable !== true) return refuse(400, EDIT_REFUSED.not_editable);
-    const { reviseHeldEmail } = await import("../../../../apps/mcp/src/tools/approvals.js");
-    const revised = await reviseHeldEmail(ctx.store, id, { userId: ctx.session.actorUserId, body: body.body, now: ctx.now() });
+    const { reviseHeldEmail } = await import("../asks.js");
+    const revised = await reviseHeldEmail(ctx.store, ctx.session, id, { body: body.body, now: ctx.now() });
     if (!revised.ok) return refuse(revised.why === "conflict" || revised.why === "not_found" ? 409 : 400, EDIT_REFUSED[revised.why] ?? EDIT_REFUSED.invalid);
     record = revised.record;
   }

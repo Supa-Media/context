@@ -27,7 +27,9 @@ import { actorMayUse, belongsTo } from "./access.js";
 import { cardLabel } from "./card.js";
 import { changeMeta, readMeta } from "./entries.js";
 
-export const VAULT_PAY = "vault_pay";
+import { VAULT_PAY } from "../../../../packages/shared/src/texContract/asks.cjs";
+
+export { VAULT_PAY };
 /** How long an ask waits. */
 export const PAY_ASK_TTL_MS = 10 * 60 * 1000;
 /** How long a yes lasts: long enough to finish one checkout, a timed-out cart rebuilt included. */

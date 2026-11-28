@@ -10,8 +10,8 @@
  * aside like any other the text did not answer.
  */
 
-import { settlePending, listPending, disarmRecords } from "../../../../apps/mcp/src/tools/approvals.js";
-import { grantPay, VAULT_PAY } from "../../../../apps/mcp/src/vault/pay.js";
+import { disarmAsks, listAsks, settleByText } from "../asks.js";
+import { VAULT_PAY } from "../../../shared/src/texContract/asks.cjs";
 
 const PLAIN_YES = /^\s*yes(?:[\s,.!-]+(?:please|do it|go ahead|pay|pay it|fill it|fill it in))*\s*[.!]*\s*$/i;
 
@@ -20,7 +20,7 @@ const PLAIN_YES = /^\s*yes(?:[\s,.!-]+(?:please|do it|go ahead|pay|pay it|fill i
  * what the person said yes to (for the model), `replies` what a no dropped.
  */
 export async function settlePayByText(store, session, verdict, texted, now = Date.now(), chat = null) {
-  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, chat, now })).filter(({ record }) => record.kind === VAULT_PAY);
+  const waiting = (await listAsks(store, session, { texting: true, chat, now })).filter(({ record }) => record.kind === VAULT_PAY);
   const allowed = [];
   const replies = [];
   if (waiting.length === 0 || verdict === null) return { allowed, replies };
@@ -31,7 +31,7 @@ export async function settlePayByText(store, session, verdict, texted, now = Dat
     // the write. Those stay armed for the rest of the ask's life, so a later
     // plain "yes" would pay. Saying so is the whole of the guard: the person
     // is the only one who can tell that yes from the one they meant.
-    const stuck = await disarmRecords(store, waiting);
+    const stuck = await disarmAsks(store, session, waiting);
     if (stuck > 0) {
       replies.push(
         "I couldn't close the card question I asked you earlier, so it is still open: " +
@@ -41,15 +41,8 @@ export async function settlePayByText(store, session, verdict, texted, now = Dat
     return { allowed, replies };
   }
   for (const { record } of waiting) {
-    const settled = await settlePending(store, record.id, {
-      userId: session.actorUserId,
-      action: verdict,
-      actorScope: session.scope,
-      run: async (held) => {
-        const granted = await grantPay(store, held, { userId: session.actorUserId, now });
-        return { content: [{ type: "text", text: granted.text }], ...(granted.ok ? {} : { isError: true }) };
-      },
-    });
+    // Context writes the yes into the card's sealed meta (`vault/pay.js` `grantPay`), only while this ask is armed here.
+    const settled = await settleByText(store, session, record.id, { verdict, chat, now });
     if (settled.status === "denied") replies.push("OK, I won't pay.");
     else if (settled.status === "approved" && settled.result?.isError !== true) allowed.push(record.summary);
     else if (settled.status === "approved") replies.push(`I couldn't allow that payment: ${settled.result?.content?.[0]?.text ?? "try again"}`);

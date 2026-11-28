@@ -1,7 +1,7 @@
 /** A turn that threw: withdraws the asks nobody was told about, records the failure, and answers or rethrows. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../util/responses.js";
-import { withdrawPending } from "../../../../../apps/mcp/src/tools/approvals.js";
+import { withdrawAsks } from "../../asks.js";
 import { BUILTIN_PROVIDER } from "../builtin.js";
 import { ProviderError } from "../providers.js";
 import { keepRun } from "../routine.js";
@@ -30,7 +30,7 @@ await tex.step("usage_failed", () => meter(null, true));
   line went out) is withdrawn: left waiting, it would be released by the
   next bare "yes", which is about something else.
 */
-await tex.step("withdraw_asks", () => withdrawPending(store, { userId: session.actorUserId, ids: ledger.asked.map((asked) => asked.id) })).catch(() => {});
+await tex.step("withdraw_asks", () => withdrawAsks(store, session, ledger.asked.map((asked) => asked.id))).catch(() => {});
 if (runner) await tex.step("keep_run", () => keepRun(store, routine, runs, "failed", ""));
 if (error instanceof ProviderError) {
   await tex.after("turn_row", logTurn("failed", error.model, error.timing, null));

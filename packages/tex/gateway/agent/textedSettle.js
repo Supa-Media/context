@@ -19,7 +19,7 @@
  * answers (`quoted.js`), so a quoted "yes" settles nothing.
  */
 
-import { disarmRecords, listPending } from "../../../../apps/mcp/src/tools/approvals.js";
+import { disarmAsks, listAsks } from "../asks.js";
 import { askOvertaken, droppedLine } from "./askOvertaken.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { settlePayByText } from "./textedPay.js";
@@ -41,10 +41,10 @@ export async function settleTextedText(store, session, { question, hasAttachment
     ask's own words was put on it, so it still counts (`thumbsUpIsYes`).
   */
   if (!thumbsUp) {
-    const armed = await listPending(store, { userId: session.actorUserId, texting: true, chat, now });
+    const armed = await listAsks(store, session, { texting: true, chat, now });
     if (await askOvertaken(store, conversation, armed.map(({ record }) => record))) {
       // One that cannot be dropped stays armed, but this same check keeps every later bare yes off it too.
-      const stuck = await disarmRecords(store, armed);
+      const stuck = await disarmAsks(store, session, armed);
       console.log(JSON.stringify({ event: "ask_overtaken", asks: armed.length, stuck }));
       return { dropped: armed.map(({ record }) => ({ tool: record.tool, summary: record.summary })) };
     }
@@ -71,7 +71,7 @@ export async function settleTextedText(store, session, { question, hasAttachment
     when it expires. The model is told it still stands, so it neither asks
     again nor says it was dropped.
   */
-  const asked = await listPending(store, { userId: session.actorUserId, texting: true, chat, now });
+  const asked = await listAsks(store, session, { texting: true, chat, now });
   // `id` and `args` let a correction drop exactly these (`claimCheck.js` rule 6); only `summary` is ever shown.
   const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ id: record.id, tool: record.tool, summary: record.summary, args: record.args })) } : null;
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
