@@ -168,12 +168,16 @@ test("the asker's own personal workspace is never the room's: not in reach, but 
   assert.deepEqual(group.reach, ["alpha"]);
   assert.equal(group.ownNotes, "ada");
   const prompt = groupPrompt(group, "context-lc");
-  assert.match(prompt, /"personal_notes_in_this_chat":\{"open_to":"their owner, on that owner's own ask only","this_turn":\{"asker":"@ada","readable":"@ada","read_only":true\}\}/);
+  assert.match(prompt, /"personal_notes_in_this_chat":\{"this_turn":\{"asker":"@ada","readable":"@ada","notes":"all, private ones included","read_only":true,"use_for":"deciding what to do","quote_here":"only notes its owner names"\}\}/);
+  // Battle of the Bots, 2026-11-28: "You can read only" the shared ones, with nothing saying this one too, and Tex
+  // asked its asker for an area instead of searching their notes. The shared line names the asker's own first.
+  assert.match(prompt, /Besides @ada \(personal_notes_in_this_chat\), you can read only @alpha/);
+  assert.doesNotMatch(prompt, /open_to/);
   // A fact, never a sentence saying nobody's can be read (Dev2, 2026-11-27).
   assert.doesNotMatch(prompt, /Nobody(?:'s| else's) personal notes/);
   // Without it, this turn reads none, and is told who they open for.
   const plain = groupOf({ group: { key: HEX, members: HEX, from: "ada" } }, await resolveSession(TOKEN, null, controlPlane([A])));
   assert.equal(plain.ownNotes, undefined);
-  assert.match(groupPrompt(plain, "context-lc"), /"personal_notes_in_this_chat":\{"open_to":"their owner, on that owner's own ask only","this_turn":"none"\}/);
+  assert.match(groupPrompt(plain, "context-lc"), /"personal_notes_in_this_chat":\{"this_turn":"none","opens_on":"its owner's own ask"\}/);
   assert.doesNotMatch(groupPrompt(plain, "context-lc"), /Nobody's personal notes/);
 });

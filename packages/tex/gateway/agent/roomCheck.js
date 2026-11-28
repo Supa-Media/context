@@ -118,6 +118,8 @@ export function hitsBySlug(text) {
 export function roomReads(group) {
   if (group === null || group === undefined) return null;
   const closed = roomSlugs(group);
+  // The asker's own personal notes, read on their own ask (`groupMail.js` `ownNotesOf`): every one is held like a private note.
+  const own = slugOf(group.ownNotes);
   const read = new Map(); // slug -> text read there
   const held = new Map(); // a private note's key -> text read from it
   let chars = 0;
@@ -152,7 +154,7 @@ export function roomReads(group) {
           keepAll(text);
           // A read across several workspaces at once can't say which a bare path was in, so it is never taken for the home.
           const where = called.size === 1 ? [...called][0] : called.size > 1 ? "several" : null;
-          for (const [key, words] of privateNotesIn(text, where)) keepPrivate(key, words);
+          for (const [key, words] of privateNotesIn(text, where, own)) keepPrivate(key, words);
         }
         return result;
       };
@@ -189,29 +191,34 @@ const READ_HEAD = /^etag: \S+\npath: (\S+)\nvisibility: (\w+)/;
  * private (`apps/mcp/src/tools/notes/read.js`), and a search's hits marked `(private note)`. `where` is the workspace
  * the call named, put in front of a read's bare path. The chat's own home never counts: it is the room's memory.
  */
-export function privateNotesIn(text, where = null) {
-  const found = privateNotesAt(text, where);
+export function privateNotesIn(text, where = null, own = null) {
+  const found = privateNotesAt(text, where, own);
   // The chat's own home is the room's: a bare path (no `@slug/`) is in it, as is anything under `tex/groups/`.
   for (const key of [...found.keys()]) if (!key.startsWith("@") || /^@[a-z0-9-]+\/tex\/groups\//i.test(key)) found.delete(key);
   return found;
 }
 
-function privateNotesAt(text, where) {
+function privateNotesAt(text, where, own) {
   const out = new Map();
   const words = String(text ?? "");
+  // Dev2, 2026-11-28: "i dont want it to state anything from my note unless explicitly permitted by the owner" — in
+  // the asker's own personal workspace a team note is held too, not only a private one.
+  const owned = (key) => own !== null && key.toLowerCase().startsWith(`@${own}/`);
   for (const block of words.split(/\n(?=etag: )/)) {
     const head = READ_HEAD.exec(block.replace(/^\s+/, ""));
-    if (head && head[2] === "private") out.set(where && !head[1].startsWith("@") ? `@${where}/${head[1]}` : head[1], block);
+    const key = head ? (where && !head[1].startsWith("@") ? `@${where}/${head[1]}` : head[1]) : null;
+    if (head && (head[2] === "private" || owned(key))) out.set(key, block);
   }
   let key = null;
   let lines = [];
   const close = () => {
-    if (key !== null && lines.some((line) => PRIVATE_HIT.test(line))) out.set(key, `${out.get(key) ?? ""}\n${lines.join("\n")}`);
+    if (key !== null && (owned(key) || lines.some((line) => PRIVATE_HIT.test(line)))) out.set(key, `${out.get(key) ?? ""}\n${lines.join("\n")}`);
   };
   for (const line of words.split("\n")) {
     if (HIT_LINE.test(line) || HOME_HIT.test(line)) {
       close();
-      key = line.trim();
+      // A bare hit of a search run in the asker's own notes is theirs.
+      key = own !== null && where === own && !HIT_LINE.test(line) ? `@${own}/${line.trim()}` : line.trim();
       lines = [];
     } else if (key !== null && /^\s+\S/.test(line)) lines.push(line);
     else {

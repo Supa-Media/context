@@ -65,8 +65,15 @@ export function ownNotesOf(session) {
 export function personalNotesFact(group) {
   const slug = typeof group?.ownNotes === "string" ? group.ownNotes : "";
   const asker = typeof group?.from === "string" ? group.from : "";
-  const thisTurn = slug && asker ? { asker: `@${asker}`, readable: `@${slug}`, read_only: true } : "none";
-  return `${JSON.stringify({ personal_notes_in_this_chat: { open_to: "their owner, on that owner's own ask only", this_turn: thisTurn } })} `;
+  // Dev2, 2026-11-28 (Battle of the Bots): "it can make decisions based on what it knows about my notes", but "i dont
+  // want it to state anything from my note unless explicitly permitted by the owner". The old fact said these notes
+  // were "open to their owner, on that owner's own ask only" on the owner's own ask, and Tex read that as not readable
+  // and asked for an area its owner's notes held. roomCheck.js holds what a private note says unless its owner names it.
+  const fact =
+    slug && asker
+      ? { this_turn: { asker: `@${asker}`, readable: `@${slug}`, notes: "all, private ones included", read_only: true, use_for: "deciding what to do", quote_here: "only notes its owner names" } }
+      : { this_turn: "none", opens_on: "its owner's own ask" };
+  return `${JSON.stringify({ personal_notes_in_this_chat: fact })} `;
 }
 
 /** What a group turn is told about mail: whose it may read here, or that it reads none. */
