@@ -139,12 +139,14 @@ block's fingerprint changed and that round read 0 to 37,000 tokens from the cach
 215,706-character stable block, so each tool round that took the body into a higher step halved it once more: its
 bytes changed mid-turn and everything cached after them was written again. Now, when the system prompt and the tool
 list together are over `PREFIX_CAP` (two steps under the budget, 64,000 estimated tokens), the first time the clip
-reaches one of them they are halved, longest first, to the cap, and nothing in that call clips them again. The cap
-depends on their own words only, so every step makes the same cut and every round reads the same prefix. Past it,
+reaches one of them they are halved, longest first, to the cap, and nothing in that call clips them again. Each is
+cut from its end on a whole line, so the setup's start (who Tex is, its rules) stays; the older halving kept the end
+and dropped that start. The cap depends on their own words only, so every step makes the same cut and every round
+reads the same prefix. Past it,
 older history and this turn's tool results give the step, as they did for a prefix that was not the overflow. A
 prefix under the cap is not the overflow and is clipped as before. What a simplification would cost: halving per
 step brings back a full prefix rewrite at every step a turn crosses. Tests: `apps/mcp/test/promptBudget.test.mjs`
-("a turn whose tool rounds cross step after step…") and the replay case `prompt-prefix-holds`.
+("a turn whose tool rounds cross step after step…") and the replay case `prompt-under-cliff`.
 
 **In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
 (`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the

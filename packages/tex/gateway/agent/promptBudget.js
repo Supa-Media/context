@@ -228,16 +228,39 @@ const prefixOf = (body) => ({ ...body, messages: [] });
 const prefixTokens = (body) => estimateBodyTokens(prefixOf(body));
 
 /**
- * Halve the longest system block or tool description until the two are under `PREFIX_CAP`, then mark every one of
- * them in `once` so nothing in this call clips them again. Their words alone decide the cut, so every step makes the
- * same one. Returns how many clips it made.
+ * The longest system block or tool description in `body`, as { text, set }, or null: what `capPrefix` cuts next.
+ */
+function longestPrefixText(body) {
+  let best = null;
+  const offer = (text, set) => {
+    if (typeof text === "string" && text.length > (best?.text.length ?? 1)) best = { text, set };
+  };
+  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; });
+  else if (Array.isArray(body.system)) {
+    body.system.forEach((block, index) => {
+      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; });
+    });
+  }
+  (body.tools ?? []).forEach((tool, index) => {
+    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; });
+  });
+  return best;
+}
+
+/**
+ * Halve the longest system block or tool description until the two are under `PREFIX_CAP`, keeping each text's start
+ * (where the setup says who Tex is and its rules) and ending it on a whole line, then mark every one of them in
+ * `once` so nothing in this call clips them again. Their words alone decide the cut, so every step makes the same one.
+ * Returns how many clips it made.
  */
 function capPrefix(body, once) {
   let shed = 0;
-  const onlyPrefix = prefixOf(body);
-  while (prefixTokens(body) > PREFIX_CAP && clipLargest(onlyPrefix, 0, null)) {
-    body.system = onlyPrefix.system;
-    body.tools = onlyPrefix.tools;
+  while (prefixTokens(body) > PREFIX_CAP) {
+    const best = longestPrefixText(body);
+    if (!best || best.text.length < 2) break;
+    const half = Math.floor(best.text.length / 2);
+    const line = best.text.lastIndexOf("\n", half);
+    best.set(best.text.slice(0, line > half * 0.8 ? line : half));
     shed += 1;
   }
   if (typeof body.system === "string") once.add("sys");
@@ -305,8 +328,9 @@ export function fitHaikuBody(body, { turnFrom } = {}) {
   // few thousand characters is no reason to drop it while the system prompt is the overflow.
   //
   // The system prompt and the tool list sit first in the cached prefix, so the first time the clip reaches one of them
-  // and they are over `PREFIX_CAP` (a size that is the same for every round of a turn), they are clipped together to it,
-  // which depends on their own words only, never on the step: a body that
+  // and they are over `PREFIX_CAP` (a size that is the same for every round of a turn), they are cut together to it from
+  // their ends, so the setup's start (who Tex is, its rules) stays; the cut depends on their own words only, never on
+  // the step: a body that
   // grows into a higher step sends the same prefix and its rounds keep reading it. Halving one more time per step
   // changed the stable block's bytes mid-turn and the round read nothing from the cache (production, 2026-11-27, turn
   // 447ed548: 0 read, 84,000 written, 6.4 s). Past the cap, older history and this turn's tool results give the step.

@@ -27,7 +27,8 @@
  * clip always before this turn's tool result fails "a lookup longer than the system prompt goes…".
  *
  * Sabotage record (2026-11-28): main's rule before the fix (the system prompt halved again in every higher step)
- * fails "a turn whose tool rounds cross step after step…" ("stable: 3 different clips across one turn"); the cap
+ * fails "a turn whose tool rounds cross step after step…" ("stable: 3 different clips across one turn", or, with the
+ * cap but its end kept, "the setup's start is kept"); the cap
  * applied to a prefix under it, or every halving remembered so the prefix is never halved twice under the cap,
  * fails "a tool round that crosses into a new step…" and "a later round of the same turn…".
  */
@@ -392,7 +393,9 @@ test("a turn whose tool rounds cross step after step clips its system prompt and
   // Production 2026-11-27 (turns 447ed548, ecb7d8b9): every round on one model and payer, yet each time a tool round
   // took the body into a new step the stable block was halved again, its fingerprint changed and the round read 0
   // from the cache and wrote 84,000 to 92,000 tokens again (6.4 s for one round).
-  const stable = "s".repeat(215_706);
+  // Who Tex is and its rules come first in the setup, then module after module.
+  const persona = "You are Tex. Rules: never guess anyone's pronouns.\n";
+  const stable = persona + `${"s".repeat(99)}\n`.repeat(2_157);
   const context = "c".repeat(30_313);
   const description = "d".repeat(96_614);
   const ask = "send this folder to the pablo bot";
@@ -410,6 +413,8 @@ test("a turn whose tool rounds cross step after step clips its system prompt and
     assert.equal(fit.body.messages[history.length].content[1].text, ask, `round ${round}: the person's words are sent`);
     steps.add(Math.ceil((fit.before - HAIKU_INPUT_BUDGET) / TRIM_STEP));
     if (fit.body.system[0].text !== stable) versions.stable.add(fit.body.system[0].text);
+    assert.ok(fit.body.system[0].text.startsWith(persona), `round ${round}: the setup's start is kept`);
+    assert.ok(stable.startsWith(fit.body.system[0].text), `round ${round}: the stable block is cut from its end`);
     if (fit.body.system[1].text !== context) versions.context.add(fit.body.system[1].text);
     if (fit.body.tools[0].description !== description) versions.tools.add(fit.body.tools[0].description);
     // The next round: one lookup of about half a step.
