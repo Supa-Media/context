@@ -195,18 +195,11 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   to redeem it (`shouldHandleAuthCode` skips `/data/github/`): redeemed, it
   signed the owner out on the way back (2026-11-25). An installation id from
   somebody else's link binds nothing. Pasting a key for GitHub is refused.
-- **Connected again through GitHub's sign-in page** (2026-11-28). GitHub's
-  install page, opened for an account the App is already installed on, shows
-  that installation's settings and never sends the owner back, so after the
-  source stopped on 2026-11-26 an owner's Connect GitHub could not reach
-  `github_finish` and the hourly alarm went on without GitHub. A workspace
-  whose sync object already keeps a GitHub connection is sent to
-  `https://github.com/login/oauth/authorize` with the same signed state and
-  `redirect_uri`, which always comes back with a code and the state and no
-  installation id; the installation bound again is the one already kept, on
-  the same checks (the owner's own token must list it and reach a repository
-  in it). A first connect still needs the installation id GitHub's install
-  page sends. `dataSyncGithubReconnect.test.mjs` holds this.
+- **Connected again through GitHub's sign-in page** (2026-11-28): the install
+  page of an App already installed never sends the owner back, so a workspace
+  that keeps a GitHub connection gets `login/oauth/authorize` (same state) and
+  rebinds its kept installation on the same checks
+  (`dataSyncGithubReconnect.test.mjs`).
 - **What is kept**, sealed in the sync object like an app key: the
   installation id, the repositories the owner's own GitHub account can read in
   that installation (kept at connect, since GitHub lists an installation for
