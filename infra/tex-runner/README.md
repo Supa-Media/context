@@ -16,4 +16,4 @@ private repository's GitHub minutes much more. Why and how it is held:
 
 Turn it on with the repository variable `TEX_LAB_RUNNER=sandbox`. The deploy
 (`deploy-tex-runner.yml`, production only) sets the Worker's `GH_RUNNER_TOKEN`
-and the `TEX_RUNNER_ORIGIN` variable the workflow reads.
+and the `TEX_RUNNER_ORIGIN` repository secret the workflow reads.
