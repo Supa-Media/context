@@ -223,6 +223,8 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     convId: r.convId ?? null,
     nodeId: r.nodeId ?? null,
     models: r.models,
+    // Who ran it: the GitHub workflow (unset) or the Lab sandbox's bench driver (`startRun`'s source).
+    source: r.source ?? "github",
     // Old runs ran once (no repeats stored); a run's fidelity follows its models (`texRunBand.cjs` fidelityOf).
     repeats: r.repeats ?? 1,
     fidelity: fidelityOf(r.models),
@@ -241,7 +243,7 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
 };
 
 /** The fields `vsBase` reads: a run as `shown` gives it (`id`, `set` defaulting to "dev"). */
-type RunLike = { id: string; versionId: string; kind: string; set?: string | null; models: string; stage: string; startedAt: number; results?: unknown };
+type RunLike = { id: string; versionId: string; kind: string; set?: string | null; models: string; source?: string; stage: string; startedAt: number; results?: unknown };
 
 /**
  * A draft's finished Dev run against main's newest finished Dev run on the same models and set. The verdict is the
@@ -249,13 +251,15 @@ type RunLike = { id: string; versionId: string; kind: string; set?: string | nul
  * conversation, and a draft "wins" only when the 95% interval of its per-row difference lies above 0. The min..max
  * noise band (`band`) sits beside it and is the verdict only when a run has no rows. `paired` drops its per-row
  * differences unless `full` (the one-run read asks for them). Null for main's runs and for runs that are not finished
- * Dev runs (a chat or node run is a part of the set, never compared with the whole).
+ * Dev runs (a chat or node run is a part of the set, never compared with the whole). A base has the run's source too:
+ * a sandbox run is never read against the GitHub workflow's main run, or the other way round.
  */
 export function vsBase(run: RunLike, baseRuns: RunLike[], full = false) {
   if (run.versionId === "main" || run.kind !== "dev" || run.stage !== "done") return null;
   const set = run.set ?? "dev";
+  const source = run.source ?? "github";
   const base = baseRuns
-    .filter((b) => b.versionId === "main" && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set)
+    .filter((b) => b.versionId === "main" && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set && (b.source ?? "github") === source)
     .sort((a, b) => b.startedAt - a.startedAt)[0];
   if (!base) return { verdict: "no base", why: `main has no finished Dev run on ${run.models} for the ${set} set`, baseRunId: null };
   const cmp = compareRuns(run.results ?? null, base.results ?? null);
@@ -311,8 +315,13 @@ async function runOf(ctx: QueryCtx, id: string): Promise<Run | null> {
 
 // ── Starting ──────────────────────────────────────────────────────────────
 
-/** Start a run, or say why not. Shared by the Lab (`start`) and `tex_dev` (`runAction`). */
-export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number): Promise<{ status: "ok"; runId: Id<"texLabRuns"> } | { status: "bad_request" | "not_found" | "refused"; error: string }> {
+/**
+ * Start a run, or say why not. Shared by the Lab (`start`) and `tex_dev` (`runAction`). A sandbox run (`source`) is
+ * started here and run by the Lab sandbox's bench driver, so nothing is dispatched to GitHub for it, it is on the AI
+ * gateway, it runs the Front door's tests (dev or chat), and it keeps the repeats asked for even on a pull request.
+ */
+export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number, opts: { source?: "sandbox" } = {}): Promise<{ status: "ok"; runId: Id<"texLabRuns"> } | { status: "bad_request" | "not_found" | "refused"; error: string }> {
+  const sandbox = opts.source === "sandbox";
   const versionId = typeof a.versionId === "string" ? a.versionId : "";
   const kind = a.kind as Kind;
   const models = a.models === undefined ? "gw" : a.models;
@@ -320,7 +329,9 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   if (!VERSION.test(versionId)) return { status: "bad_request", error: "versionId is main or a draft's id (v…)" };
   if (a.kind === "gate") return { status: "bad_request", error: "a gate run starts with Promote, never on its own" };
   if (!KINDS.includes(kind)) return { status: "bad_request", error: "kind is dev, chat or node" };
+  if (sandbox && kind === "node") return { status: "bad_request", error: "a sandbox run runs the Front door's tests: kind dev or chat" };
   if (models !== "gw" && models !== "cc") return { status: "bad_request", error: "models is gw (the AI gateway) or cc (Claude Code)" };
+  if (sandbox && models !== "gw") return { status: "bad_request", error: "a sandbox run is on the AI gateway (gw)" };
   if (repeats === null) return { status: "bad_request", error: "repeats is 1 to 5 (each Front door test runs that many times; 3 by default)" };
   const convId = kind === "chat" ? a.convId : undefined;
   const nodeId = kind === "node" ? a.nodeId : undefined;
@@ -364,15 +375,17 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     ...(set ? { set } : {}),
     models,
     // The target is not stored yet: the run table (functions/lib/schema/texLab.ts) has no field for it. It travels with
-    // the scheduled dispatch instead, so a preview run is aimed at its preview and recorded with its code.
-    repeats: target ? PREVIEW_REPEATS : repeats,
+    // the scheduled dispatch instead, so a preview run is aimed at its preview and recorded with its code. A sandbox
+    // run keeps the repeats asked for: nothing replays it on a preview.
+    repeats: target && !sandbox ? PREVIEW_REPEATS : repeats,
     ...(code ? { code } : {}),
-    stage: "queued",
+    ...(sandbox ? { source: "sandbox" as const, stage: "running" as const } : { stage: "queued" as const }),
     by: who.userId,
     via: who.via.slice(0, 60),
     startedAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId, ...(target ? { target } : {}) });
+  // The GitHub workflow never runs a sandbox run: the Lab sandbox's driver reports it (`sandbox_report`).
+  if (!sandbox) await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId, ...(target ? { target } : {}) });
   return { status: "ok", runId };
 }
 
@@ -490,12 +503,39 @@ export const get = query({
 
 // ── The MCP's door (`texLabDrafts.forGateway`, which has checked the caller) ──
 
-/** `tex_dev` `run` and `runs`; null for any other action. */
+/**
+ * The sandbox driver's report (`sandbox_report`): its stage and, at the end, its results or why it failed. Only the
+ * person who started the sandbox run may report it, and a finished run stays finished.
+ */
+async function sandboxReport(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number): Promise<Record<string, unknown>> {
+  const bad = (error: string) => ({ status: "bad_request", error });
+  if (typeof a.id !== "string") return bad("sandbox_report takes the run's id");
+  if (a.stage !== "running" && a.stage !== "done" && a.stage !== "failed") return bad("stage is running, done or failed");
+  if (a.error !== undefined && typeof a.error !== "string") return bad("error is text");
+  if (a.commit !== undefined && !(typeof a.commit === "string" && COMMIT.test(a.commit))) return bad("Not a commit");
+  const r = await runOf(ctx, a.id);
+  if (!r || r.source !== "sandbox") return bad(`there is no sandbox run ${a.id}`);
+  if (r.by !== who.userId) return { status: "refused", error: "only the person who started a sandbox run reports it" };
+  if (r.stage === "done" || r.stage === "failed") return { status: "ok", unchanged: true };
+  const finished = a.stage === "done" || a.stage === "failed";
+  await ctx.db.patch(r._id, {
+    stage: a.stage,
+    ...(a.commit !== undefined ? { commit: a.commit as string } : {}),
+    ...(a.results !== undefined ? { results: cleanResults(a.results) } : {}),
+    ...(a.error !== undefined ? { error: (a.error as string).slice(0, 300) } : {}),
+    ...(finished ? { finishedAt: now } : {}),
+  });
+  return { status: "ok" };
+}
+
+/** `tex_dev` `run` and `runs`, and the sandbox driver's `sandbox_run` and `sandbox_report`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
-  if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target }, now);
+  if (action === "run" || action === "sandbox_run") {
+    const args = { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target };
+    const answer = await startRun(ctx, who, args, now, action === "sandbox_run" ? { source: "sandbox" } : {});
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
+  if (action === "sandbox_report") return await sandboxReport(ctx, who, a, now);
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
   if (action === "run_remove") return typeof a.id === "string" ? await removeRun(ctx, a.id) : { status: "bad_request", error: "run_remove takes the run's id" };
   if (action === "runs") {
@@ -531,7 +571,8 @@ export const job = internalQuery({
   returns: v.any(),
   handler: async (ctx, { runId }) => {
     const r = await runOf(ctx, runId);
-    if (!r || r.kind === "gate") return null;
+    // The workflow never runs a gate run, nor a sandbox run (the Lab sandbox's driver runs that one).
+    if (!r || r.kind === "gate" || r.source === "sandbox") return null;
     const draft =
       r.versionId === "main"
         ? null
@@ -553,6 +594,8 @@ export const report = internalMutation({
   handler: async (ctx, a) => {
     const r = await runOf(ctx, a.runId);
     if (!r) throw new ConvexError("No such run");
+    // A sandbox run is the Lab sandbox driver's to report (`sandbox_report`), never the workflow's.
+    if (r.source === "sandbox") throw new ConvexError("A sandbox run is reported by its driver");
     if (r.stage === "done" || r.stage === "failed") return null;
     if (a.ghRunUrl !== undefined && !RUN_URL.test(a.ghRunUrl)) throw new ConvexError("Not a GitHub run address");
     if (a.commit !== undefined && !COMMIT.test(a.commit)) throw new ConvexError("Not a commit");
