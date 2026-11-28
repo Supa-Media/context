@@ -16,7 +16,7 @@
  * with the same arguments and be handed what the person released.
  */
 
-import { settledMail } from "../../../../packages/tex/gateway/agent/workEntries.js";
+import { EVERY_CHAT, TEXTING_TTL_MS } from "../../../../packages/shared/src/texContract/asks.cjs";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import { timestampSlug } from "../notes/paths.js";
@@ -25,7 +25,7 @@ import { toolError } from "./results.js";
 
 import { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX } from "./approvalKeys.js";
 
-export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX };
+export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX, EVERY_CHAT, TEXTING_TTL_MS };
 
 /**
  * A person has a day to answer in the app; a result waits an hour to be
@@ -36,7 +36,6 @@ export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX };
  * (2026-10-19), while a "yes" texted tomorrow still must not run today's ask.
  */
 export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
-export const TEXTING_TTL_MS = 12 * 60 * 60 * 1000;
 export const DONE_TTL_MS = 60 * 60 * 1000;
 /** The longest `detail` a record keeps: an email's copy, headers and all. */
 export const DETAIL_CAP = 24_000;
@@ -108,9 +107,9 @@ function expired(record, now) {
  * an ask may ask for. Leaving `chat` out used to reach them all silently, so
  * the filter guarded only the call sites that remembered it; it is now a
  * TypeError, because the cost of forgetting is a yes said in one chat
- * answering an ask held in another.
+ * answering an ask held in another. One symbol for both sides (`texContract/asks.cjs`).
  */
-export const EVERY_CHAT = Symbol("every chat");
+
 
 /**
  * The pending approvals raised for this person, newest first; expired ones
@@ -364,10 +363,8 @@ export async function settlePending(store, id, { userId, action, run, actorScope
     client_id: record.actor?.clientId ?? null,
     team_visible: false,
   }).catch(() => {});
-  if (action === "deny") {
-    await settledMail(store, record, action, null).catch(() => {});
-    return { status: "denied", record };
-  }
+  // A held email's check, settled, is written in the chat's ledger by Tex, which keeps it (`agent/workEntries.js` `settledMail`).
+  if (action === "deny") return { status: "denied", record };
   // The record is already off the queue, so a call that throws must still
   // leave the person an answer: a failed replay is kept as a failed result,
   // never as an approval that silently did nothing.
@@ -387,7 +384,6 @@ export async function settlePending(store, id, { userId, action, run, actorScope
     expires_at: now + DONE_TTL_MS,
   };
   await store.put(`${DONE_PREFIX}${timestampSlug(new Date(now))}-${record.id}.json`, JSON.stringify(done));
-  await settledMail(store, record, action, result).catch(() => {}); // a held email's check, settled, in the chat's ledger (`agent/workEntries.js`)
   return { status: "approved", record, result };
 }
 

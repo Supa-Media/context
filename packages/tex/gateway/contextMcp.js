@@ -13,7 +13,7 @@
  * swapped for MCP over a service binding, and no caller changes.
  */
 
-import { callToolForSession } from "../../../apps/mcp/src/tools/session.js";
+import { callTexAction as callTexActionInGateway, callToolForSession } from "../../../apps/mcp/src/tools/session.js";
 
 /**
  * One MCP `tools/call` as the person `session` stands for.
@@ -26,4 +26,12 @@ export function callContextTool(store, session, params, options) {
 /** A `(name, args) => result` dispatcher for one person, the shape Tex's turn and jobs pass around. */
 export function contextTools(store, session, options) {
   return (name, args) => callContextTool(store, session, { name, arguments: args }, options);
+}
+
+/**
+ * One MCP `tools/call` of an action only Tex's own code makes, never its model (`tex_asks`, the held asks:
+ * `asks.js`). It goes through the Tex service's door, not the dispatcher a model's calls take, which refuses it.
+ */
+export function callTexAction(store, session, params) {
+  return callTexActionInGateway(params, store, session);
 }

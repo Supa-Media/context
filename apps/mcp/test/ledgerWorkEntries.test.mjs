@@ -74,23 +74,30 @@ test("a job's check by the advisor is an ask and a job state in the ledger", asy
 });
 
 test("a held email settled: sent on a yes, stopped on a no or a failed send", async () => {
+  // The gateway settles (`settlePending`) and never writes Tex's ledger: Tex writes the settled check (`settledMail`),
+  // which is what broke the import cycle between `tools/approvals.js` and `workEntries.js`.
   const store = createMemoryStore();
   const ledger = fakeLedger();
   store.ledger = ledger;
   const hold = async () =>
     createPending(store, { name: "send_email", args: { to: ["jo@example.com"], subject: "Thursday", body: "Hi" }, actor: { userId: "u1", clientId: "context_texts" }, texting: true });
+  const settle = async (record, action, result) => {
+    const settled = await settlePending(store, record.id, { userId: "u1", action, run: async () => result });
+    assert.equal(ledger.entries.length, written, "the gateway's settle leaves the chat's ledger alone");
+    await settledMail(store, settled.record, action, settled.result ?? null);
+    written = ledger.entries.length;
+  };
+  let written = 0;
   const sent = await hold();
-  await settlePending(store, sent.id, { userId: "u1", action: "approve", run: async () => ({ content: [{ type: "text", text: "Sent." }] }) });
+  await settle(sent, "approve", { content: [{ type: "text", text: "Sent." }] });
   const first = ledger.entries[0];
   assert.deepEqual([first.kind, first.verdict, first.why, first.ref, first.to, first.subject, first.from], ["mail_check", "sent", "They said yes", heldCheckId(sent.id), "jo@example.com", "Thursday", "your texts"]);
-  const failed = await hold();
-  await settlePending(store, failed.id, { userId: "u1", action: "approve", run: async () => ({ content: [{ type: "text", text: "Gmail refused it." }], isError: true }) });
+  await settle(await hold(), "approve", { content: [{ type: "text", text: "Gmail refused it." }], isError: true });
   assert.equal(ledger.entries[1].verdict, "stopped", "an approved email that could not be sent reads stopped");
-  const denied = await hold();
-  await settlePending(store, denied.id, { userId: "u1", action: "deny", run: async () => ({}) });
+  await settle(await hold(), "deny", {});
   assert.deepEqual([ledger.entries[2].verdict, ledger.entries[2].why], ["stopped", "They said no"]);
   const other = await createPending(store, { name: "calendar_event", args: {}, actor: { userId: "u1" }, texting: true });
-  await settlePending(store, other.id, { userId: "u1", action: "approve", run: async () => ({}) });
+  await settle(other, "approve", {});
   assert.equal(ledger.entries.length, 3, "anything that is not an email leaves the ledger alone");
   await settledMail({}, sent, "approve", {}); // a store with no ledger: nothing, no throw
   recordMail({}, { to: [] }, { verdict: "stopped" }); // a session with no ledger: nothing, no throw

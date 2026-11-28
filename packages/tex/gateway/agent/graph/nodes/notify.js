@@ -15,7 +15,7 @@
 import { readWithEtag } from "../../jobLog.js";
 import { quietHoursEnd } from "../../quietHours.js";
 import { HEARTBEAT_SETTINGS_PATH } from "../../checkIns.js";
-import { disarmTexting } from "../../../../../../apps/mcp/src/tools/approvals.js";
+import { disarmTexting } from "../../../asks.js";
 
 /**
  * @param {{ now: number, timeZone: string }} input
@@ -37,6 +37,6 @@ export async function notify(input, io) {
   );
   if (!delivered) return { to: "quiet", outcome: until === null ? "quiet" : "quiet_hours", answer: "", count: 0, ...(until === null ? {} : { until }) };
   // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
-  await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+  await disarmTexting(store, session).catch(() => {});
   return { to: "send", outcome: "speak", answer: delivered.text, count: delivered.count, ...(until === null ? {} : { until }) };
 }

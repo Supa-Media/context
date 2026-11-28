@@ -1,7 +1,7 @@
 /** A routine's run ends here: its outcome is kept, and it stops or finishes itself when due. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { json } from "../../util/responses.js";
-import { disarmTexting } from "../../../../../apps/mcp/src/tools/approvals.js";
+import { disarmTexting } from "../../asks.js";
 import { rememberRoutineText } from "../conversation.js";
 import { wordsEntry } from "../ledger.js";
 import { texVersion } from "../texVersion.js";
@@ -33,7 +33,7 @@ export async function finishARoutine(t) {
       "ok" or "yes", and that answer is to it, not to an ask raised before it.
     */
     if (ran.text && routine.settings.send !== "note") {
-      await tex.step("disarm", () => disarmTexting(store, { userId: session.actorUserId }));
+      await tex.step("disarm", () => disarmTexting(store, session));
       await tex.step("remember_routine_text", () => rememberRoutineText(store, routine, ran.text, ledger.untrusted));
     }
     // A routine whose `until:` came true stops itself, recoverably.

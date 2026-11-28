@@ -4,13 +4,12 @@
  * `texEntryPoint.js`, which calls it, to keep that file to one job.
  */
 
-import { callContextTool } from "../contextMcp.js";
 import { doneLine } from "./doneLine.js";
 import { folded } from "./folded.js";
 import { canonicalToolName } from "../../../../apps/mcp/src/tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
-import { VAULT_PAY } from "../../../../apps/mcp/src/vault/pay.js";
-import { EVERY_CHAT, armForText, disarmChat, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../../../../apps/mcp/src/tools/approvals.js";
+import { VAULT_PAY } from "../../../shared/src/texContract/asks.cjs";
+import { EVERY_CHAT, armAsks, disarmAsks, disarmChat, disarmTexting, listAsks, settleByText as settleAsk, withdrawAsks } from "../asks.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -156,7 +155,7 @@ export async function thumbsDownIsNo(store, session, quoted, { who = null, chat 
 async function onArmedAsk(store, session, quotedWords, { who, chat, event }) {
   const words = folded(quotedWords);
   if (words.length < MIN_QUOTED) return false;
-  const armed = (await listPending(store, { userId: session.actorUserId, texting: true, chat })).map(({ record }) => record);
+  const armed = (await listAsks(store, session, { texting: true, chat })).map(({ record }) => record);
   // The text the ask went out as, or the quote cut short; or words holding every armed copy whole (an ask armed
   // before its text was kept, whose card showed the copy): either way they 👍'd exactly what a yes makes.
   const shown = folded(shownAsk(armed));
@@ -195,7 +194,7 @@ export async function textedAsk(store, session, asked, told = "", { stale = null
     (Dev2, 2026-11-02). Which member a question is put to is not told apart,
     which is the safe direction; the asks this reply arms are kept.
   */
-  if (chat !== null && /\?/.test(told)) await disarmChat(store, { chat, keep: asked.map((record) => record.id) }).catch(() => {});
+  if (chat !== null && /\?/.test(told)) await disarmChat(store, session, { chat, keep: asked.map((record) => record.id) }).catch(() => {});
   if (asked.length === 0) {
     // Asks their text corrected, with nothing new drawn, are dropped (`claimCheck.js` rule 6): `stale` names them.
     if (Array.isArray(stale) && stale.length > 0) return { ask: await dropStale(store, session, stale), verbatim: [] };
@@ -205,7 +204,7 @@ export async function textedAsk(store, session, asked, told = "", { stale = null
     // deferral is "an optimisation it may not get, never where the work happens" (`http/route.js`).
     // Unconditional: a reading taken before the model (`frontDoor.js`) is older than anything a job, a routine or the
     // heartbeat armed while the model ran, and this is the only check between such an ask and a bare yes.
-    if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+    if (/\?/.test(told)) await disarmTexting(store, session).catch(() => {});
     return { ask: null, verbatim: [] };
   }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
@@ -215,19 +214,19 @@ export async function textedAsk(store, session, asked, told = "", { stale = null
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask !== "" && ask.length <= TEXTED_ASK_CAP) {
-    // Raised unarmed (`../../../../apps/mcp/src/tools/approvals.js`): armed only now that the ask
+    // Raised unarmed (Context's `tex_asks`, `../asks.js`): armed only now that the ask
     // goes out whole, so an ask that is dropped instead leaves nothing a yes
     // can reach, even if withdrawing it below fails.
     try {
-      await armForText(store, { userId: session.actorUserId, ids, chat, shown: ask });
+      await armAsks(store, session, { ids, chat, shown: ask });
       return { ask, verbatim: [ask], whole: true };
     } catch {
-      await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
+      await withdrawAsks(store, session, ids).catch(() => {});
       asked.length = 0;
       return { ask: "Something went wrong putting that to you, so I've dropped it. Ask me again.", verbatim: [] };
     }
   }
-  await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
+  await withdrawAsks(store, session, ids).catch(() => {});
   asked.length = 0;
   return {
     ask:
@@ -246,9 +245,9 @@ export async function textedAsk(store, session, asked, told = "", { stale = null
 async function dropStale(store, session, ids) {
   const wanted = new Set(ids);
   // Every chat: these are named by id, and dropping one armed elsewhere is the safe direction.
-  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true, chat: EVERY_CHAT })).filter(({ record }) => wanted.has(record.id));
+  const waiting = (await listAsks(store, session, { texting: true, chat: EVERY_CHAT })).filter(({ record }) => wanted.has(record.id));
   if (waiting.length === 0) return null;
-  const stuck = await disarmRecords(store, waiting);
+  const stuck = await disarmAsks(store, session, waiting);
   console.log(JSON.stringify({ event: "ask_superseded", asks: waiting.length, stuck }));
   const what = waiting.map(({ record }) => clean(String(record.summary ?? record.tool)).slice(0, 200)).join("; ");
   if (stuck > 0) return `I couldn't withdraw the earlier one (${what}). Text "no" so it isn't sent, then tell me what to send instead.`;
@@ -330,22 +329,15 @@ export async function settleByText(store, session, verdict, { chat = null } = {}
   // not told of, nor one asked in another chat. Every record left armed was
   // asked in the thread's latest ask, and the ask line named all of them, so
   // one yes answers all of them.
-  const waiting = await listPending(store, { userId: session.actorUserId, texting: true, chat });
+  const waiting = await listAsks(store, session, { texting: true, chat });
   if (waiting.length === 0) return null;
   const replies = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
     // A card's yes lets the model go on to fill it, so it is settled before this (`textedPay.js`).
     if (record.kind === VAULT_PAY) continue;
-    const settled = await settlePending(store, record.id, {
-      userId: session.actorUserId,
-      action: verdict,
-      actorScope: session.scope,
-      run: (held) =>
-        replayAsAsked(store, session, held, (approver) =>
-          callContextTool(store, approver, { name: held.tool, arguments: held.args }),
-        ),
-    });
+    // Context replays it as the person, every gate and all, and only while it is armed in this chat (`tex_asks`).
+    const settled = await settleAsk(store, session, record.id, { verdict, chat });
     if (settled.status === "denied") {
       replies.push(`OK, dropped: ${record.summary}.`);
       continue;

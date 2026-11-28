@@ -62,6 +62,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
 import { TEXTS_GROUP_CLIENT_ID } from "../machines/reach.js";
+import { TEX_ASKS_TOOL, texAsks } from "./texAsks.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -266,6 +267,18 @@ function advertisesTeamConfirmation(name) {
  */
 function groupTurn(session, sandbox) {
   return session?.actorClientId === TEXTS_GROUP_CLIENT_ID || sandbox?.about?.kind === "group";
+}
+
+/**
+ * The Tex service's door: an MCP `tools/call` for an action only Tex's own code makes (`tex_asks`, `texAsks.js`),
+ * never a model. It is not in the registry, so the same name through `callToolForSession`, which every model's call
+ * takes, is an unknown tool. A released held call is replayed back through `callToolForSession`, every gate and all.
+ */
+export async function callTexAction(params, store, session) {
+  if (params?.name !== TEX_ASKS_TOOL) return toolError(`Call ${TEX_ASKS_TOOL} here.`);
+  return texAsks(params.arguments, store, session, {
+    replay: (approver, record) => callToolForSession({ name: record.tool, arguments: record.args }, store, approver),
+  });
 }
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */

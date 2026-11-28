@@ -79,7 +79,7 @@ import { markUntrusted, newLedger } from "../../../../apps/mcp/src/privacy/egres
 import { SEARCH_WEB_TOOL, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { json } from "../util/responses.js";
-import { disarmTexting } from "../../../../apps/mcp/src/tools/approvals.js";
+import { disarmTexting } from "../asks.js";
 import { heartbeatMailSection, withMailboxes } from "./mailHealth.js";
 import { mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
 import { newMailSection } from "./newMail.js";
@@ -635,7 +635,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
     if (text) {
       // Counted as told by the control plane only once this text reached them.
       if (owed.length > 0) await store.mailHealth.raise(owed).catch(() => {});
-      await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+      await disarmTexting(store, session).catch(() => {});
       // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
       try {
         // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).

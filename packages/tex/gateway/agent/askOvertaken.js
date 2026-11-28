@@ -14,7 +14,7 @@
  * 2026-10-22), and only Tex's texts that came by themselves count.
  */
 
-import { TEXTING_TTL_MS } from "../../../../apps/mcp/src/tools/approvals.js";
+import { TEXTING_TTL_MS } from "../../../shared/src/texContract/asks.cjs";
 import { readConversation } from "./conversation.js";
 import { folded } from "./folded.js";
 import { shownAsk } from "./textedApprovals.js";

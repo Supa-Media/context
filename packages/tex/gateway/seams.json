@@ -31,7 +31,6 @@
     "apps/mcp/src/store/r2.js",
     "apps/mcp/src/store/texRouting.js",
     "apps/mcp/src/tools/advertised.js",
-    "apps/mcp/src/tools/approvals.js",
     "apps/mcp/src/tools/forwardRule.js",
     "apps/mcp/src/tools/readFile.js",
     "apps/mcp/src/tools/registry.js",

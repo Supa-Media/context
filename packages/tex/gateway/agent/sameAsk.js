@@ -10,7 +10,7 @@
  * (@context-lc areas/tex-reviews/themes/repeats-after-correction.md).
  *
  * The gates already refuse a call whose arguments match an ask still armed
- * (`ALREADY_ASKED`, `../../../../apps/mcp/src/tools/approvals.js`), but a correction can disarm it,
+ * (`ALREADY_ASKED`, Context's `tools/approvals.js`), but a correction can disarm it,
  * and the model's second try may differ in an argument the person never sees
  * while the change they read is the same. So this is judged on what the
  * person reads: a held call whose shown copy (`detail`, the block above
@@ -22,7 +22,7 @@
 
 import { approvalVerdict } from "./textedApprovals.js";
 import { folded } from "./folded.js";
-import { withdrawPending } from "../../../../apps/mcp/src/tools/approvals.js";
+import { withdrawAsks } from "../asks.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** How far back an ask Tex showed still counts as "the one they just answered". */
@@ -68,7 +68,7 @@ export function withSameAsk({ on, store, session, ledger, history, question }, c
     if (repeated.length === 0) return result;
     const ids = new Set(repeated.map((record) => record.id));
     ledger.asked.splice(0, ledger.asked.length, ...ledger.asked.filter((record) => !ids.has(record.id)));
-    await withdrawPending(store, { userId: session.actorUserId, ids: [...ids] }).catch(() => {});
+    await withdrawAsks(store, session, [...ids]).catch(() => {});
     console.log(JSON.stringify({ event: "same_ask_refused", tool: name, asks: ids.size }));
     return toolError(SAME_ASK);
   };

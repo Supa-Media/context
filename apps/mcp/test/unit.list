@@ -481,6 +481,7 @@ test/workspaceMarks.test.mjs
 test/texPageViews.test.mjs
 test/ledgerJobsAndThinking.test.mjs
 test/ledgerWorkEntries.test.mjs
+test/texAsks.test.mjs
 test/ledgerConversation.test.mjs
 test/workspaceAccessRows.test.mjs
 test/accessWrite.test.mjs
