@@ -33,12 +33,9 @@ import { canSee } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { loadPrivacyState } from "../privacy/state.js";
 
-/**
- * The pinned workspace, addressed as a tool call would address it. Mirrors
- * `PINNED_CONTEXT_SLUG` in `packages/shared/src/pinnedContext.ts` (the gateway
- * takes no dependency on that package); a test holds the two together.
- */
-export const PINNED_CONTEXT_NAME = "@context-lc";
+/** The pinned workspace, addressed as a tool call would address it: a contract Tex reads too. */
+import { PINNED_CONTEXT_NAME } from "../../../../packages/shared/src/texContract/pinnedContext.cjs";
+export { PINNED_CONTEXT_NAME };
 export const GLOBAL_ORIENT_PATH = "guides/agents.md";
 export const GLOBAL_ORIENT_LINE_CAP = 50;
 export const GLOBAL_ORIENT_CHAR_CAP = 6_000;

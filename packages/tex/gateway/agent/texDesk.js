@@ -23,7 +23,7 @@ import { VOICE_PATH } from "./personVoice.js";
 import { CALENDAR_PATH } from "./calendarCache.js";
 import { GROUP_CARD_PATH } from "./groupCard.js";
 import { deskNotes, keepDeskKeys } from "./history.js";
-import { splitTexKey } from "../../../../apps/mcp/src/store/texRouting.js";
+import { splitTexKey } from "../../../shared/src/texContract/texKeys.cjs";
 import { CONVERSATIONS_PATH, HISTORY_PATH, ensureHistoryFile } from "./historyFile.js";
 
 // `card`: their member card, whose key a group chat's turn reads it by (`texStore/desk.js` `readCard`, `memberCards.js`); never on the 1:1's desk.

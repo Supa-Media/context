@@ -18,7 +18,7 @@
  *    one, on that person's own yes (`as`, `tools/offerFor.js`); their yes settles nothing.
  */
 
-import { loadPrivacyState } from "../../../../apps/mcp/src/privacy/state.js";
+import { storeRules } from "./pinnedNote.js";
 import { canSee, readsAsChat } from "../../../../apps/mcp/src/privacy/engine.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { guestNameOf, numberOf } from "./groupNames.js";
@@ -196,7 +196,7 @@ function hiddenNameRefusal(result, path, group) {
 /** Whether the chat reads `path`, by its store's rules (which are the chat's own). */
 async function chatReads(store, path) {
   try {
-    const { rules, overrides, error } = await loadPrivacyState(store);
+    const { rules, overrides, error } = await storeRules(store);
     return !error && canSee(path, "team", rules, overrides, null);
   } catch {
     return false;

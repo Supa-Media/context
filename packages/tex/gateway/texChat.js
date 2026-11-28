@@ -20,7 +20,7 @@
  */
 
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
-import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../shared/src/texContract/objectPlace.cjs";
 import { JOB_NAME } from "./texJobName.js";
 import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppCard, serveAppFileById, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
 import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";

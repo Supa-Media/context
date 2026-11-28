@@ -1,7 +1,7 @@
 /** Reads Tex's production setup: its prompt, history length, skills, models, router and fallback. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
-import { searchSettingsOf } from "../../../../../apps/mcp/src/search/settings.js";
+import { overSearchSettings } from "../searchOver.js";
 import { pictureFallback } from "../attachments.js";
 import { builtinModel, canRunBuiltin } from "../builtin.js";
 import { SHOWN_HISTORY_TURNS, earlierTextsTool } from "../conversation.js";
@@ -34,7 +34,7 @@ export async function readTheSetup(t) {
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
-  if (production?.search) store.searchSettings = searchSettingsOf(store, production.search);
+  if (production?.search) store.searchSettings = overSearchSettings(store, production.search);
   // The setup's task skills (`skills.js`), read from the pinned workspace only when asked for.
   // A skill read this turn vouches for its own addresses and backticked values,
   // as the person's message does (`computer.js` `vouch`); nothing else can.

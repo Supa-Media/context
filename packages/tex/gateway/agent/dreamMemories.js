@@ -12,7 +12,8 @@
  */
 
 import { MEMORY_FOLDER } from "../../../shared/src/texContract/toolContract.cjs";
-import { inboxPath } from "../../../../apps/mcp/src/communications/inboxFolders.js";
+import { INBOX_FOLDER } from "../../../communications/src/protocol.js";
+import { factJobs } from "../../../shared/src/texContract/treeJobs.cjs";
 import { dayOf } from "./jobLog.js";
 
 /** The most memory notes one dream is pointed at, newest kept. */
@@ -39,10 +40,20 @@ export function memoriesToRead(listing, folder, { since, now, timeZone }) {
   return found.slice(-MAX_DREAM_MEMORIES).map((entry) => entry.path);
 }
 
+/**
+ * `path` under the Inbox's default name, carried to the folder the tree says does the Inbox's job, as Context's
+ * writers carry it (`apps/mcp/src/communications/inboxFolders.js` `inboxPath`): a listing is not carried for us.
+ */
+async function inboxFolderOf(store, path) {
+  if (path !== INBOX_FOLDER && !path.startsWith(`${INBOX_FOLDER}/`)) return path;
+  const home = (await factJobs(store))?.jobs?.inbox;
+  return `${typeof home === "string" && home !== "" ? home : INBOX_FOLDER}${path.slice(INBOX_FOLDER.length)}`;
+}
+
 /** The memory notes for tonight, through the dream's own dispatcher. Never throws: none is fewer facts, not a failed dream. */
 export async function findMemories(store, dispatch, { since, now, timeZone }) {
   try {
-    const folder = await inboxPath(store, MEMORY_FOLDER);
+    const folder = await inboxFolderOf(store, MEMORY_FOLDER);
     const listed = await dispatch("list_notes", { prefix: folder });
     if (listed?.isError === true) return [];
     const listing = (listed?.content ?? []).map((part) => part?.text ?? "").join("\n");

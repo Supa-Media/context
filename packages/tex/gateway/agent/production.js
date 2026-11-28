@@ -92,12 +92,12 @@
  * decide; this file only reads the note.
  */
 
-import { loadPrivacyState } from "../../../../apps/mcp/src/privacy/state.js";
 import { readPlanSetting } from "./planBigAsk.js";
-import { PINNED_CONTEXT_NAME, readPinnedNote } from "../../../../apps/mcp/src/orient/globalNote.js";
+import { PINNED_CONTEXT_NAME } from "../../../shared/src/texContract/pinnedContext.cjs";
+import { readPinnedNote, storeRules } from "./pinnedNote.js";
 import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
-import { readSearchSettings } from "../../../../apps/mcp/src/search/settings.js";
+import { readSearchSettings } from "../../../shared/src/texContract/searchSettings.cjs";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
 import { readFrontDoor } from "./frontDoor.js";
@@ -425,7 +425,7 @@ async function pinnedReach(store, session) {
   const current = (store.contexts || []).find((entry) => entry.current);
   let here = null;
   if (current?.name === PINNED_CONTEXT_NAME) {
-    const privacy = await loadPrivacyState(store);
+    const privacy = await storeRules(store);
     if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
   }
   return { contexts: store.contexts, openPinned: store.openPinnedContext, here };

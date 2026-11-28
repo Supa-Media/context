@@ -38,7 +38,7 @@ import { ProviderError } from "./providers.js";
 import { readAboutMe } from "./aboutMe.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, refusedRun } from "./jobLog.js";
-import { factJobs } from "../../../../apps/mcp/src/tree/facts.js";
+import { factJobs } from "../../../shared/src/texContract/treeJobs.cjs";
 import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
 import { HOUSEKEEPING_SETTINGS_PATH, isSwitchedOff } from "./texSwitches.js";
 

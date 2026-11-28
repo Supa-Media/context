@@ -22,7 +22,7 @@
  * and its name is then hunted for like any other missing photo.
  */
 
-import { storableImage } from "../../../../../apps/mcp/src/notes/uploadedImages.js";
+import { storableImage } from "../../../../shared/src/texContract/uploadImages.cjs";
 import { within } from "./hunt.js";
 
 /** How long each read address may take to download, all side by side. */

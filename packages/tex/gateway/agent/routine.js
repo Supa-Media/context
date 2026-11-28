@@ -21,7 +21,7 @@ import {
   routineSettings,
   wallClock,
 } from "../../../shared/src/routines.cjs";
-import { getWithLegacyFallback } from "../../../../apps/mcp/src/storageLayout.js";
+import { getWithLegacyFallback } from "../../../shared/src/storageLayout.cjs";
 import { MAX_QUESTION_LENGTH } from "./turn.js";
 import { readMailHealth, routineMailSection } from "./mailHealth.js";
 import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";

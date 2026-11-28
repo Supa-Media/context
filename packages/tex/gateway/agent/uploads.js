@@ -19,8 +19,8 @@
  * to the browser and nowhere else: never to the model, never kept.
  */
 
-import { getWithLegacyFallback } from "../../../../apps/mcp/src/storageLayout.js";
-import { normalizePath } from "../../../../apps/mcp/src/notes/paths.js";
+import { getWithLegacyFallback } from "../../../shared/src/storageLayout.cjs";
+import { normalizePath } from "../../../shared/src/texContract/notePath.cjs";
 import { parseEmailId, REFUSED } from "../../../shared/src/texContract/emailRead.cjs";
 import { readableFileType, typeOfFile, MAX_FILE_BYTES } from "../../../../apps/mcp/src/tools/readFile.js";
 import { textPdf } from "./textPdf.js";

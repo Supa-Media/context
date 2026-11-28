@@ -15,7 +15,7 @@
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { liveStepOf, MAX_LIVE_STEPS } from "./liveSteps.js";
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 
 /** How many ledger entries one read takes: the newest, which the page then trims to its rows. */
 export const LEDGER_READ = 1_000;

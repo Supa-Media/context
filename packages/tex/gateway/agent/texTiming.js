@@ -45,7 +45,7 @@ export const OFF_IN_CHATS = new Set([
   "learned_skills", // the index of skills Tex wrote itself
 ]);
 
-import { goesToObject } from "../../../../apps/mcp/src/store/texRouting.js";
+import { goesToObject } from "../../../shared/src/texContract/texKeys.cjs";
 import { stepEntry } from "./ledger.js";
 
 /** The kinds a person is waiting on. */

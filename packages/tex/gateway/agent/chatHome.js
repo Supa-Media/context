@@ -26,7 +26,7 @@
  */
 
 import { actorFor } from "../../../../apps/mcp/src/context/identity.js";
-import { PINNED_CONTEXT_NAME } from "../../../../apps/mcp/src/orient/globalNote.js";
+import { PINNED_CONTEXT_NAME } from "../../../shared/src/texContract/pinnedContext.cjs";
 import { contextTools } from "../contextMcp.js";
 import { readWithEtag } from "./jobLog.js";
 import { withoutFence } from "./promptFence.js";

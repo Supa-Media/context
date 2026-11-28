@@ -22,7 +22,7 @@
  * in the chat say can change it. A guest chat never reads or writes it.
  */
 
-import { PINNED_CONTEXT_NAME } from "../../../../apps/mcp/src/orient/globalNote.js";
+import { PINNED_CONTEXT_NAME } from "../../../shared/src/texContract/pinnedContext.cjs";
 import { readWithEtag } from "./jobLog.js";
 
 /** The old one-per-workspace note, read only when the chat's home keeps none. */
