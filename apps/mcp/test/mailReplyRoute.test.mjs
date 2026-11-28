@@ -61,6 +61,8 @@ function world() {
     ["bots/grok-bot/about.md", { bot: "grok", holder: "Grok Bot" }],
     ["bots/muse/about.md", { bot: "muse", holder: "Muse" }],
     ["bots/nova/about.md", { bot: "grok", holder: "Nova" }],
+    // A card in the older place, inside the Areas folder: never counted as a seat Grok Bot holds.
+    ["areas/bots/grok-bot/about.md", { bot: "grok", holder: "Grok Bot" }],
   ]);
   const files = () => [...[...props.keys()].map((path) => ({ path })), ...[...notes].map(([noteId, note]) => ({ path: note.path, noteId }))];
   const rows = {

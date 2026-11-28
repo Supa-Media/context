@@ -61,7 +61,18 @@ export function mailRoute(sql, { rows, facts, areasRoot, holderOf }) {
       .slice(0, MAX_AREAS_READ);
     if (abouts.length === 0) return [];
     const found = facts.props({ paths: abouts }, () => true).props ?? [];
-    return found.filter((each) => !each.sealed && holderOf(each.props) !== null && mailJoinName(holderOf(each.props)) === bot).map((each) => each.path.slice(0, -"/about.md".length));
+    // Only an area's about.md names an owner; a bot's card kept under the Areas folder (the older place) is not a seat.
+    const owned = (json) => {
+      try {
+        const owner = JSON.parse(json ?? "null")?.properties?.owner;
+        return typeof owner === "string" && owner.trim() !== "";
+      } catch {
+        return false;
+      }
+    };
+    return found
+      .filter((each) => !each.sealed && owned(each.props) && holderOf(each.props) !== null && mailJoinName(holderOf(each.props)) === bot)
+      .map((each) => each.path.slice(0, -"/about.md".length));
   }
 
   /** Whether `name` is a bot with a card here. */
