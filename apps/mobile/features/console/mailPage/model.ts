@@ -32,6 +32,15 @@ export interface MailNoteRow {
   /** The app each sender signed with, by name (`builder` → `Claude Code · @seyi`), for its face on the list. */
   readonly apps?: Readonly<Record<string, string>>;
   readonly last: MailLast | null;
+  /** The newest ask nobody it went to has answered yet (`mail.cjs` `openAsk`), or null; older gateways send none. */
+  readonly waiting?: MailWaiting | null;
+}
+
+/** An ask still owed an answer: who asked whom, and when. */
+export interface MailWaiting {
+  readonly at: string;
+  readonly from: string;
+  readonly to: string;
 }
 
 export type MailPlace =
@@ -49,12 +58,15 @@ export interface Conversation extends MailNoteRow {
   readonly where: string;
   /** Whether the newest message is from someone other than the reader, after they last read it. */
   readonly fresh: boolean;
+  /** Who owes the open ask here, in words ("Areas", "You", "Grok Bot"), or null when nothing is owed. */
+  readonly waitingOn: string | null;
 }
 
-export type MailView = "all" | "bots" | "areas" | "notes";
+export type MailView = "all" | "waiting" | "bots" | "areas" | "notes";
 
 export const MAIL_VIEWS: readonly { readonly id: MailView; readonly label: string }[] = [
   { id: "all", label: "All" },
+  { id: "waiting", label: "Waiting" },
   { id: "bots", label: "Bots" },
   { id: "areas", label: "Areas" },
   { id: "notes", label: "Notes" },
@@ -122,8 +134,26 @@ export function conversationsOf(rows: readonly MailNoteRow[], areasRoot: string,
     const other = place.kind === "bot" ? nameOf(place.bot) : place.kind === "area" ? nameOf(leaf(place.area)) : "everyone on this note";
     const last = row.last;
     const fresh = last !== null && !isMe(last.from, me) && (seen.get(row.path) ?? seen.get(SINCE) ?? "") < last.at;
-    return { ...row, place, title, other, where: `${kind} · ${row.path}`, fresh };
+    return { ...row, place, title, other, where: `${kind} · ${row.path}`, fresh, waitingOn: waitingOnOf(row.waiting ?? null, place, sender, me) };
   });
+}
+
+/**
+ * Who owes an open ask, as a seat where there is one (Dev, 2026-11-28: "mailing the President, not Barack"): an ask
+ * to a name is owed by that name; one to everyone in an area's mail from outside it is owed by the area, and one from
+ * inside it by the sender the note is named for. Elsewhere "a reply".
+ */
+export function waitingOnOf(waiting: MailWaiting | null, place: MailPlace, sender: string, me: string | undefined): string | null {
+  if (waiting === null) return null;
+  if (waiting.to !== "everyone") return sideName(waiting.to, me);
+  if (place.kind === "area") return cardSlug(waiting.from) === cardSlug(sender) ? nameOf(leaf(place.area)) : sideName(sender, me);
+  if (place.kind === "bot") return cardSlug(waiting.from) === place.bot ? sideName(sender, me) : nameOf(place.bot);
+  return "a reply";
+}
+
+/** How many conversations hold an ask still owed an answer: the Waiting view's count. */
+export function waitingCount(conversations: readonly Conversation[]): number {
+  return conversations.filter((each) => each.waitingOn !== null).length;
 }
 
 export interface MailGroup {
@@ -139,6 +169,11 @@ export interface MailGroup {
 export function groupsFor(view: MailView, conversations: readonly Conversation[]): MailGroup[] {
   const newest = [...conversations].sort((a, b) => (b.last?.at ?? "").localeCompare(a.last?.at ?? "") || a.path.localeCompare(b.path));
   if (view === "all") return newest.length === 0 ? [] : [{ key: "all", title: "", conversations: newest }];
+  if (view === "waiting") {
+    // The longest waiting first: the ask owed longest is the one to chase.
+    const owed = newest.filter((each) => each.waiting && each.waitingOn !== null).sort((a, b) => (a.waiting?.at ?? "").localeCompare(b.waiting?.at ?? ""));
+    return owed.length === 0 ? [] : [{ key: "waiting", title: "", conversations: owed }];
+  }
   if (view === "notes") {
     const notes = newest.filter((each) => each.place.kind === "note");
     return notes.length === 0 ? [] : [{ key: "notes", title: "", conversations: notes }];
@@ -254,4 +289,9 @@ export function usedThisWeek(events: readonly { readonly from: string; readonly 
     total = (total ?? 0) + event.used;
   }
   return total;
+}
+
+/** How long an ask has waited, short: "4 h", "12 min", "yesterday" (the artboards drop "ago" beside the row's time). */
+export function waitedFor(label: string): string {
+  return label.replace(/ ago$/, "");
 }

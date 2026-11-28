@@ -8,6 +8,7 @@ import type { MailRead } from "../console/mailPage/receipts";
 import { useColors } from "../design/theme";
 import { densityFor } from "../app/frame";
 import { LOGOS } from "./BotsPageFixture";
+import { openAsk, parseMail } from "@context/shared/src/mail.cjs";
 
 /**
  * `screen=mail-page`: the Mail page beside the right rail's Mail button, on notes shaped like a busy shared
@@ -20,6 +21,8 @@ const LONG = "Here is the November spend so far, line by line: Grok is the bigge
 
 const TEXTS: Record<string, string> = {
   "areas/operations/finance/mail/seyi.md": `# Mail with Finance\n\n\`\`\`mail\n- ${AT(9)} @seyi to everyone: How much are we spending this month?\n- ${AT(2)} finance (Grok) to everyone [used 2%]: ${LONG}\n\`\`\`\n`,
+  // A reply to the asking seat with an ask still owed (Agent Mail's Waiting state, 2026-11-28).
+  "areas/operations/mail/areas.md": `# Mail with Areas\n\n\`\`\`mail\n- ${AT(244)} grok-bot (Grok) to everyone [used 1%]: 12am run: net burn is $1,124 this month vs under $600. Finance's top move still waits on Seyi's yes.\n- ${AT(240)} muse (Claude Code · @seyi) to grok-bot [ask] [used 1%]: Please take these four to Seyi for a yes: Devin Pro $21.20, Dropbox $21.19, Resend Pro to Free $20, Expo Starter to Free $19.24.\n\`\`\`\n`,
   "bots/grok-bot/mail/seyi.md": `# Mail with Grok Bot\n\n\`\`\`mail\n- ${AT(70)} @seyi to everyone: Please check your card: if your name or logo changed, send the new ones.\n- ${AT(68)} @seyi to everyone: And can you update your image please?\n- ${AT(62)} grok-bot (Grok) to everyone [used 1%]: Logo updated. Name is the same.\n\`\`\`\n`,
   "areas/operations/finance/mail/grok-bot.md": `# Mail with Finance\n\n\`\`\`mail\n- ${AT(2900)} grok-bot (Grok) to everyone: What was November's total cost so far? Scoring every area for the Monday scorecard.\n- ${AT(2898)} finance (Grok) to everyone [used 1%]: $512 as of today.\n\`\`\`\n`,
   "products/search/speed-plan.md": `# Search speed plan\n\nThe plan.\n\n\`\`\`mail\n- ${AT(330)} builder (Claude Code · @seyi) joined\n- ${AT(320)} reviewer (Codex) joined\n- ${AT(318)} builder (Claude Code · @seyi) to reviewer: Index rebuild is in PR #4240. Reviewer, can you check the cold path?\n- ${AT(300)} reviewer (Codex) to builder: Cold path ok. One nit left on the PR.\n- ${AT(290)} @seyi to everyone: Ship it once the nit is fixed.\n\`\`\`\n`,
@@ -44,7 +47,7 @@ function rowOf(path: string): MailNoteRow {
   const lines = TEXTS[path]!.split("\n").filter((line) => line.startsWith("- "));
   const said = lines.filter((line) => !line.endsWith(" joined"));
   const last = said[said.length - 1]!;
-  const match = /^- (\S+) ([^ ]+)(?: \([^)]*\))? to ([^ :[]+)(?: \[used (\d+)%\])?: (.*)$/.exec(last)!;
+  const match = /^- (\S+) ([^ ]+)(?: \([^)]*\))? to ([^ :[]+)(?: \[ask\])?(?: \[used (\d+)%\])?: (.*)$/.exec(last)!;
   const apps: Record<string, string> = {};
   for (const line of lines) {
     const signed = /^- \S+ (\S+) \(([^)]*)\)/.exec(line);
@@ -56,6 +59,7 @@ function rowOf(path: string): MailNoteRow {
     apps,
     joined: [...new Set(lines.map((line) => line.split(" ")[2]!))],
     last: { at: match[1]!, from: match[2]!, to: match[3]!, used: match[4] ? Number(match[4]) : null, text: match[5]!.slice(0, 279) },
+    waiting: openAsk(parseMail(TEXTS[path]!).events),
   };
 }
 

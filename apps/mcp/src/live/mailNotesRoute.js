@@ -4,7 +4,7 @@
  * mail to bots, mail to areas, and other regular notes"). Answered by the workspace's object (`workspaceStore/mailIndex.js`)
  * with no control plane on the way, the same road as a folder page's notes (`folderNotesRoute.js`).
  *
- * The answer is `{kind: "mailNotes", notes: [{path, count, joined, last}], complete}`, newest message first; `last`
+ * The answer is `{kind: "mailNotes", notes: [{path, count, joined, last, waiting}], complete}`, newest message first; `last`
  * carries the newest message's sender, recipient and first words, which the reader could read in the note itself.
  * What this route does not serve answers 409 `not_object`: a workspace whose notes are not in its object yet, one
  * behind on a change, a reader the object cannot judge. The app then shows mail folders only.
@@ -114,7 +114,12 @@ function rowOf(row) {
   if (row.apps && typeof row.apps === "object" && !Array.isArray(row.apps)) {
     for (const name of joined) if (typeof row.apps[name] === "string" && row.apps[name].length <= 40) apps[name] = row.apps[name];
   }
-  return { path: row.path, count: row.count, joined, apps, last };
+  // The newest ask nobody it went to has answered (`mail.cjs` `openAsk`): who asked whom, and when.
+  const waiting =
+    row.waiting && typeof row.waiting === "object" && word(row.waiting.at, 64) !== null && word(row.waiting.from, 64) !== null && word(row.waiting.to, 64) !== null
+      ? { at: row.waiting.at, from: row.waiting.from, to: row.waiting.to }
+      : null;
+  return { path: row.path, count: row.count, joined, apps, last, waiting };
 }
 
 /**

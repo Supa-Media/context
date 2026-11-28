@@ -50,3 +50,5 @@ export declare function pairCount(
   windowMs?: number,
 ): number;
 export declare function askDepth(events: MailEvent[], from: string): number;
+/** The newest ask still waiting for an answer, or null. */
+export declare function openAsk(events: readonly MailEvent[]): { at: string; from: string; to: string } | null;

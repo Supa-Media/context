@@ -15,7 +15,7 @@ import { Text } from "../../design/components/Text";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { agoLabel } from "../files/mail/model";
-import { MAIL_VIEWS, groupsFor, isMe, sideName, type Conversation, type MailView } from "./model";
+import { MAIL_VIEWS, groupsFor, isMe, sideName, waitedFor, waitingCount, type Conversation, type MailView } from "./model";
 import { OwnerFace } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
 import { useBotFaces, type FaceOf } from "./useBotFaces";
@@ -59,6 +59,7 @@ export function MailPage({
   // Asked again as the page opens, so it never shows a two-minute-old list.
   useEffect(() => refresh(), [refresh]);
   const groups = useMemo(() => groupsFor(view, conversations), [view, conversations]);
+  const owed = useMemo(() => waitingCount(conversations), [conversations]);
   const shown = groups.flatMap((group) => group.conversations);
   // A wide page reads the newest at once; a phone waits for a tap.
   const open = selected !== null ? conversations.find((each) => each.path === selected) : compact ? undefined : shown[0];
@@ -99,7 +100,7 @@ export function MailPage({
         )
       ) : shown.length === 0 ? (
         <Text variant="treeMeta" style={styles.muted} testID="mail-empty">
-          {view === "all" ? "No mail yet." : view === "bots" ? "No mail with a bot yet." : view === "areas" ? "No area mail yet." : "No note has mail yet."}
+          {view === "all" ? "No mail yet." : view === "waiting" ? "Nothing is waiting on an answer." : view === "bots" ? "No mail with a bot yet." : view === "areas" ? "No area mail yet." : "No note has mail yet."}
         </Text>
       ) : null}
       {groups.map((group) => (
@@ -136,6 +137,7 @@ export function MailPage({
           key={each.id}
           role="tab"
           aria-selected={view === each.id}
+          accessibilityLabel={each.id === "waiting" ? `Waiting, ${owed} ${owed === 1 ? "conversation" : "conversations"}` : each.label}
           onPress={() => {
             setView(each.id);
             setSelected(null);
@@ -146,6 +148,11 @@ export function MailPage({
           <Text variant="treeMeta" style={view === each.id ? styles.viewWordOn : styles.muted}>
             {each.label}
           </Text>
+          {each.id === "waiting" && owed > 0 ? (
+            <Text variant="treeMeta" style={view === each.id ? styles.viewWordOn : styles.waitCount} testID="mail-waiting-count">
+              {owed}
+            </Text>
+          ) : null}
         </Pressable>
       ))}
     </View>
@@ -213,7 +220,7 @@ function MailRow({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${conversation.title}${conversation.fresh ? ", new" : ""}`}
+      accessibilityLabel={`${conversation.title}${conversation.fresh ? ", new" : ""}${conversation.waitingOn !== null && conversation.waiting ? `, waiting on ${conversation.waitingOn} for ${waitedFor(agoLabel(conversation.waiting.at))}` : ""}`}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, (hovered || selected) && styles.rowOn]}
       testID={`mail-row-${conversation.path}`}
     >
@@ -235,9 +242,23 @@ function MailRow({
           </Text>
           {conversation.fresh ? <View style={[styles.newDot, { backgroundColor: colors.ok }]} testID={`mail-new-${conversation.path}`} /> : null}
         </View>
-        <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
-          {last === null ? conversation.where : `${sideName(last.from, me)}: ${last.text}`}
-        </Text>
+        {conversation.waitingOn !== null && conversation.waiting ? (
+          // An ask owed an answer says who owes it and for how long, in place of the newest line (the artboards, 2026-11-28).
+          <View style={styles.waitLine} testID={`mail-waiting-${conversation.path}`}>
+            <View style={[styles.waitDot, { backgroundColor: colors.warn }]} />
+            {/* The name gives way before the age does: how long it has waited is what to chase. */}
+            <Text variant="treeMeta" numberOfLines={1} style={[styles.waitWord, styles.shrink]}>
+              {`Waiting on ${conversation.waitingOn}`}
+            </Text>
+            <Text variant="treeMeta" numberOfLines={1} style={[styles.waitWord, styles.keep]}>
+              {`· ${waitedFor(agoLabel(conversation.waiting.at))}`}
+            </Text>
+          </View>
+        ) : (
+          <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
+            {last === null ? conversation.where : `${sideName(last.from, me)}: ${last.text}`}
+          </Text>
+        )}
       </View>
     </Pressable>
   );
@@ -272,7 +293,7 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.muted },
     views: { flexDirection: "row", gap: space.x1 },
     viewsPhone: { paddingHorizontal: space.x4 },
-    view: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.line },
+    view: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.line },
     viewOn: { backgroundColor: colors.text, borderColor: colors.text },
     viewWordOn: { color: colors.surface, fontWeight: "600" },
     listScroll: { flex: 1 },
@@ -289,4 +310,10 @@ const makeStyles = (colors: Colors) =>
     grow: { flexGrow: 1, flexShrink: 1 },
     name: { fontWeight: "600" },
     newDot: { width: 8, height: 8, borderRadius: 4 },
+    waitLine: { flexDirection: "row", alignItems: "center", minWidth: 0, gap: space.x1 },
+    waitDot: { width: 6, height: 6, borderRadius: 3, marginRight: 2 },
+    shrink: { flexShrink: 1, minWidth: 0 },
+    keep: { flexShrink: 0 },
+    waitWord: { color: colors.warnText },
+    waitCount: { color: colors.warnText, fontWeight: "600" },
   });

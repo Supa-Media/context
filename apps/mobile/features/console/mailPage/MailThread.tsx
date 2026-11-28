@@ -9,7 +9,8 @@
  * a bot by its own logo from its card, and links the note; it never shows the file's path.
  */
 
-import { appendMail, parseMail, splitApp, type MailEvent } from "@context/shared/src/mail.cjs";
+import { withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
+import { appendMail, openAsk, parseMail, splitApp, type MailEvent } from "@context/shared/src/mail.cjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../design/components/Text";
@@ -21,7 +22,8 @@ import { AccessoryGlyph } from "../files/AccessoryGlyph";
 import type { FaceOf } from "./useBotFaces";
 import { readByWords, receiptsFor, type MailRead, type Receipt } from "./receipts";
 import { cardSlug } from "../files/folderPage/areas/seat";
-import { clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
+import { clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, waitedFor, waitingOnOf, type Conversation } from "./model";
+import { agoLabel } from "../files/mail/model";
 
 /** How the page reads a note and writes it back: the app's own note reads and saves (`useMailIO`). */
 export interface MailNoteIO {
@@ -162,6 +164,15 @@ export function MailThread({
   const appOf = useCallback((name: string) => [...messages].reverse().find((event) => event.from === name)?.app ?? conversation.apps?.[name] ?? null, [messages, conversation.apps]);
   // What the agents here said they used, on every line and added up for this week (Dev2, 2026-11-26: "crucial").
   const weekUsed = useMemo(() => usedThisWeek(messages), [messages]);
+  // The ask still owed an answer, read from the lines on screen, and who owes it (the artboards, 2026-11-28).
+  const owed = useMemo(() => {
+    const ask = openAsk(messages);
+    if (ask === null) return null;
+    const slug = withoutTextExtension(path.slice(path.lastIndexOf("/") + 1));
+    const sender = conversation.joined.find((name) => cardSlug(name) === slug) ?? slug;
+    const on = waitingOnOf(ask, conversation.place, sender, me);
+    return on === null ? null : { ...ask, on };
+  }, [messages, path, conversation.joined, conversation.place, me]);
   const inMailFolder = conversation.place.kind !== "note";
   // Who is in this mail: the names that joined, else whoever wrote; the bot first, the reader last.
   const people = useMemo(() => {
@@ -258,6 +269,17 @@ export function MailThread({
                 <Text variant="tree" style={styles.words} selectable>
                   {event.text}
                 </Text>
+                {owed !== null && owed.at === event.at && owed.from === event.from ? (
+                  <View style={styles.owed} testID="mail-waiting">
+                    <View style={[styles.owedDot, { backgroundColor: colors.warn }]} />
+                    <Text variant="treeMeta" style={styles.muted}>
+                      <Text variant="treeMeta" style={styles.owedWord}>
+                        Waiting
+                      </Text>
+                      {` on ${owed.on} · ${waitedFor(agoLabel(owed.at))}`}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
             <ReadReceipt receipt={receipts.get(index)} faceOf={faceOf} />
@@ -304,6 +326,9 @@ export function MailThread({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    owed: { flexDirection: "row", alignItems: "center", gap: space.x1, marginTop: space.x1 },
+    owedDot: { width: 6, height: 6, borderRadius: 3 },
+    owedWord: { color: colors.warnText, fontWeight: "600" },
     thread: { flex: 1, minHeight: 0 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x3, paddingHorizontal: space.x4, paddingVertical: space.x2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
     headBar: { height: MAIL_BAR, paddingVertical: 0 },

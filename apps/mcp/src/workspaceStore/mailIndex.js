@@ -11,7 +11,7 @@
  * loses nothing.
  *
  * `{ask: "mail"}` answers the notes the reader may see that hold mail, newest message first, each `{path, count,
- * joined, apps, last}` where `last` is `{at, from, to, used, text}` with its text cut to `LAST_TEXT` and `apps` is the
+ * joined, apps, last, waiting}` where `waiting` is the newest open ask `{at, from, to}` or null, `last` is `{at, from, to, used, text}` with its text cut to `LAST_TEXT` and `apps` is the
  * app each sender signed with, by name (`builder` → `Claude Code · @seyi`), for its face on the list. A note the reader may
  * not see is never read for them. `complete: false` when more notes changed than one ask reads; the next ask reads on.
  */
@@ -19,7 +19,7 @@
 import mail from "../../../../packages/shared/src/mail.cjs";
 import { isWorkspaceObjectKey } from "./api.js";
 
-const { parseMail } = mail;
+const { openAsk, parseMail } = mail;
 
 /** Notes one ask reads again before it answers. */
 export const MAIL_READ_BUDGET = 2_000;
@@ -51,6 +51,8 @@ export function mailSummaryOf(text) {
     count: messages.length,
     joined,
     apps,
+    // The newest ask nobody it went to has answered yet (`mail.cjs` `openAsk`), for the Mail page's Waiting state.
+    waiting: openAsk(events),
     last:
       newest === undefined
         ? null
@@ -106,8 +108,8 @@ export function workspaceMailIndex(sql, objects) {
         // Judged before it is read, so a note the reader may not see is never read for them.
         if (!sees(note.path)) continue;
         let summary = note.summary;
-        // A summary from before `apps` was kept is read again once, so the list's faces need no edit to the note.
-        if (note.indexed !== note.etag || (typeof summary === "string" && !summary.includes('"apps":'))) {
+        // A summary from before `waiting` was kept is read again once, so the list's faces need no edit to the note.
+        if (note.indexed !== note.etag || (typeof summary === "string" && !summary.includes('"waiting":'))) {
           if (left === 0) {
             complete = false;
             continue;

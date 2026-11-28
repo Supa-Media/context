@@ -341,7 +341,27 @@ function askDepth(events, from) {
   return 1 + deepestOpenFor(from);
 }
 
+/**
+ * The newest ask still waiting for an answer, as `{at, from, to}`, or null (Agent Mail's Waiting state; Dev,
+ * 2026-11-28). An ask to a name waits until that name writes to its sender or to everyone; an ask to everyone waits
+ * until anybody else writes. Only the note's own lines decide it, as `askDepth` does.
+ */
+function openAsk(events) {
+  const open = [];
+  for (const event of events) {
+    if (event.kind !== "mail") continue;
+    for (let index = open.length - 1; index >= 0; index -= 1) {
+      const ask = open[index];
+      const fromAsked = ask.to === EVERYONE ? event.from !== ask.from : event.from === ask.to;
+      if (fromAsked && (event.to === ask.from || event.to === EVERYONE)) open.splice(index, 1);
+    }
+    if ((event.mailKind ?? "note") === "ask") open.push({ at: event.at, from: event.from, to: event.to });
+  }
+  return open.length === 0 ? null : open[open.length - 1];
+}
+
 module.exports = {
+  openAsk,
   MAIL_INFO,
   EVERYONE,
   MAIL_KINDS,
