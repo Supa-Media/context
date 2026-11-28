@@ -44,10 +44,14 @@ export class MailAskRefused extends Error {}
 
 export const isMailOp = (op) => OPS.has(op);
 
-/** The one area `bot` holds here, or null (`botMail.js` `seatOf`); never fails a bound ask. */
-function seatOf(store, bot) {
+/**
+ * The one area `bot` holds here, or null (`botMail.js` `seatOf`); never fails a bound ask. A seat is a note's path, and
+ * this is a session's ask, so it is judged by the asking reader: an area whose `about.md` that reader may not see is
+ * not named back to it.
+ */
+function seatOf(store, bot, judge) {
   try {
-    const seat = store.botMail?.seatOf?.(bot) ?? null;
+    const seat = store.botMail?.seatOf?.(bot, (path) => judge.sees({ path })) ?? null;
     return typeof seat === "string" && seat !== "" ? seat : null;
   } catch {
     return null;
@@ -106,7 +110,7 @@ export async function serveMail(store, op, fields, judge, { now = Date.now, wait
     const bots = (store.mailBots ??= mailBots(store.sql));
     // Each with the one area it holds, if it holds one: its mail with another seat is kept under that seat's name.
     if (op === MAIL_OPS.BOUND) return { served: true, bots: bots.of(fields.grantId).map((each) => {
-      const seat = seatOf(store, each.bot);
+      const seat = seatOf(store, each.bot, judge);
       return seat === null ? each : { ...each, seat };
     }) };
     return { served: true, ...bots.bind(fields.grantId, { bot: fields.bot, name: fields.name }) };

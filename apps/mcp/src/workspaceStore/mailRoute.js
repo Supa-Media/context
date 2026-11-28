@@ -50,8 +50,12 @@ export function mailRoute(sql, { rows, facts, areasRoot, holderOf }) {
     return bot === null ? null : mailJoinName(bot);
   }
 
-  /** Every area `bot` holds, read from the areas' about.md notes. */
-  function areasHeldBy(bot) {
+  /**
+   * Every area `bot` holds, read from the areas' about.md notes. `sees` is the reader's own clearance: the watcher
+   * reads them all (it answers to no session), and an answer handed back to a connection passes its judge, so a seat
+   * is never named to a reader who may not see the area that names it (`mailOps.js` `seatOf`).
+   */
+  function areasHeldBy(bot, sees = () => true) {
     const root = areasRoot();
     if (root === null || typeof rows?.filesUnder !== "function") return [];
     const abouts = rows
@@ -60,7 +64,7 @@ export function mailRoute(sql, { rows, facts, areasRoot, holderOf }) {
       .filter((path) => typeof path === "string" && (path === `${root}/about.md` || path.endsWith("/about.md")) && !/\/mail\//.test(path))
       .slice(0, MAX_AREAS_READ);
     if (abouts.length === 0) return [];
-    const found = facts.props({ paths: abouts }, () => true).props ?? [];
+    const found = facts.props({ paths: abouts }, sees).props ?? [];
     // Only an area's about.md names an owner; a bot's card kept under the Areas folder (the older place) is not a seat.
     const owned = (json) => {
       try {
@@ -85,8 +89,8 @@ export function mailRoute(sql, { rows, facts, areasRoot, holderOf }) {
   const seatOn = (noteId, sender) => all(sql.exec("SELECT seat FROM ws_mail_seats WHERE note_id = ? AND sender = ?", noteId, sender))[0]?.seat ?? null;
 
   return {
-    /** Every area `bot` holds now (its seats), read from the areas' about.md notes. */
-    seatsOf: (bot) => areasHeldBy(bot),
+    /** Every area `bot` holds now (its seats), as far as `sees` lets this reader see them. */
+    seatsOf: (bot, sees) => areasHeldBy(bot, sees),
     /** The seat `sender` writes from in `area`'s mail: that area when it holds it, else its one area, else null. */
     seatOf(sender, area, areaHolder) {
       if (isPerson(sender) || sender === "tex") return null;
