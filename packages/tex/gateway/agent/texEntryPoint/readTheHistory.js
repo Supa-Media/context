@@ -3,7 +3,7 @@
 import { readRoster } from "../roster.js";
 import { chatSearchOn, chatSearchTool } from "../chatSearch.js";
 import { transcriptionForwarder } from "../../../../../apps/mcp/src/ingestion/transcription.js";
-import { markChatWords, markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { markChatWords, markUntrusted } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { carryCounts } from "../stretch.js";
 import { addressedTo } from "../../../../shared/src/texContract/toolContract.cjs";
 import { aiGatewayConfig } from "../aiGateway.js";

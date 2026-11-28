@@ -27,8 +27,8 @@ import { ownDispatch } from "./reflect.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { texConfigOf, texStep } from "./texConfig.js";
-import { personalNameFor } from "../../../../apps/mcp/src/context/identity.js";
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { personalNameFor } from "../../../shared/src/texContract/identity.cjs";
+import { controlPlaneFor } from "../contextMcp.js";
 import { appendNoteRun, listNoteRuns } from "./noteRunLog.js";
 import { isSheetCell } from "./noteRunSheet.js";
 import { isSheetPath, MAX_SHEET_ROWS } from "../../../shared/src/sheetCsv.cjs";
@@ -211,7 +211,7 @@ function stepLine(step) {
 /** The route's dependencies. Tests replace them; the Worker takes the defaults. */
 function dependencies(env, deps) {
   return {
-    controlPlane: deps.controlPlane ?? createControlPlane(env),
+    controlPlane: deps.controlPlane ?? controlPlaneFor(env),
     dispatchFor: deps.dispatchFor ?? ((store, session) => ownDispatch(store, session, env)),
     offeredFor: deps.offeredFor ?? ((session, store) => grantedToolsFor(session, store, { texts: true })),
     ledgerOf: deps.ledgerOf ?? ((owner) => ledgerFor(env, owner)),

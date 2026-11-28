@@ -14,6 +14,7 @@
  *   (iv)  roomCheck.js `wrap`: the `hitsBySlug` loop removed. "a search that names no closed workspace still keeps its hits" fails.
  *   (v)   roomCheck.js `ARG_KEYS`: "id" removed. "a read by an @slug/ id is kept" fails.
  */
+import "./gatewayConnected.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

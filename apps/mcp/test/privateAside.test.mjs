@@ -9,6 +9,7 @@
  * `withVaultWatch` outside `withPrivateLinks` and "the turn wraps the vault watch inside" fails.
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

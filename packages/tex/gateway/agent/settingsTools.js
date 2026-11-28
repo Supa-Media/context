@@ -22,7 +22,7 @@ import { namesOrAnswers } from "./consentContext.js";
 import { readQuietHours } from "./quietHours.js";
 import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.js";
 import { frontSet, readCheckinSettings, readSwitches } from "../../../../apps/mcp/src/http/texPage/notes.js";
-import { contextsFor } from "../../../../apps/mcp/src/context/identity.js";
+import { contextsFor } from "../../../shared/src/texContract/identity.cjs";
 import { FLAGS } from "../../../shared/src/flags.cjs";
 import { TEX_SETTINGS } from "../../src/texSettings.cjs";
 

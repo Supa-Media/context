@@ -11,7 +11,7 @@ import { ownDispatch } from "./reflect.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { texConfigOf, texStep } from "./texConfig.js";
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { controlPlaneFor } from "../contextMcp.js";
 import SHELF from "../../src/texNodeShelf.json" with { type: "json" };
 
 /** The node a run uses: the draft's when it has one, else main's, else the shelf's definition (never run live from there). */
@@ -55,7 +55,7 @@ export async function noteRunFromLab({ env, store, session, args, draftNode = nu
   // A Lab run is a Tex developer's (the Lab's own check, `labSandbox/route.js`), and like a test chat's turn it is not
   // counted against anyone's daily cap (`labSandbox/policy.js`): this connection's grant is an AI client's, which the
   // control plane would refuse the built-in model.
-  const real = deps.controlPlane ?? createControlPlane(env);
+  const real = deps.controlPlane ?? controlPlaneFor(env);
   const who = await Promise.resolve(real.labSandbox?.(session.accessToken, "who")).catch(() => null);
   if (who === null || who === undefined) return { error: "The control plane did not answer. Try again in a minute." };
   if (who.status === "refused" || typeof who.userId !== "string") return { error: "Only Tex developers (staff who edit @context-lc) run note runs from the Lab. Ask for Lab access, then try again." };

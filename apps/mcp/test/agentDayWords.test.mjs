@@ -27,6 +27,7 @@
  *     → the same test fails, and agentRoutine.test.mjs's daily "what's due today" routine is rewritten
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

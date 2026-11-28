@@ -13,9 +13,9 @@ import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { aboutMeChanges } from "./dream.js";
 import { readAboutMe } from "./aboutMe.js";
-import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
+import { actorFor, contextsFor } from "../../../shared/src/texContract/identity.cjs";
 import { contextTools } from "../contextMcp.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 
 export const NIGHTLY_RUNS = Object.freeze(["dream", "housekeeping"]);
 const OUT_CHARS = 2_000;

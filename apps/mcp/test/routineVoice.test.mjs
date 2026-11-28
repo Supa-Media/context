@@ -39,6 +39,7 @@
  * "I couldn't stop this check myself" with a pause sent for approval.
  */
 
+import "./gatewayConnected.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { saysQuiet, spokenToThem } from "../../../packages/tex/gateway/agent/checkInGuards.js";

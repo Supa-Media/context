@@ -5,6 +5,7 @@
  */
 
 import { withAppLink } from "../notes/appLink.js";
+import "./texConnection.js"; // hands Tex the parts it takes from the gateway, this dispatcher among them, once it loads
 import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
 import { afterRead, sandboxNamedAlike } from "../labSandbox/sandboxTools.js";
 import { withMailFooter } from "../mail/footer.js";
@@ -35,7 +36,7 @@ import {
   StorageUnavailable,
   writesAnywhere,
 } from "../session.js";
-import { isPlumbing } from "../privacy/engine.js";
+import { isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { editsPinnedContext } from "../context/identity.js";
 import { RUN_MODEL_WHO } from "./runModel.js";
 import { normalizePath } from "../notes/paths.js";
@@ -59,7 +60,6 @@ import { actsOnOwnAccount } from "../../../../packages/shared/src/texContract/gr
 import { wideningOf } from "../privacy/widening.js";
 import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
-import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
 import { TEXTS_GROUP_CLIENT_ID } from "../machines/reach.js";
 import { TEX_ASKS_TOOL, texAsks } from "./texAsks.js";

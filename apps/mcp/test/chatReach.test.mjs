@@ -21,6 +21,7 @@
  *   `groupOf` reading `reach` from the body                             -> "a body naming more ..." fails
  *   `groupPrompt` calling the reach the room's                          -> "the prompt names the reach ..." fails
  */
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

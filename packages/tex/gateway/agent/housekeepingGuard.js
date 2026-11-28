@@ -34,7 +34,7 @@
  *     500s, one month) takes the whole family (`widened`).
  */
 
-import { mightWiden } from "../../../../apps/mcp/src/privacy/egress.js";
+import { mightWiden } from "../../../shared/src/texContract/egressLedger.cjs";
 
 /** Tools a housekeeping run may read with. */
 export const HOUSEKEEPING_READS = new Set(["orient", "search_notes", "read_note", "list_notes"]);

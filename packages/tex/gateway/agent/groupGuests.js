@@ -18,14 +18,13 @@
  *    one, on that person's own yes (`as`, `tools/offerFor.js`); their yes settles nothing.
  */
 
-import { loadPrivacyState } from "../../../../apps/mcp/src/privacy/state.js";
-import { canSee, readsAsChat } from "../../../../apps/mcp/src/privacy/engine.js";
+import { namesReadAsChat, teamCanSee } from "../contextMcp.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { guestNameOf, numberOf } from "./groupNames.js";
 
 /** Whether this session reads only its chat's home, by the names its grant holds (its home-only grant reads as the chat). */
 export function isHomeOnlyChat(session) {
-  return readsAsChat(session?.grantedGroups);
+  return namesReadAsChat(session?.grantedGroups);
 }
 
 /**
@@ -162,7 +161,7 @@ export function homeOnlyCallTool(callTool, { store, group, guestTagger }) {
       const held = paths.all.find((path) => readOnly(path));
       if (held) return toolError(`${held} is shared with this chat to view only, so it can't be changed from here.`);
       for (const destination of paths.to) {
-        if (!(await chatReads(store, destination))) return toolError(`Not moved: ${destination} is outside what this chat can read, and a note moved there would leave the chat.`);
+        if (!(await teamCanSee(store, destination))) return toolError(`Not moved: ${destination} is outside what this chat can read, and a note moved there would leave the chat.`);
       }
     }
     if ((name === "send_email" || name === "calendar_event") && guestTagger && supplied.as === undefined) {
@@ -191,16 +190,6 @@ function hiddenNameRefusal(result, path, group) {
   const text = Array.isArray(result.content) ? result.content.map((part) => part?.text ?? "").join("") : "";
   if (!text.startsWith("permission denied:")) return result;
   return toolError(`That name can't be written from this chat. Save it under a different name in ${folder}/ and send that link; nothing else needs to change.`);
-}
-
-/** Whether the chat reads `path`, by its store's rules (which are the chat's own). */
-async function chatReads(store, path) {
-  try {
-    const { rules, overrides, error } = await loadPrivacyState(store);
-    return !error && canSee(path, "team", rules, overrides, null);
-  } catch {
-    return false;
-  }
 }
 
 /**

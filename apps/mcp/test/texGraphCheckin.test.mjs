@@ -8,6 +8,7 @@
  * for the note tools and the tree, so a graph runner can rely on the node's
  * outputs without the rest of the check-in.
  */
+import "./gatewayConnected.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { checkin } from "../../../packages/tex/gateway/agent/graph/nodes/checkin.js";

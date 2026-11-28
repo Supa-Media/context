@@ -11,3 +11,14 @@ export function encodeBase64(bytes) {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
+
+// Tex's copy of apps/mcp/src/oauth/responses.js `randomToken` and `base64Url` (the gateway keeps its own).
+export function base64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function randomToken(bytes = 32) {
+  return base64Url(crypto.getRandomValues(new Uint8Array(bytes)));
+}

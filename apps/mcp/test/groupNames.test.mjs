@@ -8,6 +8,7 @@
  * "the tagger is named by handle and name".
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

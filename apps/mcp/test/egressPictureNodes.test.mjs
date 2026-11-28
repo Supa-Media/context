@@ -8,6 +8,7 @@
  *   picture.js always passing check null                                  → "the picture node runs its check through the card node's wire" fails
  *   texConfig.json's picture -> card wire dropped                         → "the picture node runs its check through the card node's wire" fails
  */
+import "./gatewayConnected.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

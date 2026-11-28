@@ -1,7 +1,7 @@
 /** Prepares what the turn records: usage, the turn log, the ledger turn id, the pictures to keep. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { setupLogged } from "../promptModules.js";
-import { newLedger } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { contextTools } from "../../contextMcp.js";
 import { BUILTIN_PROVIDER } from "../builtin.js";
 import { heardEntry, heardEvents } from "../heardWords.js";

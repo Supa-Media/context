@@ -11,6 +11,7 @@
  * has no personal Tex to reach through" fails.
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

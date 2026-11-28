@@ -3,8 +3,8 @@
 import { underNote } from "../replyUnder.js";
 import { speaker } from "../logRender.js";
 import { shapeNote } from "../shapeGate.js";
-import { contextsFor } from "../../../../../apps/mcp/src/context/identity.js";
-import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { contextsFor } from "../../../../shared/src/texContract/identity.cjs";
+import { markUntrusted } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { screenNote } from "../screen.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";

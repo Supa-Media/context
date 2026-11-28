@@ -15,6 +15,7 @@
  *     survives a texting wrapper's spread" fails.
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

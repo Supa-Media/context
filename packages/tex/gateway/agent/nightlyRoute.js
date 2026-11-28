@@ -10,9 +10,9 @@ import { DREAMS_CLIENT_ID } from "./dream.js";
 import { HOUSEKEEPING_CLIENT_ID } from "./housekeeping.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { sessionLedger } from "./ledger.js";
-import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
+import { actorFor, contextsFor } from "../../../shared/src/texContract/identity.cjs";
 import { contextTools } from "../contextMcp.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 import { json } from "../util/responses.js";
 
 /**

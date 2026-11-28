@@ -11,6 +11,7 @@
  *  - `groupPrompt` leaving out `chatCalendarPrompt`: "the turn is told whose calendar it can read".
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chatCalendarOf, chatCalendarPrompt } from "../../../packages/tex/gateway/agent/groupCalendar.js";
