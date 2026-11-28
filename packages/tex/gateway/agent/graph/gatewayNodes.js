@@ -76,6 +76,7 @@ import { tapbackNode } from "./nodes/tapback.js";
 import { decideWhyNode } from "./nodes/decideWhy.js";
 import { shapeGateNode } from "./nodes/shapeGate.js";
 import { partEndNode } from "./nodes/partEnd.js";
+import { splitNode } from "./nodes/split.js";
 import { jobReportNode } from "./nodes/jobReport.js";
 import { jobStartNode } from "./nodes/jobStart.js";
 import { reportRunNode } from "./nodes/reportRun.js";
@@ -212,6 +213,8 @@ export const GATEWAY_NODES = {
   get shapeGate() { return shapeGateNode; },
   // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
   get partEnd() { return partEndNode; },
+  // One job with several parts at once: a split's parts listed and picked back up together (`nodes/split.js`, `jobSplit.cjs`).
+  get split() { return splitNode; },
   // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
   get jobReport() { return jobReportNode; },
   // New run, on the shelf: where a job's report starts its new run, its one wire (`nodes/reportRun.js`, `texRunNodes.cjs`).

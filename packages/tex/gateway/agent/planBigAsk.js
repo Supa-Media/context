@@ -13,7 +13,8 @@
  * writes the project's overview note and one task note per part through the
  * turn's own dispatcher (every write the turn's grant could make, and no
  * other), and starts one background job per part, each joined to the
- * overview's mail (`background.js` `call`), so the turn texts one "on it".
+ * overview's mail (`background.js` `call`), so the turn texts one "on it". The parts are one split job
+ * (`packages/shared/src/jobSplit.cjs`): the overview's path is its id and the plan's title its name.
  *
  * The model only names parts. The gateway caps them at the free slots, keeps
  * the notes inside the one folder the turn named, never writes over a note
@@ -243,7 +244,8 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
         done_when: part.doneWhen,
         mail: { path: overviewPath, name: part.name },
         ...(part.computer ? { on_computer: { name: part.computer } } : {}),
-      });
+        // One split job: its parts are listed, checked and picked back up together (`jobSplit.cjs`).
+      }, { split: plan.title });
       (result?.isError === true ? failed : started).push(part.title);
     }
     if (started.length === 0) return withThought(text(`The notes are in ${folder}, but no part could start. Tell them, in a line.`, true));
@@ -272,9 +274,9 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
 export function splitFirst(background) {
   const start = background.call;
   let asked = false;
-  background.call = async (args) => {
+  background.call = async (args, options) => {
     const lone = !args?.mail && background.started.length === 0 && background.freeSlots() >= 2;
-    if (asked || !lone) return start(args);
+    if (asked || !lone) return start(args, options);
     asked = true;
     return text(
       "Not started yet. Does this ask have parts that can run at the same time, each real work on its own (say dinners, a day trip and a " +

@@ -430,6 +430,44 @@ and a big one. Tests: `apps/mcp/test/machineForJobs.test.mjs` ("a
 deployment that binds MACHINE_STORE"), `agentPlanBigAsk.test.mjs` ("code
 goes to a computer").
 
+## A split is one job with several parts at once (Grok Bot for Seyi, 2026-11-28)
+
+The 2026-11-06 split showed that a planned split was really several jobs, each started, picked back up and ended on
+its own. "Try again" resumed only the part that had ended, so the MacBook ran alone for twelve minutes waiting on a
+partner that never started. A cloud part waiting on mail spent all ten of its parts checking. The front door said
+"the split job now includes the Tex cloud workers as a third part" when the turn had only passed a text to one running
+job. Option C of `@supa products/tex/research/split-jobs-one-job-2026-11-24.md` makes the split one job:
+
+- **One split, several parts.** The planner's parts carry one split: the overview note's path is its id and the
+  plan's title is its name (`packages/shared/src/jobSplit.cjs`, the config's Split job node). Only the planner makes
+  one; a job the model starts is never a split. Each part still runs in a `job:<id>` object of its own on its named
+  worker and takes its own slot, so the three cloud slots and each computer's slots hold. The job's model and its
+  advisor at three points are as before.
+- **Listed and checked as one job.** The chat's background list shows the split's title and its part count, with each
+  part's own line under it (`jobSplitList.js`). `job_status` on the split's title shows every part.
+- **"Try again" picks back up every unfinished part.** A restart that names any part, or the split's title, picks
+  back up every part of it that can still be picked up (`restartSet`). A done part stays done, and another job is
+  not touched.
+- **A part that waits sleeps.** A split's part whose advisor says it is waiting no longer ends. Part end answers
+  `sleep` (`jobPartEnd.cjs`): its words go to the chat's coordinator, and its object keeps the run asleep for at most
+  `sleepMinutes` (120) and never past the job's own time. It keeps its slot and uses up no parts. Mail on its note,
+  or a text passed to it, wakes it into its next part, which is shown what came (`jobSleep.ts`, `jobDrive.ts`
+  `wakeDrive`). A sleep that runs out ends the job waiting, as it would have ended before. Limit: the advisor's
+  `waiting` verdict still means only the person can give what is needed, so a part waiting on a partner that the
+  advisor calls `keep_going` still carries on; teaching the advisor that a partner's mail is a wait is a model-area
+  change for Training.
+- **"Started it" is checked.** A front-door reply that says it started, restarted or picked back up a job, or added
+  a part or worker to one, goes back once when no call this turn started or picked one up (`startedClaim.js`). The
+  notice is the turn's facts as data.
+
+`plan_big_asks` is still off in production; this lands before any promotion of split planning.
+
+**What a simplification would cost:** splitting back into separate jobs brings back the lone resumed part and the
+parts that spend themselves waiting; a split part that ends instead of sleeping needs a restart for every mail;
+dropping the start check lets a reply promise a part that never runs. Tests: `apps/mcp/test/agentSplitJob.test.mjs`,
+`apps/mcp/test/startedClaim.test.mjs`, `apps/mcp/test/jobPartEnd.test.mjs` (sleep), and
+`packages/tex/worker/machineTurn.test.ts` ("a part of a split job that ends waiting sleeps until mail wakes it").
+
 ## A job paused at the daily limit picks itself back up (2026-11-05)
 
 Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit said "Text me tomorrow and I'll pick it back up", but the paused job's run was kept two hours, so the next day "pick it back up" found nothing.

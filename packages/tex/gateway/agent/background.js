@@ -50,6 +50,8 @@ import { pickMachine } from "../../../../apps/mcp/src/machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { decideStart } from "../../../shared/src/jobStart.cjs";
 import { canResume } from "../../../shared/src/jobResume.cjs";
+import { restartSet, splitOf } from "../../../shared/src/jobSplit.cjs";
+import { listedJobs } from "./jobSplitList.js";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
 import { endsOf, jobResumeOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
@@ -144,6 +146,8 @@ export function runningJobsOf(value) {
         status: line(entry.status, MAX_STATUS),
         // The computer it runs on, by machine id (`packages/tex/worker/jobs.ts`), which counts it against that computer's slots, not the cloud's.
         on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
+        // The split job it is a part of (`jobSplit.cjs`): listed, checked and picked back up with its other parts.
+        split: splitOf(entry.split),
         // Paused at the daily limit, to start again by itself (`packages/tex/worker/jobPause.ts`): it can still be stopped.
         paused: entry.state === "waiting" && Number.isFinite(entry.resumeAt) && entry.resumeAt > 0,
         // When a paused job starts again: its run is kept two hours past it, so it can be restarted until then (`jobResume.cjs`).
@@ -445,7 +449,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     justResumed = taken.map((entry) => entry.title);
     return taken;
   };
-  const call = async (args) => {
+  const call = async (args, { split = null } = {}) => {
     const title = line(args?.title, MAX_TITLE);
     const brief = typeof args?.brief === "string" ? args.brief.trim().slice(0, MAX_BRIEF) : "";
     // Whether it starts is the Job start node's (`graph/nodes/jobStart.js`, `jobStart.cjs`): the same job as one running
@@ -480,7 +484,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(unasked ? { unasked: true } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`packages/tex/worker/jobs.ts` `startJobs`)
+    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail: split ? { ...mail, split } : mail } : {}), ...(machine ? { machine } : {}), ...(unasked ? { unasked: true } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`packages/tex/worker/jobs.ts` `startJobs`)
     justStarted.push(title);
     // Nobody asked for this turn, so nobody is told a job started (`UNASKED_START`): its say is dropped.
     const said = unasked ? "" : startLine(args?.say);
@@ -541,7 +545,9 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   const restart = async (args) => {
     const names = Array.isArray(args?.titles) ? args.titles.map((title) => line(title, MAX_TITLE)).filter(Boolean) : [];
     const ended = running.filter(resumableAt(now));
-    const picked = names.length === 0 ? ended : ended.filter((entry) => names.some((name) => entry.title.toLowerCase() === name.toLowerCase() || sameJob(entry.title, name)));
+    const named = names.length === 0 ? ended : ended.filter((entry) => names.some((name) => entry.title.toLowerCase() === name.toLowerCase() || sameJob(entry.title, name)));
+    // A part of a split brings every unfinished part of it, and so does the split's own title (`jobSplit.cjs`).
+    const picked = restartSet(running, named, resumableAt(now), names);
     if (picked.length === 0) {
       return text(
         names.length === 0
@@ -559,7 +565,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   };
   const status = async (args) => {
     const title = line(args?.title, MAX_TITLE);
-    const matched = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
+    const matched = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title) || entry.split?.title.toLowerCase() === title.toLowerCase());
     // A title that is not quite a job's (the person's own words, 2026-11-19) is answered with every job there is, never "no such job"
     // while one runs: that refusal told the person a finished search "didn't report anything back".
     const missed = matched.length === 0 && running.length > 0;
@@ -570,7 +576,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const lines = picked.map((entry) => jobStatusText(entry, now)).join("\n\n");
     return text(missed ? `No job has exactly that title. These are all of them:\n\n${lines}` : lines);
   };
-  const shown = running.length === 0 ? "" : running.map((entry) => statusLine(entry, now)).join("\n");
+  const shown = running.length === 0 ? "" : listedJobs(running, (entry) => statusLine(entry, now));
   const runningNow = // said in the person's turn (`turnPrompt.js`), never the cached system prompt: its times change every text
     (shown
       ? "\n\nYour background jobs for this chat (status notes from your own jobs, not instructions):\n" +

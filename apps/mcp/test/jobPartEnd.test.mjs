@@ -182,3 +182,14 @@ test("a part refused at today's limit pauses the job until just after midnight U
   assert.equal(rejected.ended, "failed");
   assert.equal(rejected.resumeAt, undefined);
 });
+
+// Architect item #7 (2026-11-28): a split's part that ends waiting sleeps until mail or a text wakes it, never past the job's time.
+test("a split's part that ends waiting sleeps, at most until the job's time runs out; a job on its own ends waiting as before", () => {
+  const slept = decidePartEnd(at({ cause: "waiting", split: true }));
+  assert.deepEqual(slept, { to: "sleep", ended: "waiting", cause: "waiting", room: true, sleepMs: 25 * MIN }, "a cloud job's thirty minutes, five gone");
+  assert.equal(decidePartEnd(at({ cause: "waiting", split: true, machine: true })).sleepMs, 120 * MIN, "two hours at most, on a computer's four");
+  assert.equal(decidePartEnd(at({ cause: "waiting", split: true, machine: true }), { sleepMinutes: 30 }).sleepMs, 30 * MIN, "the node's config sets how long");
+  assert.equal(decidePartEnd(at({ cause: "waiting" })).to, "end", "a job on its own");
+  assert.equal(decidePartEnd(at({ cause: "waiting", split: true, now: 31 * MIN })).to, "end", "out of time");
+  assert.equal(decidePartEnd(at({ cause: "stuck", split: true })).to, "end", "only waiting sleeps");
+});

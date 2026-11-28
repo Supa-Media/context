@@ -12,7 +12,7 @@
  */
 
 /** The limits a job's parts run under when the config names none: today's numbers, so wiring this changes nothing. */
-const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2, staleParts: 0 });
+const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2, staleParts: 0, sleepMinutes: 120 });
 
 /** Why a part ended (`packages/tex/worker/jobProgress.ts` `PartCause`). */
 const CAUSES = Object.freeze(["done", "waiting", "stuck", "check_limit", "timeout", "crash", "model_down", "steps_out", "unfinished", "changed", "stopped", "refused"]);
@@ -45,6 +45,7 @@ function limitsOf(config) {
     machineMinutes: whole(given.machineMinutes, DEFAULT_LIMITS.machineMinutes),
     resumeAfterMinutes: whole(given.resumeAfterMinutes, DEFAULT_LIMITS.resumeAfterMinutes),
     staleParts: whole(given.staleParts, DEFAULT_LIMITS.staleParts),
+    sleepMinutes: whole(given.sleepMinutes, DEFAULT_LIMITS.sleepMinutes),
   };
 }
 
@@ -64,12 +65,14 @@ function roomLeft({ part, startedAt, now, machine }, limits) {
 /**
  * What follows a part.
  *
- * `to`: "carry" starts the next part; "deliver" sends the last draft the job saved; "end" ends the job as `ended` says.
+ * `to`: "carry" starts the next part; "deliver" sends the last draft the job saved; "end" ends the job as `ended` says;
+ * "sleep" keeps a part of a split job (`split`, `jobSplit.cjs`) that ended waiting asleep for `sleepMs`: mail on its
+ * note or their text wakes it into its next part, and a sleep that runs out ends it waiting, as "end" would have.
  * `ended` (with "deliver" and "end"): "done", "waiting", "stuck" or "failed".
  *
  * Input: `cause` (above), `part` (this part's number, from 1), `startedAt` and `now` (ms), `machine` (it runs on the
  * person's own computer), `hasDraft` (a draft is saved), `idle` (this part called no tool and wasn't done), `wasIdle`
- * (the part before it was idle too), `rejected` (turned down before it ran, as opposed to refused for now), `refusal`
+ * (the part before it was idle too), `split` (it is one part of a split job), `rejected` (turned down before it ran, as opposed to refused for now), `refusal`
  * (why a part was refused for now: "daily_limit" or "no_model"), `fresh` (how many of this part's tool results brought
  * back something no earlier part had), `staleBefore` (how many parts in a row before it brought back nothing new).
  *
@@ -98,6 +101,14 @@ function decidePartEnd(input, config) {
   }
   const stale = limits.staleParts > 0 && LOOKING.includes(cause) && input?.fresh === 0 && (Number(input?.staleBefore) || 0) + 1 >= limits.staleParts;
   if (CARRY.includes(cause) && room && !spinning && !stale) return { to: "carry", cause, room };
+  // A split's part waiting on a partner's mail, or on them, sleeps instead of ending, so the next word wakes it where it
+  // was without a restart and without using up parts (2026-11-06: a split's parts each ended or ran out on their own
+  // while they waited on each other). Never past the job's own time: it sleeps at most until that runs out.
+  if (cause === "waiting" && input?.split === true && room) {
+    const most = (input?.machine === true ? limits.machineMinutes : limits.minutes) * 60_000;
+    const sleepMs = Math.min(limits.sleepMinutes * 60_000, most - ((Number(input?.now) || 0) - (Number(input?.startedAt) || 0)));
+    if (sleepMs > 0) return { to: "sleep", ended: "waiting", cause, room, sleepMs };
+  }
   const pause = cause === "refused" && input?.rejected !== true && input?.refusal === "daily_limit" ? { resumeAt: limitResetAt(Number(input?.now) || 0, limits) } : {};
   return { to: "end", ended: endedAs(cause, input?.rejected === true, input?.checked), cause, room, ...(spinning ? { spinning: true } : {}), ...(stale && !spinning ? { stale: true } : {}), ...pause };
 }

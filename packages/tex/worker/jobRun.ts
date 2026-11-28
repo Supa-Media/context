@@ -43,7 +43,8 @@ import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
 import { askPartEnd, partEndChoice } from "./jobPartEnd";
-import { driveJob, OVERLAP_WAIT_MS, startDrive, type JobStep } from "./jobDrive";
+import { driveJob, OVERLAP_WAIT_MS, startDrive, wakeDrive, type JobStep } from "./jobDrive";
+import { wakeOf } from "./jobSleep";
 import { carryPatch, freshness, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
@@ -67,7 +68,7 @@ export type JobDeps = {
  * and a last update the inbox didn't take, offered again without running the
  * turn again.
  */
-type Stored = JobRun & { sent?: number; owed?: Omit<JobUpdate, "id" | "first">; owedTries?: number };
+type Stored = JobRun & { sent?: number; owed?: Omit<JobUpdate, "id" | "first">; owedTries?: number; /** A split's part asleep until then (`jobSleep.ts`). */ asleep?: number };
 
 const RETRY_MS = 20_000;
 /** A progress line worth texting from a job: one with a link in it, like a sign-in page. Others only update the status. */
@@ -193,10 +194,12 @@ export async function resumeJob(storage: InboxStorage, now: number, steer?: JobS
  * answers it on its own).
  */
 export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<boolean> {
-  if ((await storage.get<JobRun>(RUN_KEY)) === undefined) return false;
+  const held = await storage.get<Stored>(RUN_KEY);
+  if (held === undefined) return false;
   if (steer.stop) await storage.put(STOP_KEY, true);
   const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, keptSteers([...steers, steer]));
+  if (held.asleep !== undefined) await wakeDrive(storage, Date.now()); // a split's part asleep wakes to it (`jobSleep.ts`)
   const running = live.get(storage);
   if (running?.machine) {
     // A part on their computer: the words go into its session, and a stop cancels it there (`machines/jobRoutes.js`).
@@ -270,6 +273,14 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
   if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   await storage.put(PASS_KEY, pass);
+  if (run.asleep !== undefined) {
+    const wake = await wakeOf(storage, STEERS_KEY, run.asleep, deps.now());
+    if (wake.kind === "sleep") return { kind: "after", ms: wake.ms };
+    const { asleep: _slept, ...woken } = run;
+    if (wake.kind === "end") return await finish(storage, woken, { state: "waiting", texts: [], part: run.attempt - 1 }, tell, deps.now(), pass);
+    await storage.put<Stored>(RUN_KEY, woken);
+    delete run.asleep;
+  }
   // What earlier parts saved, and what a pass whose object died mid-part had saved before it went (`jobProgress.ts`).
   const leftOver = await storage.get<JobSaved>(PROGRESS_KEY), savedBefore = mergeSaved(run.saved, leftOver);
   if (savedBefore !== undefined) run.saved = savedBefore;
@@ -381,7 +392,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
   // What follows the part is the config's Part end node (`jobPartEnd.ts`), a pause at today's limit too; a stop or a service out of tries ends here.
-  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}), ...(outcome.kind === "answer" ? { checked: checkedAs(outcome, unfinished), ...(found.counted ? { fresh: found.fresh, staleBefore: found.staleBefore } : {}) } : {}) };
+  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, split: run.mail?.split !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}), ...(outcome.kind === "answer" ? { checked: checkedAs(outcome, unfinished), ...(found.counted ? { fresh: found.fresh, staleBefore: found.staleBefore } : {}) } : {}) };
   const choice = outcome.kind === "answer" || outcome.kind === "broken" || outcome.kind === "refused" || outcome.kind === "rejected" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
   const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
@@ -391,23 +402,26 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     const draftTexts = textsFromAnswer(run.saved.draft);
     return await finish(storage, { ...run, sent, draft: run.saved.draft.slice(0, MAX_DRAFT) }, { state: choice.ended === "done" ? "done" : "stuck", status: `Sent its last draft: ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280), texts: draftTexts, part: run.attempt, ends }, tell, deps.now(), pass);
   }
-  if (choice?.to === "carry") {
+  const sleeps = choice?.to === "sleep" && outcome.kind === "answer" ? deps.now() + (choice.sleepMs ?? 0) : undefined; // a split's part waiting sleeps (`jobSleep.ts`)
+  if (choice?.to === "carry" || sleeps !== undefined) {
+    // Asleep: its words go to the chat as a waiting part's do, before the run is kept (the count of texts sent is in it).
+    if (sleeps !== undefined && outcome.kind === "answer" && outcome.texts.length > 0) await tell({ state: "running", texts: outcome.texts, status: (advice || outcome.status).slice(0, 280) });
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
-    const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
+    const draft = (changed || unfinished || sleeps !== undefined) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     // A part cut off before it answered (2026-11-08) no longer hands on step names (`cutOff`): everything it got is in `saved`.
     const { unfinished: _was, advice: _said, idle: _idle, cutOff: _cut, carryFrom: _from, resumedTry: _tried, ...kept } = run;
     // What this part did, one line, so a job that ends short reports every part and not only its last (2026-11-06:
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, ...(roomRead.length > 0 ? { roomRead } : {}), attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, ...(roomRead.length > 0 ? { roomRead } : {}), attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}), ...(sleeps !== undefined ? { asleep: sleeps } : {}) });
     await tell({
       state: "running",
       part: run.attempt + 1,
       ends,
       ...watch,
       ...checked,
-      status: mailed
+      status: sleeps !== undefined && outcome.kind === "answer" ? (advice || outcome.status).slice(0, 280) : mailed
         ? `Answering mail from ${left.find((steer) => steer.mail)?.mail?.from ?? "another agent"}`
         : changed
         ? "Changing it to what you texted"
@@ -418,8 +432,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
             : `Still going: part ${run.attempt + 1} of at most ${run.machine !== undefined ? MAX_MACHINE_JOB_ATTEMPTS : MAX_JOB_ATTEMPTS}`,
     });
     // Why it carried on, so a part that ran again can be explained from the log alone (2026-11-08: it could not).
-    log("carry_on", run.id, outcome.kind === "broken" ? `broken:${outcome.cause}` : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
-    return { kind: "now" };
+    log(sleeps !== undefined ? "asleep" : "carry_on", run.id, outcome.kind === "broken" ? `broken:${outcome.cause}` : changed ? "changed" : unfinished ? "unfinished" : sleeps !== undefined ? "waiting" : "exhausted");
+    return sleeps !== undefined ? { kind: "after", ms: sleeps - deps.now() } : { kind: "now" };
   }
   if (outcome.kind === "rejected") log("rejected", run.id, outcome.why); // 2026-11-05: a voice-only ask gave a job no question, and ten refused parts went in eight seconds, with no reason kept
   const ended = outcome.kind === "answer" && (choice?.ended === "waiting" || choice?.ended === "stuck") ? choice.ended : "done"; // how it ended is the Part end node's: waiting on them, stuck (short when its room ran out too), else done
@@ -512,7 +526,7 @@ async function finish(
   }
   if (update.state === "done") await storage.delete(ENDED_KEY);
   else {
-    const { sent: _s, owed: _o, owedTries: _t, unfinished: _u, idle: _i, ...kept } = run;
+    const { sent: _s, owed: _o, owedTries: _t, unfinished: _u, idle: _i, asleep: _z, ...kept } = run;
     const keepUntil = update.resumeAt === undefined ? undefined : update.resumeAt + JOB_SHOWN_MS;
     await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now, ...(keepUntil !== undefined ? { keepUntil } : {}) });
     await storage.setAlarm((keepUntil ?? now + JOB_SHOWN_MS) + 60_000);
