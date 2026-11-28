@@ -16,6 +16,9 @@
  * That turn's question is the line below, never anything the Worker sends.
  */
 
+import { browserHash } from "../../../shared/src/texContract/browserHandback.cjs";
+export { browserHash };
+
 export const HANDED_BACK_QUESTION =
   "(Not a text from them. Context sent this by itself: someone in this chat pressed Done on the browser you handed over, so it's yours again. " +
   "Read the page now and carry on with the task straight away: finish what's left and press the page's own button; don't ask whether they finished or wait for a text. " +
@@ -26,13 +29,6 @@ export const HANDED_BACK_QUESTION =
 export function handedBackQuestion(body, { texting, job }) {
   if (!texting || job !== null) return null;
   return body?.event === "browser_handed_back" ? HANDED_BACK_QUESTION : null;
-}
-
-/** The hex SHA-256 of a browser's tag, or null for anything that isn't one. */
-export async function browserHash(tag) {
-  if (typeof tag !== "string" || !/^[0-9a-f]{64}$/.test(tag)) return null;
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`browser-handback:${tag}`));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** `{ handbackWatch }` for a turn that handed its browser over, else nothing (`texEntryPoint/sendTheReply.js`). */

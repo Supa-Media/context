@@ -1,6 +1,6 @@
 /** Starts reading the tools and the history, and checks the model may run here (beside the model on a lean chat). One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
 import { turnReads } from "../loggedTurn.js";
 import { keepRun } from "../routine.js";

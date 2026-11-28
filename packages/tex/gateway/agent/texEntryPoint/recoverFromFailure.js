@@ -1,6 +1,6 @@
 /** A turn that threw: withdraws the asks nobody was told about, records the failure, and answers or rethrows. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { withdrawPending } from "../../../../../apps/mcp/src/tools/approvals.js";
 import { BUILTIN_PROVIDER } from "../builtin.js";
 import { ProviderError } from "../providers.js";

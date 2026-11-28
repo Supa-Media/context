@@ -13,7 +13,7 @@ import { sessionLedger } from "./ledger.js";
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
 import { contextTools } from "../contextMcp.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 
 /**
  * `/agent` for the dreams client: it dreams, and does nothing else. A `dream` body from any other client goes to the

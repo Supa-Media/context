@@ -44,7 +44,7 @@
   their own texts with Tex, and nothing kept which note. So a note a check-in
   read is kept as `read:<path>`, the same kind of name `note:` is.
 */
-import { EMAIL_ID_PREFIX, parseEmailId } from "../../../../apps/mcp/src/tools/emailRead.js";
+import { EMAIL_ID_PREFIX, parseEmailId } from "../../../shared/src/texContract/emailRead.cjs";
 
 export const NOTE_SOURCE_PREFIX = "note:";
 export const READ_SOURCE_PREFIX = "read:";

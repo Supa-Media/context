@@ -2,7 +2,7 @@
 
 import { openAskBefore } from "../openAsk.js";
 import { roundsField } from "../lastRound.js";
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { advisorRequest } from "../advisor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { attachmentsLine } from "../attachments.js";

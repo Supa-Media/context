@@ -30,7 +30,7 @@
 
 import { keepDownload } from "./downloads.js";
 import { resolveUpload } from "./uploads.js";
-import { toolError } from "../../../../apps/mcp/src/tools/results.js";
+import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 
 const EMAIL_TOOLS = new Set(["send_email", "save_email_draft"]);
 const ATTACHMENT = /^attachment:(\d{1,2})$/i;

@@ -29,8 +29,8 @@
 
 import { keepDownload, readDownload } from "./downloads.js";
 import { QUOTATION, fileWords, pdfPagesPart, typeOfFile } from "../../../../apps/mcp/src/tools/readFile.js";
-import { isTable, partLines, partOf } from "../../../../apps/mcp/src/tools/fileParts.js";
-import { toolError, toolText } from "../../../../apps/mcp/src/tools/results.js";
+import { isTable, partLines, partOf } from "../../../shared/src/texContract/fileParts.cjs";
+import { toolError, toolText } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** `download:<id>`, optionally `@<from>`: where in a kept file's words to start. */
 const REF = /^(download:\d{13}-[sl]-[a-f0-9]{32})(?:@(\d{1,9}))?$/;

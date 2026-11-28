@@ -14,21 +14,12 @@
  * the marks names use, on one short line, so it can't carry an instruction.
  */
 
+import { cleanName } from "../../../shared/src/texContract/personNameText.cjs";
+export { cleanName };
+
 const MAX_NAMES = 32;
-const MAX_NAME = 80;
 /** A handle as `functions/lib/names.ts` allows one. */
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
-
-/** A name as told to the turn: letters, marks, spaces, apostrophes, hyphens and periods, one line. */
-export function cleanName(name) {
-  if (typeof name !== "string") return "";
-  return name
-    .replace(/[^\p{L}\p{M}\s'’.-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_NAME)
-    .trim();
-}
 
 /** The chat's people by handle and name, from the Worker's body: only handles of people in this chat, each once. */
 export function namesOf(raw, handles) {

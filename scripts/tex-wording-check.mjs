@@ -36,7 +36,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const LIST = "packages/tex/wording.json";
 // apps/mcp/src/tools joined 2026-11-27 (Dev2, 2026-11-26: "remember our rule for hardcoded lines"): the gates' hold
 // lines were Tex's words written in the gateway's tools, out of this count's sight.
-export const FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src", "apps/mcp/src/tools"];
+// packages/shared/src/texContract joined 2026-11-28: the helpers Tex and the gateway share moved there from both
+// sides on the way to Tex reaching Context only over MCP, and their wording stays in this count's sight.
+export const FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src", "apps/mcp/src/tools", "packages/shared/src/texContract"];
 /** The folders a list from before it named its own (`folders`) counted. */
 const FIRST_FOLDERS = ["packages/tex/worker", "packages/tex/gateway", "packages/tex/src", "apps/agent/src"];
 const SOURCE = /\.(?:m?js|cjs|ts)$/;

@@ -33,7 +33,7 @@
 import { eventEntry, ledgerPlace } from "./ledger.js";
 import { startBackfill } from "./ledgerBackfill.js";
 import { dayFromLedger } from "./ledgerHistory.js";
-import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../../apps/mcp/src/session.js";
 import { EVERY_CHAT, disarmRecords, listPending, withdrawPending } from "../../../../apps/mcp/src/tools/approvals.js";
 import { appendEvents, checkEvents, EventRefusal } from "./log.js";

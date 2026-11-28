@@ -20,8 +20,9 @@ import { toolError, toolText } from "./results.js";
 import { AI_ACCESS_STEP } from "./googleAiAccess.js";
 import { parseEmailId } from "./emailRead.js";
 import { attachedFiles, readAttach } from "./emailAttach.js";
+import { EMAIL_TOOL } from "../../../../packages/shared/src/texContract/toolContract.cjs";
 
-export const EMAIL_TOOL = "send_email";
+export { EMAIL_TOOL };
 export const EMAIL_DRAFT_TOOL = "save_email_draft";
 
 /** Kept equal to `apps/convex/functions/lib/personEmail.ts`, which checks again. */

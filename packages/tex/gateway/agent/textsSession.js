@@ -15,7 +15,7 @@
  * path made four, and none of its reads (zone, style, identity) left on the way.
  */
 
-import { sha256Hex } from "../../../../apps/mcp/src/controlPlane/client.js";
+import { sha256Hex } from "../util/sha256.js";
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { objectToken } from "../../../../apps/mcp/src/workspaceStore/access.js";
 import { workspaceClient } from "../../../../apps/mcp/src/workspaceStore/api.js";

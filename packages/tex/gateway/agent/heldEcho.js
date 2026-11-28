@@ -12,7 +12,7 @@
  * line introducing one ("here it is:"). Whatever else the model said stays.
  */
 
-import { EMAIL_TOOL } from "../../../../apps/mcp/src/tools/email.js";
+import { EMAIL_TOOL } from "../../../shared/src/texContract/toolContract.cjs";
 
 /** A line that heads an email: "To: …", "Subject: …". */
 const HEADER = /^\s*(?:from|to|cc|bcc|subject)\s*:/im;

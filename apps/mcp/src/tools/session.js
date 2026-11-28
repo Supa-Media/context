@@ -55,7 +55,7 @@ import { irreversibleOf } from "./irreversible.js";
 import { slackPlace } from "./connectors.js";
 import { likedPreviewAllows } from "./likedPreview.js";
 import { wordsOfTurn } from "../../../../packages/tex/gateway/agent/conversation.js";
-import { actsOnOwnAccount } from "../../../../packages/tex/gateway/agent/groupTurn.js";
+import { actsOnOwnAccount } from "../../../../packages/shared/src/texContract/groupSession.cjs";
 import { wideningOf } from "../privacy/widening.js";
 import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";

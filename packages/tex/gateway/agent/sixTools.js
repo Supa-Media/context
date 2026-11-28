@@ -34,7 +34,7 @@ import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
 import { GUEST_NAME_SEND_ACTIONS, HOLDERS_SEND_ACTIONS } from "./groupGuestNames.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { PRIVATE_ASIDE_SEND_ACTIONS } from "./privateAside.js";
-import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
+import { TEXTS_ID_PREFIX } from "../../../shared/src/texContract/toolContract.cjs";
 import { withNothingChanged } from "./noteLinks.js";
 import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
 import { sendShapeRefusal } from "./sixCallShape.js";

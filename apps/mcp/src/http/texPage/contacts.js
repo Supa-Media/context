@@ -15,7 +15,7 @@
  */
 
 import { guestNameEntry, readGuestNames, readGuestNumbers } from "../../../../../packages/tex/gateway/agent/groupGuestNames.js";
-import { cleanName } from "../../../../../packages/tex/gateway/agent/groupNames.js";
+import { cleanName } from "../../../../../packages/shared/src/texContract/personNameText.cjs";
 import { PageRefusal } from "./page.js";
 
 export const TEX_CONTACTS_PATH = "/tex/page/contacts";

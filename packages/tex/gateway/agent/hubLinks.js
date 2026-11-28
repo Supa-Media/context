@@ -15,18 +15,11 @@
  * falls back to its own short-lived view (`packages/tex/worker/jobs.ts`).
  */
 
-import { ownHandle } from "../../../../apps/mcp/src/http/texComputer.js";
 import { appOriginOf } from "./noteLinks.js";
+import { personHubUrl } from "../../../shared/src/texContract/personHub.cjs";
+export { personHubUrl };
 
-const HANDLE = /^[a-z0-9-]{2,32}$/;
 const HOME = /^tex\/groups\/([a-z]+(?:-[a-z]+){1,4})$/;
-
-/** `<origin>/tex/@<handle>`, or null without an https origin or a handle. */
-export function personHubUrl(env, session) {
-  const origin = appOriginOf(env);
-  const handle = String(ownHandle(session) ?? "").toLowerCase();
-  return origin !== null && HANDLE.test(handle) ? `${origin}/tex/@${handle}` : null;
-}
 
 /** `<origin>/tex/group/<words>` for a home folder, or null for anything else. */
 export function groupHubUrl(env, folder) {

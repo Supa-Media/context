@@ -1,6 +1,6 @@
 /** Checks the question and what came with it: the files, the message it replies to, the tapbacks. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { json } from "../../../../../apps/mcp/src/http/responses.js";
+import { json } from "../../util/responses.js";
 import { turnAttachments } from "../attachments.js";
 import { quotedOf, reactedOf } from "../quoted.js";
 import { steerFor } from "../steer.js";

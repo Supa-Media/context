@@ -48,7 +48,7 @@
  * uses one.
  */
 
-import { decodeBase64, encodeBase64 } from "../../../../apps/mcp/src/crypto/bytes.js";
+import { decodeBase64, encodeBase64 } from "../util/bytes.js";
 import { checkEvent, READ_CHARS, READ_LIMIT } from "./log.js";
 
 const LABEL = "context-tex-warm-v1";
