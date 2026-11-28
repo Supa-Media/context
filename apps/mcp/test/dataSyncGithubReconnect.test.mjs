@@ -12,6 +12,8 @@
  *    sign-in page" fails.
  * 2. `checkGithubInstall` taking the kept installation without asking GitHub: "a reconnect binds nothing when the
  *    owner can no longer reach the kept installation" fails.
+ * 3. `connect` keeping `checked.kept` whole on a reconnect (2026-11-28): "a reconnect keeps the repositories the
+ *    owner picked" fails, with `picked` back to null — every repository the owner can reach.
  */
 
 import { test } from "node:test";
@@ -34,6 +36,41 @@ async function stoppedSource(w) {
 
 /** The owner back from GitHub's sign-in page: a code and the state, and no installation id. */
 const finishSignedIn = (w, state) => send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_finish", state, code: CODE });
+
+/** The owner narrows the source to one repository, as the data page's picker does. */
+const pick = (w, set) => send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_repos", set });
+const picked = async (w) => (await send(w, w.alice, { workspaceId: w.alice.pwid, op: "github_repos" })).body?.picked;
+
+// A reconnect re-binds the installation on the same checks and "never widens anything" (this file's own contract).
+// The repositories the owner picked live in the sealed connection (`repos` op seals `{ ...kept, repos: picked }`), and
+// a connect replaces that connection with what the check answers, whose `repos` is null — "every repository in reach,
+// until the owner picks". So the pick has to be carried over, or the reconnect widens the source to the owner's whole
+// reach without anybody asking for it.
+test("a reconnect keeps the repositories the owner picked", { skip }, async () => {
+  const w = await world();
+  await stoppedSource(w);
+  github(w);
+  assert.deepEqual((await pick(w, ["supa/app"])).body?.picked, ["supa/app"]);
+  const done = await finishSignedIn(w, stateOf(await start(w, w.alice)));
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal(done.body.armed, true);
+  assert.deepEqual(await picked(w), ["supa/app"], "the pick survives the reconnect");
+});
+
+test("a reconnect refuses rather than widening when no picked repository is reachable any more", { skip }, async () => {
+  const w = await world();
+  const { ids, object } = await stoppedSource(w);
+  github(w);
+  await pick(w, ["supa/app"]);
+  // The owner's access to the picked repository is gone; the installation is still reachable through another.
+  github(w, { reach: ["supa/context"] });
+  const done = await finishSignedIn(w, stateOf(await start(w, w.alice)));
+  assert.equal(done.status, 400, JSON.stringify(done.body));
+  assert.match(done.body.message, /pick/i);
+  assert.equal(object.storage.map.get("sources")[ids.about].stopped, true, "the source stays stopped rather than reading more");
+  github(w);
+  assert.deepEqual(await picked(w), ["supa/app"], "and the pick is untouched");
+});
 
 test("a workspace that already holds GitHub is sent to GitHub's sign-in page, and a reconnect arms and runs it", { skip }, async () => {
   const w = await world();
