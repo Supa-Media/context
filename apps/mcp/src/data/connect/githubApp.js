@@ -157,6 +157,18 @@ export async function readInstallState({ secret, state, nowMs }) {
 export const installUrl = (app, state) => `https://github.com/apps/${app.slug}/installations/new?state=${encodeURIComponent(state)}`;
 
 /**
+ * Where an owner connects an App that is already installed: GitHub's sign-in page for the App, which always sends
+ * the owner back to the callback with a code and the state. GitHub's install page, opened for an account the App is
+ * already installed on, shows that installation's settings and never sends anyone back, so a stopped source could
+ * not be armed again (2026-11-27). No installation id comes back; the one the workspace already keeps is used.
+ */
+export function authorizeUrl(app, state, env) {
+  const redirect = callbackUrl(env);
+  const query = new URLSearchParams({ client_id: app.clientId, state, ...(redirect === null ? {} : { redirect_uri: redirect }) });
+  return `https://github.com/login/oauth/authorize?${query}`;
+}
+
+/**
  * The App's registered callback on this deployment, sent as the token exchange's `redirect_uri`: GitHub requires it
  * to match a registered Callback URL when present, and production's is `https://context.lc/data/github/callback`.
  * Null (so the field is left out and GitHub defaults to the first callback) when the deployment names no https origin.
@@ -188,12 +200,16 @@ function tradeRefusal(traded, secrets) {
  * a read-only token minted to prove the App can read. `{ok: true, kept: {installation, repos: null, reach}}` or
  * `{ok: false, said}`. `repos: null` reads every repository in `reach` (the ones the owner can read), until the owner
  * picks; `reach` is what keeps an installation's other repositories out of reach.
+ *
+ * Back from GitHub's sign-in page (`authorizeUrl`) there is no installation id: `input.kept` names the installation
+ * the workspace already keeps, and it is bound again only on the same checks, so a reconnect never widens anything.
  */
 export async function checkGithubInstall(input, fetcher, env, nowMs = Date.now()) {
   const app = githubAppOf(env);
   if (app === null) return { ok: false, said: "This deployment has no GitHub App set up" };
   const code = typeof input?.code === "string" ? input.code : "";
-  const installation = typeof input?.installation === "string" ? input.installation : "";
+  const named = typeof input?.installation === "string" ? input.installation : "";
+  const installation = named !== "" ? named : typeof input?.kept === "string" ? input.kept : "";
   if (!CODE.test(code) || !INSTALLATION.test(installation)) return { ok: false, said: "GitHub's answer was incomplete; connect it again" };
   const redirect = callbackUrl(env);
   const traded = await appJson(

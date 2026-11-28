@@ -9,9 +9,11 @@
  *   which checks it with the app and keeps it sealed; this route never logs, keeps or answers it.
  * - **Disconnect** names the app.
  * - **GitHub** is installed, not pasted (`githubApp.js`): `github_start` names its `about.md` and answers GitHub's
- *   install address with a state signed for this workspace, this owner and that source; `github_finish` brings back
- *   that state with GitHub's one-time code and installation id, and is refused unless the state is this owner's own,
- *   for this workspace, and fresh; `github_repos` lists the installation's repositories, or sets the ones it reads.
+ *   install address with a state signed for this workspace, this owner and that source (GitHub's sign-in page instead
+ *   when the workspace already holds a GitHub connection: the install page of an App already installed never sends
+ *   the owner back); `github_finish` brings back that state with GitHub's one-time code and the installation id (none
+ *   from the sign-in page: the kept installation is used), and is refused unless the state is this owner's own, for
+ *   this workspace, and fresh; `github_repos` lists the installation's repositories, or sets the ones it reads.
  */
 
 import { json } from "../../http/responses.js";
@@ -20,7 +22,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { frontMatterFields } from "../sync/about.js";
 import { callDataSync } from "../sync/object.js";
 import { appNamed } from "./apps.js";
-import { githubAppOf, installState, installUrl, readInstallState } from "./githubApp.js";
+import { authorizeUrl, githubAppOf, installState, installUrl, readInstallState } from "./githubApp.js";
 
 const MAX_KEY = 512;
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -54,6 +56,8 @@ export function parseConnect(body) {
     if (!only(body, ["workspaceId", "op", "state", "code", "installation"])) return null;
     const { state, code, installation } = body;
     if (typeof state !== "string" || state.length > 600 || typeof code !== "string" || !/^[A-Za-z0-9_-]{8,80}$/.test(code)) return null;
+    // Back from GitHub's sign-in page (a reconnect) there is no installation id: the kept one is used.
+    if (installation === undefined) return { workspaceId, op, state, code };
     if (typeof installation !== "string" || !/^[0-9]{1,15}$/.test(installation)) return null;
     return { workspaceId, op, state, code, installation };
   }
@@ -91,7 +95,7 @@ export async function handleConnect({ asked, session, stub, readSource, env, now
   if (typeof text !== "string") return json({ error: "unavailable" }, 503);
   const app = appNamed(frontMatterFields(text).source);
   if (app === null) return json({ error: "not_an_app_source", message: "This source's about.md doesn't name an app Context connects." }, 400);
-  if (asked.op === "github_start") return await startGithub({ app, row, session, env, now });
+  if (asked.op === "github_start") return await startGithub({ app, row, session, stub, env, now });
   // GitHub is installed through its own page, never with a pasted key.
   if (app === "github") return json({ error: "not_an_app_source", message: "GitHub is connected by installing Context's GitHub App." }, 400);
   const answered = await callDataSync(stub, "connect", {
@@ -112,13 +116,19 @@ export async function handleConnect({ asked, session, stub, readSource, env, now
 
 const noGithubApp = () => json({ error: "not_available", message: "This deployment has no GitHub App set up." }, 501);
 
-/** The install address, its state signed for this workspace, this owner and this source. */
-async function startGithub({ app, row, session, env, now }) {
+/**
+ * The install address, its state signed for this workspace, this owner and this source. A workspace that already
+ * holds a GitHub connection (a stopped source being connected again) gets GitHub's sign-in page instead: the install
+ * page of an App already installed shows its settings and never sends the owner back.
+ */
+async function startGithub({ app, row, session, stub, env, now }) {
   if (app !== "github") return json({ error: "not_an_app_source", message: "This source's about.md doesn't say source: github." }, 400);
   const github = githubAppOf(env);
   if (github === null) return noGithubApp();
+  const held = await callDataSync(stub, "held", { workspaceId: session.workspaceId, app: "github" });
+  if (held.status !== 200 || typeof held.body?.held !== "boolean") return json({ error: "unavailable" }, 503);
   const state = await installState({ secret: env?.GATEWAY_SECRET, workspaceId: session.workspaceId, userId: session.actorUserId, noteId: row.noteId, nowMs: now });
-  return json({ about: row.path, app, url: installUrl(github, state) });
+  return json({ about: row.path, app, url: held.body.held ? authorizeUrl(github, state, env) : installUrl(github, state) });
 }
 
 /** The owner back from GitHub: their own state, for this workspace, still fresh; then the object checks the rest. */
@@ -135,7 +145,7 @@ async function finishGithub({ asked, session, stub, env, now }) {
     armedBy: session.actorUserId,
     app: "github",
     key: asked.code,
-    installation: asked.installation,
+    ...(asked.installation === undefined ? {} : { installation: asked.installation }),
   });
   const said = typeof answered.body?.said === "string" ? answered.body.said : null;
   if (answered.body?.error === "refused") return json({ error: "refused", message: said ?? "GitHub didn't confirm the installation." }, 400);

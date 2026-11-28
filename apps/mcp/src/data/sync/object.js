@@ -165,6 +165,7 @@ export function dataSyncClass(deps = {}) {
       if (fields.op === "status") return answer(await this.status(fields));
       if (fields.op === "connect") return answer(await this.serially(() => this.connect(fields)));
       if (fields.op === "disconnect") return answer(await this.serially(() => this.disconnect(fields)));
+      if (fields.op === "held") return answer(await this.keepsConnection(fields));
       // A list (no `set`) reads only the connection and GitHub, so it never waits behind a state change or a run.
       if (fields.op === "repos") return answer(fields.set === undefined ? await this.repos(fields) : await this.serially(() => this.repos(fields)));
       return answer({ error: "bad_call" }, 400);
@@ -207,13 +208,23 @@ export function dataSyncClass(deps = {}) {
       if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY || (account !== undefined && (typeof account !== "string" || account.length > 64))) return { error: "bad_call" };
       // An installed app (GitHub) is connected with GitHub's one-time code and the installation it names, never a key.
       const installed = APPS[app].installed === true;
-      if (installed !== (typeof installation === "string" && /^[0-9]{1,15}$/.test(installation))) return { error: "bad_call" };
+      const namesOne = typeof installation === "string" && /^[0-9]{1,15}$/.test(installation);
+      if (installation !== undefined && !namesOne) return { error: "bad_call" };
+      if (!installed && installation !== undefined) return { error: "bad_call" };
       const { sources } = await this.held();
       const old = sources[noteId] ?? null;
       if (old !== null && old.stopped !== true && (kindOf(old) !== "app" || old.app !== app)) return { error: "bad_call" };
       const live = Object.values(sources).filter((source) => source.stopped !== true && kindOf(source) === "app").length;
       if ((old === null || old.stopped === true) && live >= MAX_SOURCES) return { error: "too_many", said: `A workspace connects at most ${MAX_SOURCES} app sources.` };
-      const input = installed ? { code: key, installation } : { key, ...(account ? { account } : {}) };
+      // Back from GitHub's sign-in page (a reconnect) no installation is named: the one this workspace keeps is checked again.
+      let kept;
+      if (installed && !namesOne) {
+        const held = ((await this.storage.get("connections")) ?? {})[app] ?? null;
+        const opened = held === null ? null : await openConnection(held.sealed, { secret: this.env?.GATEWAY_SECRET, workspaceId, app }).catch(() => null);
+        kept = typeof opened?.installation === "string" ? opened.installation : null;
+        if (kept === null) return { error: "refused", said: "GitHub didn't say which installation; connect it again from the data page." };
+      }
+      const input = installed ? { code: key, ...(namesOne ? { installation } : { kept }) } : { key, ...(account ? { account } : {}) };
       const checked = await APPS[app].check(input, deps.fetcher ?? fetch, this.env, this.now());
       if (!checked.ok) return { error: "refused", said: `${checked.said}.` };
       let sealed;
@@ -246,6 +257,13 @@ export function dataSyncClass(deps = {}) {
       await this.storage.put("sources", sources);
       await this.ensureAlarm(sources);
       return { armed: source.stopped !== true, last: lastOf(source) };
+    }
+
+    /** Whether this workspace keeps a connection for an app (never the connection itself): GitHub's reconnect asks it. */
+    async keepsConnection({ app: named }) {
+      const app = appNamed(named);
+      if (app === null) return { error: "bad_call" };
+      return { held: Object.hasOwn((await this.storage.get("connections")) ?? {}, app) };
     }
 
     /** An owner's Disconnect: the app's key forgotten, and every source of that app stopped. */

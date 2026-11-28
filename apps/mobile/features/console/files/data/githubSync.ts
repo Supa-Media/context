@@ -24,10 +24,13 @@ export const GITHUB_COLUMNS: Readonly<Record<(typeof GITHUB_DATASETS)[number], r
   "workflow-runs": ["repo", "workflow", "branch", "started", "finished", "conclusion", "sha"],
 };
 
-/** What GitHub sends back, as the callback page reads it from its address. */
+/**
+ * What GitHub sends back, as the callback page reads it from its address. `installation` is absent when the owner
+ * came back from GitHub's sign-in page (connecting again an App already installed): the gateway uses the one it keeps.
+ */
 export interface GithubReturn {
   readonly code: string;
-  readonly installation: string;
+  readonly installation?: string;
   readonly state: string;
 }
 
@@ -41,8 +44,8 @@ export function githubReturnOf(params: Record<string, string | string[] | undefi
   const code = one("code");
   const installation = one("installation_id");
   const state = one("state");
-  if (!/^[A-Za-z0-9_-]{8,80}$/.test(code) || !/^[0-9]{1,15}$/.test(installation) || state === "" || state.length > 600) return "cancelled";
-  return { code, installation, state };
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(code) || (installation !== "" && !/^[0-9]{1,15}$/.test(installation)) || state === "" || state.length > 600) return "cancelled";
+  return installation === "" ? { code, state } : { code, installation, state };
 }
 
 export interface GithubRepo {
@@ -90,7 +93,7 @@ export function githubCalls(options: { url: string; workspaceId: string; token: 
       return typeof url === "string" && url.startsWith("https://github.com/") ? { url } : said(answer, unreachable);
     },
     finish: async (back) => {
-      const answer = await post({ op: "github_finish", state: back.state, code: back.code, installation: back.installation });
+      const answer = await post({ op: "github_finish", state: back.state, code: back.code, ...(back.installation === undefined ? {} : { installation: back.installation }) });
       return answer?.status === 200 ? null : said(answer, unreachable);
     },
     repos: async () => {
@@ -132,9 +135,9 @@ export function openGithubInstall(url: string, deps: { open?: typeof window.open
     };
     channel.onmessage = (event: MessageEvent) => {
       const data = event.data as Record<string, unknown> | null;
-      if (data?.kind !== "github-return" || typeof data.code !== "string" || typeof data.installation !== "string" || typeof data.state !== "string") return;
+      if (data?.kind !== "github-return" || typeof data.code !== "string" || (data.installation !== undefined && typeof data.installation !== "string") || typeof data.state !== "string") return;
       channel.postMessage({ kind: "github-received" });
-      finish({ code: data.code, installation: data.installation, state: data.state });
+      finish({ code: data.code, ...(typeof data.installation === "string" ? { installation: data.installation } : {}), state: data.state });
     };
     // A window closed without GitHub sending it back: give a just-sent message a moment, then stop waiting.
     const watch = setInterval(() => {
