@@ -94,7 +94,15 @@ function world() {
     watch.drain();
   };
   const waiting = (bot) => routines.inbox.check(bot);
-  return { send, waiting, told, props, routines, seatOf: (bot) => watch.seatOf(bot), tick: (ms) => (clock += ms) };
+  // A note that is not mail saved with this front matter, as a task note is when its status moves.
+  const save = (path, properties) => {
+    if (!ids.has(path)) ids.set(path, `n${ids.size + 1}`);
+    props.set(path, properties);
+    notes.set(ids.get(path), { path, text: "# Task\n" });
+    watch.noted(`notes/${ids.get(path)}.md`, { changed: true });
+    watch.drain();
+  };
+  return { send, save, waiting, told, props, routines, seatOf: (bot) => watch.seatOf(bot), tick: (ms) => (clock += ms) };
 }
 
 test("the reply reaches the seat that asked, not only the folder's holder", { skip }, () => {
@@ -196,4 +204,38 @@ test("the object names the one area a bot holds, and a seat's note routes to its
   w.tick(60_000);
   w.send(SEAT_NOTE, "muse", "Cancel Devin Pro first.");
   assert.deepEqual(w.waiting("nova").map((item) => item.note), [SEAT_NOTE], "the successor hears the reply in the seat's note");
+});
+
+// Work done closes an ask (`src/workspaceStore/askUntil.js`): an [ask] that links a task note stops waiting once that
+// note is saved finished. Sabotage: drop `until.changed` from `botMail.js` → this fails.
+test("an ask that links a task closes when the task is saved done, not while it is open", { skip }, () => {
+  const w = world();
+  w.save("projects/savings/cancel-devin.md", { status: "doing" });
+  w.send(OPS_MAIL, "grok-bot", "Can you cancel Devin Pro? Tracked in [[projects/savings/cancel-devin]].", { kind: "ask" });
+  assert.equal(w.waiting("muse")[0]?.ask, true, "Muse owes an answer");
+  w.save("projects/savings/cancel-devin.md", { status: "doing", note: "half way" });
+  assert.equal(w.waiting("muse")[0]?.ask, true, "a task still open keeps the ask");
+  w.tick(60_000);
+  w.save("projects/savings/cancel-devin.md", { status: "done" });
+  assert.deepEqual(w.waiting("muse"), [], "the finished task closed the ask");
+});
+
+test("a finished task closes only the ask, and later mail in the note still waits as mail", { skip }, () => {
+  const w = world();
+  w.send(OPS_MAIL, "grok-bot", "Ship it: https://context.lc/note/@supa/projects/savings/ship.md", { kind: "ask" });
+  w.tick(60_000);
+  w.send(OPS_MAIL, "grok-bot", "Also, FYI: burn is down.");
+  w.save("projects/savings/ship.md", { status: "Shipped" });
+  const left = w.waiting("muse");
+  assert.equal(left.length, 1, "the newer line still waits");
+  assert.equal(left[0].ask, false, "but nothing is owed now");
+});
+
+test("linkedNotes finds note links, never web links, files or mail", async () => {
+  const { linkedNotes, finished } = await import("../src/workspaceStore/askUntil.js");
+  assert.deepEqual(linkedNotes("see [[a/b|B]], [c](c/d.md), https://context.lc/note/@supa/e/f.md and https://github.com/x/y/pull/1"), ["a/b.md", "c/d.md", "e/f.md"]);
+  assert.deepEqual(linkedNotes("[[areas/ops/mail/grok-bot.md]] [x](https://example.com/a) [[../up]] [[pic.png]]"), []);
+  assert.equal(finished(JSON.stringify({ properties: { status: "Done " } })), true);
+  assert.equal(finished(JSON.stringify({ properties: { status: "to do" } })), false);
+  assert.equal(finished("not json"), false);
 });

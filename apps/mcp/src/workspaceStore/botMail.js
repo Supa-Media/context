@@ -36,6 +36,7 @@ import mail from "../../../../packages/shared/src/mail.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import fileKinds from "../../../../packages/shared/src/fileKinds.cjs";
 import { mailRoute } from "./mailRoute.js";
+import { askUntil } from "./askUntil.js";
 
 const { parseMail } = mail;
 const { mailJoinName } = areaBots;
@@ -115,6 +116,8 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
   for (const statement of SCHEMA) sql.exec(statement);
   // The seat each sender writes from, so a reply reaches whoever holds the asking seat now (`mailRoute.js`).
   const route = mailRoute(sql, { rows, facts, areasRoot: findAreasRoot, holderOf: botOfArea });
+  // An ask that links a task note closes when that note is saved finished (`askUntil.js`).
+  const until = askUntil(sql, { facts, inbox: () => routines?.inbox ?? null, now });
   const pending = new Map(); // noteId → whether only a fresh line may be told (its row landed, its bytes did not change)
   let scheduled = false;
 
@@ -136,6 +139,7 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     const area = areaOfMailNote(row?.path);
     if (area === null) {
       if (typeof row?.path === "string" && row.path.includes("/routines/")) checkRoutine(noteId, row.path);
+      if (typeof row?.path === "string") until.changed(row.path);
       return;
     }
     const object = objects.get(`notes/${noteId}.md`);
@@ -179,6 +183,7 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     // The other end of the conversation hears it too: the seat that asked, as whoever holds it now (Dev, 2026-11-28).
     for (const other of route.recipients(noteId, lines, { from: writer, to: newest.to }, bot)) {
       routines?.inbox?.add({ bot: other, noteId, note: row.path, kind: "mail", area, from: newest.from, at, ask });
+      if (ask) until.keep({ bot: other, noteId, note: row.path, text: newest.text, at });
       tell({ bot: other, area, note: row.path, from: newest.from });
     }
     if (bot === null || writer === bot) return;
@@ -188,6 +193,7 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     if (found !== null && routines.spent(found)) return;
     // Kept for a bot that checks in, whether or not a webhook takes it; never the message.
     routines?.inbox?.add({ bot, noteId, note: row.path, kind: "mail", area, from: newest.from, at, ask });
+    if (ask) until.keep({ bot, noteId, note: row.path, text: newest.text, at });
     tell({ bot, area, note: row.path, from: newest.from });
   }
 
