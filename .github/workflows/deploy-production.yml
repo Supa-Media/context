@@ -80,6 +80,7 @@ jobs:
       egress: ${{ steps.plan.outputs.egress }}
       photon: ${{ steps.plan.outputs.photon }}
       computer: ${{ steps.plan.outputs.computer }}
+      runner: ${{ steps.plan.outputs.runner }}
       sentry: ${{ steps.plan.outputs.sentry }}
       web: ${{ steps.plan.outputs.web }}
       router: ${{ steps.plan.outputs.router }}
@@ -174,6 +175,13 @@ jobs:
     needs: validate
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.computer == 'true' }}
     uses: ./.github/workflows/deploy-tex-computer.yml
+    secrets: inherit
+
+  # The Lab's runner (infra/tex-runner): its own Worker and container image, deployed only when it changes.
+  runner:
+    needs: validate
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.runner == 'true' }}
+    uses: ./.github/workflows/deploy-tex-runner.yml
     secrets: inherit
 
   sentry:

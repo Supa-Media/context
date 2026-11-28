@@ -1,0 +1,19 @@
+{
+  "name": "@context/tex-runner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Lab's runner: one GitHub Actions runner, for one job, in a Cloudflare container, started only by main's Tex Lab run workflow.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.3.7",
+    "vitest": "^4",
+    "wrangler": "^4.124.0"
+  }
+}

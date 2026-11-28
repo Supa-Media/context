@@ -757,6 +757,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [Tex is tested on conversations, split 60/20/20, gated on the Test Set](./testing/test-sets.md)
 - [The Test Set lives only in a sealed eval service](./testing/test-set-service.md)
 - [Lab runs go to GitHub, on the Dev set only](./testing/lab-runs.md); [a Lab change updates the Lab docs](./testing/lab-docs.md)
+- [The Lab run's long job runs on a runner of our own (2026-11-28)](./testing/lab-runner.md)
 - [Public benchmarks test Context as a memory, not Tex](./testing/lab-evals.md)
 - [A Sonnet front door stays inside the Haiku band (2026-11-17)](./testing/sonnet-front-door.md)
 - [The Dev set's front door moves a few points between repeats](./testing/dev-front-door-measure.md)

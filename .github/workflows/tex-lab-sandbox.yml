@@ -1,0 +1,44 @@
+# The Lab's runner for one Tex Lab run (Dev, 2026-11-28; docs/decisions/testing/lab-runner.md). Called only by
+# tex-lab-run.yml before its `run` job: asks infra/tex-runner for a one-job GitHub runner in a Cloudflare container and
+# outputs the label that job then runs on. The Worker opens only to this file on main, run from main (its OIDC token's
+# job_workflow_ref and ref), so a branch's copy, or main's copy called from a branch, gets nothing. It never fails the
+# run: with no label the run job runs on GitHub's runner, as before.
+name: Tex Lab sandbox runner
+
+on:
+  workflow_call:
+    outputs:
+      label:
+        description: "The run job's runner label, or empty for GitHub's runner"
+        value: ${{ jobs.ask.outputs.label }}
+
+permissions:
+  id-token: write
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      label: ${{ steps.ask.outputs.label }}
+    steps:
+      - name: Ask the Lab's runner for a runner
+        id: ask
+        env:
+          ORIGIN: ${{ vars.TEX_RUNNER_ORIGIN }}
+        run: |
+          set -uo pipefail
+          [ -n "$ORIGIN" ] || { echo "::warning::no TEX_RUNNER_ORIGIN; the run job runs on GitHub's runner"; exit 0; }
+          echo "::add-mask::$ORIGIN"
+          token=$(curl -fsS --max-time 30 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=context-tex-runner" | jq -r '.value // empty') || token=""
+          [ -n "$token" ] || { echo "::warning::no OIDC token; the run job runs on GitHub's runner"; exit 0; }
+          answer=$(curl -sS --max-time 200 -X POST -H "Authorization: Bearer $token" "$ORIGIN/v1/start") || answer=""
+          label=$(printf '%s' "$answer" | jq -r '.label // empty' 2>/dev/null || true)
+          if [[ "$label" =~ ^tex-lab-[0-9]+-[0-9]+$ ]]; then
+            echo "Runner $label is online"
+            echo "label=$label" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no Lab runner ($(printf '%s' "$answer" | jq -r '.error // "no answer"' 2>/dev/null | head -c 200)); the run job runs on GitHub's runner"
+          fi
+
