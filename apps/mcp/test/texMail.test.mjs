@@ -17,7 +17,7 @@ import { test } from "node:test";
 import mail from "../../../packages/shared/src/mail.cjs";
 import { deliverMail, TEX_MAIL_ALARM } from "../src/mail/deliver.js";
 import { routineDispatchFor } from "../../../packages/tex/gateway/texStore/dispatch.js";
-import { handleMailRun, mailTurn } from "../../../packages/tex/gateway/agent/mailRunRoute.js";
+import { handleMailRun, mailTurn, standInsFor } from "../../../packages/tex/gateway/agent/mailRunRoute.js";
 import { noteRunTools } from "../../../packages/tex/gateway/agent/noteRun.js";
 import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { WITHHELD_TOOLS } from "../../../packages/tex/gateway/agent/textingWrites.js";
@@ -213,4 +213,53 @@ test("when an agent in the mail needs the person, the run can text them the way 
   const world = routeWorld();
   await world.run();
   assert.deepEqual(world.calls.map(([name]) => name).filter((name) => name !== "read_note"), ["write_note"]);
+});
+
+// The person's own Tex as the seat for an agent of theirs that holds none (Dev, 2026-11-28; `docs/decisions/note-mail.md`).
+// Sabotage: drop `toOwner` from `wakeTex` → "a line to an agent with no seat wakes" fails; drop `standIns` from
+// `mailTurn` → "the run sees lines to the agent" fails.
+test("a line to an agent with no seat wakes its person's Tex, checked for that person", async () => {
+  const { env, scheduled } = texStores();
+  const asked = [];
+  const mailbox = { jobMailboxes: async () => [texBox], askTex: async (path, mailboxId, forHandle) => (asked.push(forHandle), OWNER) };
+  assert.deepEqual(await deliverMail(env, mailbox, line({ from: "grok-bot", to: "claude-code", toOwner: "@seyi" })), ["tex"]);
+  assert.deepEqual(asked, ["seyi"], "the control plane is asked for that person's Tex only");
+  assert.equal(scheduled.length, 1);
+  // A line to a name signed for nobody (or a bot, which the sender leaves without `toOwner`) wakes nothing.
+  assert.deepEqual(await deliverMail(env, mailbox, line({ from: "grok-bot", to: "claude-code" })), []);
+  assert.deepEqual(await deliverMail(env, mailbox, line({ from: "grok-bot", to: "claude-code", toOwner: "seyi" })), []);
+  assert.equal(asked.length, 1);
+});
+
+test("the run sees lines to the agent Tex stands in for, and never lines to a bot", async () => {
+  const note = noteWith([
+    { kind: "mail", from: "claude-code", app: "Claude Code · @seyi", to: "everyone", text: "Grok Bot, please mail the four cuts.", mailKind: "ask", at: "2026-11-28T09:00:00.000Z", used: 0 },
+    { kind: "mail", from: "grok-bot", app: "Cursor · @seyi", to: "claude-code", text: "Done: two yes, two no.", mailKind: "note", at: "2026-11-28T09:30:00.000Z", used: 1 },
+    { kind: "mail", from: "muse", app: "Muse · @seyi", to: "grok-bot", text: "Thanks.", mailKind: "note", at: "2026-11-28T09:31:00.000Z", used: 0 },
+  ]);
+  const standIns = await standInsFor(note, "@seyi", async (name) => name !== "claude-code");
+  assert.deepEqual(standIns, ["claude-code"], "bots that sign for the person are not stood in for");
+  const turn = mailTurn(note, "2026-11-28T09:10:00.000Z", standIns);
+  assert.match(turn.ask, /two yes, two no/);
+  assert.doesNotMatch(turn.ask, /Thanks/);
+  assert.equal(turn.to, "grok-bot", "Tex answers whoever wrote");
+  assert.equal(mailTurn(note, "2026-11-28T09:10:00.000Z"), null, "without stand-ins, nothing there is Tex's");
+  assert.deepEqual(await standInsFor(note, "@kim", async () => false), [], "only the run's own person's agents");
+});
+
+test("only an agent with no seat gets its person's Tex as its seat, and a reply to it names that person", async () => {
+  const { seatless, signedForOf } = await import("../src/tools/notes/mail.js");
+  const agent = { actor: { name: "@seyi", clientId: "c_claude" } };
+  assert.equal(seatless(agent, [], "claude-code"), true);
+  assert.equal(seatless(agent, [{ bot: "grok-bot" }], "grok-bot"), false, "a bound bot holds a seat");
+  assert.equal(seatless({ actor: { ...agent.actor, helper: { mail: "claude-via-grok" } } }, [], "claude-via-grok"), false, "a bot's helper reports to its bot");
+  assert.equal(seatless({ actor: { name: "@seyi", clientId: "context_texts" } }, [], "tex"), false, "Tex is the seat");
+  assert.equal(seatless({ ...agent, mailTurn: { job: "job_1" } }, [], "builder"), false, "a job's mail reaches it already");
+  assert.equal(seatless({ actor: { name: null, clientId: "c_claude" } }, [], "claude-code"), false, "nobody to stand in for");
+  const events = mail.parseMail(noteWith([
+    { kind: "mail", from: "claude-code", app: "Claude Code · @seyi", to: "everyone", text: "Please do it.", mailKind: "ask", at: "2026-11-28T09:00:00.000Z" },
+  ])).events;
+  assert.equal(signedForOf(events, "claude-code"), "@seyi");
+  assert.equal(signedForOf(events, "everyone"), null);
+  assert.equal(signedForOf(events, "muse"), null);
 });

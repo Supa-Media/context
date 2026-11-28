@@ -308,6 +308,7 @@ export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
 export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
 export const gatewayMailJobs = gatewayRoute(noteMail.gatewayMailJobsHandler);
 export const gatewayMailTex = gatewayRoute(noteMail.gatewayMailTexHandler);
+export const gatewayMailTexSeat = gatewayRoute(noteMail.gatewayMailTexSeatHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -772,6 +773,7 @@ http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet 
 http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
 http.route({ path: "/gateway/mail/jobs", method: "POST", handler: gatewayMailJobs });
 http.route({ path: "/gateway/mail/tex", method: "POST", handler: gatewayMailTex });
+http.route({ path: "/gateway/mail/tex-seat", method: "POST", handler: gatewayMailTexSeat });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });

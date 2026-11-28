@@ -12,7 +12,9 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,23}$/;
 /** A person's own Tex's mailbox: "tex", joined from their texts by no job or machine (`noteMail.ts` `isTexBox`). */
 const texBox = (row) => row.name === "tex" && !row.jobId && !row.machineId && row.clientId === "context_texts";
 
-export function createMailRoutes(grantForAccessToken, coveredContexts) {
+export function createMailRoutes(grantForAccessToken, coveredContexts, grants = new Map()) {
+  // A person's own texting grant, for the Tex seat an agent of theirs with no seat gets (`noteMail.ts` `texSeatMailbox`).
+  const textsGrantOf = (userId) => [...grants.values()].find((grant) => grant.userId === userId && grant.clientId === "context_texts" && grant.status === "active") ?? null;
   const mailboxes = new Map();
   // The Tex-in-mail asks the gateway made (`/gateway/mail/tex`), as `apps/convex/functions/noteMail.ts` `askTexMail` takes them.
   const texAsks = [];
@@ -97,10 +99,26 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
         })),
       };
     }
+    if (path === "/gateway/mail/tex-seat") {
+      // An agent with no seat sent mail here: its person's own Tex gets a "tex" mailbox on the note (`texSeatMailbox`).
+      const grant = await grantForAccessToken(body.accessToken);
+      const reach = grant ? coveredContexts(grant).some((entry) => entry.workspaceId === body.workspaceId) : false;
+      const texts = grant && reach && grant.clientId !== "context_texts" ? textsGrantOf(grant.userId) : null;
+      if (!texts) return { mailboxId: null };
+      const same = [...mailboxes.values()].filter((row) => row.workspaceId === body.workspaceId && row.path === body.path && row.name === "tex");
+      const mine = same.find((row) => row.grantId === texts.grantId);
+      if (mine) return { mailboxId: mine.mailboxId };
+      if (same.length) return { mailboxId: null };
+      const row = { mailboxId: `mb_${(++counter).toString(16).padStart(16, "0")}`, grantId: texts.grantId, clientId: texts.clientId, ownerWorkspaceId: texts.workspaceId, ownerUserId: texts.userId, workspaceId: body.workspaceId, path: body.path, name: "tex", readThrough: new Date().toISOString() };
+      mailboxes.set(row.mailboxId, row);
+      return { mailboxId: row.mailboxId };
+    }
     if (path === "/gateway/mail/tex") {
       const grant = await grantForAccessToken(body.accessToken);
       const row = mailboxes.get(body.mailboxId);
-      const ok = grant && row && texBox(row) && row.grantId !== grant.grantId && row.workspaceId === body.workspaceId && row.path === body.path;
+      // `forHandle`: the line is to an agent of that person's; the stub's handle is the texting grant's user id.
+      const forOk = body.forHandle === undefined || (row && body.forHandle === String(row.ownerUserId ?? ""));
+      const ok = grant && row && texBox(row) && row.grantId !== grant.grantId && row.workspaceId === body.workspaceId && row.path === body.path && forOk;
       texAsks.push({ ...body, accessToken: undefined, answered: ok ? row.ownerWorkspaceId : null });
       return { owner: ok ? row.ownerWorkspaceId : null };
     }

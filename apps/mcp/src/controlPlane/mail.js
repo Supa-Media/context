@@ -46,9 +46,18 @@ export function createMailMethods({ post }) {
      * Wake a person's own Tex for a line sent to its mailbox on this note (`functions/noteMail.ts` `askTexMail`): their
      * personal workspace's id, whose Tex store the gateway wakes, or null for every refusal.
      */
-    async askTexMail(accessToken, workspaceId, path, mailboxId) {
-      const answer = await post("/gateway/mail/tex", { accessToken, workspaceId, path, mailboxId });
+    async askTexMail(accessToken, workspaceId, path, mailboxId, forHandle) {
+      const answer = await post("/gateway/mail/tex", { accessToken, workspaceId, path, mailboxId, ...(typeof forHandle === "string" ? { forHandle } : {}) });
       return typeof answer?.owner === "string" ? answer.owner : null;
+    },
+
+    /**
+     * An agent of this token's person that holds no seat sent mail on this note: their own Tex gets a mailbox there, so
+     * a reply to the agent wakes it (`functions/noteMail.ts` `texSeatMailbox`). The mailbox id, or null.
+     */
+    async texSeatMailbox(accessToken, workspaceId, path) {
+      const answer = await post("/gateway/mail/tex-seat", { accessToken, workspaceId, path });
+      return typeof answer?.mailboxId === "string" ? answer.mailboxId : null;
     },
   };
 }
