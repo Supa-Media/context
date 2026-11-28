@@ -17,6 +17,8 @@
  *  9. `machineTurn` sleeping after a held read → "a read is held by the gateway until the run moves".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
  * 10. the carry status always using `MAX_JOB_ATTEMPTS` → "a computer job's part 11 continues, and the status says part 12 of at most 96" (saw "of at most 10").
+ * 11. `machineTurn` not calling `onHandBack` → "a sign-in code said mid-part goes to the chat at once, once".
+ * 12. the `limit` case not checking `endsOnHandBack` → "a part out of time whose last word was a sign-in code ends waiting, with the code".
  */
 
 import { describe, expect, it } from "vitest";
@@ -25,6 +27,7 @@ import { runJob, steerJob, type JobDeps } from "./jobRun";
 import { JOB_LIMIT_MS, readStartedJobs, RUN_KEY, chatJobs, JOB_STALE_MS, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { refusedEnd } from "./machineTurn";
+import { isHandBack } from "./handBack";
 
 const NOW = 1_800_000_000_000;
 const PHONE = "+15555550100";
@@ -44,7 +47,7 @@ const run = (overrides: Partial<JobRun> = {}): JobRun => ({
   ...overrides,
 });
 
-type RunRead = { state: string; steps?: { seq: number; tool: string; action?: string | null; target?: string | null }[]; result?: Record<string, unknown> | null; session?: string | null };
+type RunRead = { state: string; steps?: { seq: number; tool: string; action?: string | null; target?: string | null }[]; said?: { seq: number; text: string }[]; result?: Record<string, unknown> | null; session?: string | null };
 
 /** A gateway whose machine routes answer from scripts: `assign` answers, then each read of the run in turn. */
 const GROUP = "11111111-2222-3333-4444-555555555555";
@@ -407,5 +410,65 @@ describe("a part on a computer while Context is briefly unreachable (2026-11-06)
     expect(last.status).toBe("Stopped: Context didn't answer 3 times in a row (error 503)");
     expect(last.texts).toEqual([]);
     expect(last.end).toEqual({ action: "job", status: "failed", why: "Context didn't answer 3 times in a row (error 503)" });
+  });
+});
+
+// Fake codes and links only (the repository is public).
+const CODE_LINE = "Open https://github.com/login/device and enter the code ABCD-1234 to sign gh in.";
+const outOfTime = (said: { seq: number; text: string }[], answer = ""): RunRead => ({ state: "ended", said, result: { outcome: "limit", answer, session: "sess_1" }, session: "sess_1" });
+
+describe("a computer part that hands the person a sign-in code (2026-11-05, job 2c9ea414)", () => {
+  it("knows a sign-in code or a sign-in link from ordinary narration", () => {
+    for (const line of [CODE_LINE, "Your one-time code is 4821-XQ", "Enter WXYZ-9876 at the device page", "Approve the login at https://example.com/device", "PIN: 739204"]) expect(isHandBack(line), line).toBe(true);
+    for (const line of ["Reading https://docs.github.com/en/rest to find the endpoint", "The command failed with exit code 127", "Status code 404 from the API", "Edited src/a2b.ts", "Fixed the flaky test."]) expect(isHandBack(line), line).toBe(false);
+  });
+
+  it("a sign-in code said mid-part goes to the chat at once, once", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports } = world({
+      reads: [
+        { state: "running", said: [{ seq: 1, text: "Checking whether gh is signed in." }, { seq: 2, text: CODE_LINE }] },
+        { state: "running", said: [{ seq: 1, text: "Checking whether gh is signed in." }, { seq: 2, text: CODE_LINE }] },
+        { ...finished("Signed in to GitHub as supamedia."), said: [{ seq: 2, text: CODE_LINE }, { seq: 3, text: "Signed in to GitHub as supamedia." }] },
+      ],
+    });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const handed = reports.filter((update) => update.state === "running" && update.texts?.length);
+    expect(handed.map((update) => update.texts)).toEqual([[CODE_LINE]]);
+    // Ordinary narration is never texted.
+    expect(reports.some((update) => update.texts?.includes("Checking whether gh is signed in."))).toBe(false);
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Signed in to GitHub as supamedia."] });
+  });
+
+  it("a part out of time whose last word was a sign-in code ends waiting, with the code", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports, calls } = world({ reads: [{ state: "running", said: [{ seq: 1, text: CODE_LINE }] }, outOfTime([{ seq: 1, text: CODE_LINE }])] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports.at(-1)).toMatchObject({ state: "waiting", verdict: "waiting", texts: [CODE_LINE] });
+    // No second part was started to burn the next fifteen minutes.
+    expect(calls.filter((call) => call.path === "/agent/machine/assign")).toHaveLength(1);
+  });
+
+  it("a part cut off at its deadline while waiting on a sign-in ends waiting too", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports, clock } = world({ reads: [{ state: "running", said: [{ seq: 1, text: CODE_LINE }] }], during: async (read) => void (read > 1 && (clock.at = NOW + 20 * 60_000)) });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports.at(-1)).toMatchObject({ state: "waiting", texts: [CODE_LINE] });
+  });
+
+  it("a part that moved on after the code, or failed, is never turned into waiting", async () => {
+    const moved = new MemoryStorage();
+    await moved.put(RUN_KEY, { ...run(), sent: 0 });
+    const first = world({ assign: [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }, { ok: true, runId: "run_000000000000000000000002", deadline: NOW + 30 * 60_000 }], reads: [outOfTime([{ seq: 1, text: CODE_LINE }, { seq: 2, text: "Signed in. Now cloning the repo." }])] });
+    // Out of time after it got past the sign-in: carried on as before.
+    expect(await runJob(moved, first.deps)).toEqual({ kind: "now" });
+    const failed = new MemoryStorage();
+    await failed.put(RUN_KEY, { ...run(), sent: 0 });
+    const second = world({ reads: [{ state: "ended", said: [{ seq: 1, text: CODE_LINE }], steps: [{ seq: 2, tool: "Bash", target: "gh" }], result: { outcome: "failed", error: "crashed" } }] });
+    await runJob(failed, second.deps);
+    expect(second.reports.some((update) => update.state === "waiting")).toBe(false);
   });
 });

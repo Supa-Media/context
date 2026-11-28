@@ -286,6 +286,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
   };
+  // A computer part's sign-in code or link, said between its steps, goes to the chat at once, as a cloud part's
+  // progress line with a link does (`handBack.ts`; 2026-11-05: two device codes reached only the Tex page).
+  const onHandBack = async (text: string) => {
+    await tell({ state: "running", status: text, texts: [text] });
+  };
   // Each step, kept by the chat for "what is it doing?"; a step that failed to arrive costs only that line.
   // Each return, held action and draft is also saved here the moment it streams back (`jobProgress.ts`): a part that
   // dies mid-way hands everything it had to the next (2026-11-17: ten parts each redid the same search, sign-in and email).
@@ -319,7 +324,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   try {
     outcome =
       run.machine !== undefined
-        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, askOwner: async (line) => void (await tell({ state: "running", status: "Waiting for the computer's owner to say yes", texts: [line], ask: line })), live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
+        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, onHandBack, askOwner: async (line) => void (await tell({ state: "running", status: "Waiting for the computer's owner to say yes", texts: [line], ask: line })), live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
         : run.origin.kind === "phone"
           ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
           : await groupTurn(run, asked, turn, deps, onStep);

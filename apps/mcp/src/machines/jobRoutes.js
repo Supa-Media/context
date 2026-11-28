@@ -104,6 +104,11 @@ const shownRun = (run) => ({
   session: run.session ?? null,
   lastStep: run.lastStep ?? 0,
   steps: run.steps ?? [],
+  // What the tool said between its steps, never what it thought: the job's object texts a line that hands the person a
+  // sign-in code or link at once (`packages/tex/worker/handBack.ts`), as a cloud part's progress line is.
+  said: (Array.isArray(run.said) ? run.said : [])
+    .filter((line) => line?.kind !== "thinking" && Number.isSafeInteger(line?.seq) && typeof line.text === "string" && line.text !== "")
+    .map((line) => ({ seq: line.seq, text: line.text.slice(0, 1000) })),
   result: run.result ?? null,
 });
 

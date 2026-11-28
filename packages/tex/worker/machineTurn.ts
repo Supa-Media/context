@@ -19,6 +19,7 @@
 import { post, ServiceError, type Fetch } from "./clients";
 import { openPersonSession } from "./personSession";
 import { textsFromAnswer } from "./format";
+import { isHandBack, MAX_HAND_BACK, MAX_HAND_BACKS } from "./handBack";
 import type { JobAsk, JobEnd, JobRun, JobVerdict, StepHow } from "./jobs";
 
 /** One part's length on a machine; the advisor's check comes between parts. */
@@ -72,7 +73,7 @@ function checkOf(answer: Record<string, unknown>): MachineCheck | undefined {
 /** The running part, for a later text to reach (`jobRun.ts` `steerJob`). */
 export type MachineLive = { workspaceId: string; runId: string; accessToken: string; delivered: string[] };
 
-type RunRead = { state: string; steps: { seq: number; tool: string; action: string | null; target: string | null }[]; result: { outcome: string; answer?: string; session?: string | null; error?: string | null; refused?: string } | null; session: string | null };
+type RunRead = { state: string; steps: { seq: number; tool: string; action: string | null; target: string | null }[]; said?: { seq: number; text: string }[]; result: { outcome: string; answer?: string; session?: string | null; error?: string | null; refused?: string } | null; session: string | null };
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -123,6 +124,17 @@ function adviceFor(job: JobAsk): string {
   return parts.join("\n\n").slice(0, MAX_ADVICE);
 }
 
+/**
+ * A part out of time whose last word handed the person a sign-in code or link: it ends waiting on them, with that
+ * word, rather than as "out of time, carry on", whose words are never texted (2026-11-05: job `2c9ea414`'s first
+ * device code was ready fifteen minutes before its part's deadline and was dropped). Their next text picks it up in
+ * the same session. A part that failed is never this: only a part that ran out of time.
+ */
+function waitingOn(words: string, handBacks: string[], steered: string[]): MachineOutcome {
+  const texts = words && isHandBack(words) ? textsFromAnswer(words) : handBacks;
+  return { kind: "answer", texts, exhausted: false, status: firstLine(texts.join("\n")), steered, check: { verdict: "waiting" } };
+}
+
 const firstLine = (text: string) => text.split("\n").find((part) => part.trim() !== "")?.trim().slice(0, 280) ?? "";
 
 /**
@@ -136,6 +148,8 @@ export async function machineTurn(
   hooks: {
     keep: (patch: Partial<JobRun>) => Promise<void>;
     onStep: (text: string, how?: StepHow) => Promise<void>;
+    /** A line the tool said that hands the person a sign-in code or link (`handBack.ts`), for the chat at once (`jobRun.ts`). */
+    onHandBack?: (text: string) => Promise<void>;
     /** The gateway's line asking a lent computer's owner for a 👍 in the group, handed to the chat's Tex (`jobRun.ts`). */
     askOwner?: (line: string) => Promise<void>;
     live: (running: MachineLive | null) => void;
@@ -216,6 +230,11 @@ export async function machineTurn(
   const delivered: string[] = [];
   hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
   let shown = 0;
+  // What the tool said that hands the person something, in order, and whether it was the last thing it said: a part
+  // that ends on one while out of time is waiting on them, not carried on (2026-11-05, option B).
+  const handBacks: string[] = [];
+  let heard = 0;
+  let endsOnHandBack = false;
   // The run's version this pass last saw: each read after the first is held by the workspace object until the run
   // moves past it, at most `MACHINE_HOLD_MS` (`apps/mcp/src/workspaceStore/runWait.js`), so a step reaches the chat
   // as the runner sends it and an idle part is read about once a minute instead of every ten seconds.
@@ -248,6 +267,14 @@ export async function machineTurn(
       if (held) seen = answer.version as string;
       for (const step of read.steps.filter((step) => step.seq > shown)) await hooks.onStep(stepText(step));
       shown = Math.max(shown, ...read.steps.map((step) => step.seq));
+      for (const line of (Array.isArray(read.said) ? read.said : []).filter((line) => line.seq > heard)) {
+        heard = line.seq;
+        const text = line.text.trim();
+        endsOnHandBack = isHandBack(text);
+        if (!endsOnHandBack || handBacks.length >= MAX_HAND_BACKS || handBacks.includes(text)) continue;
+        handBacks.push(text.slice(0, MAX_HAND_BACK));
+        await hooks.onHandBack?.(text.slice(0, MAX_HAND_BACK));
+      }
       const session = read.result?.session ?? read.session;
       if (session && session !== run.machineSession) {
         run.machineSession = session;
@@ -270,6 +297,9 @@ export async function machineTurn(
             return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: false, status: firstLine(words), steered, ...(check ? { check } : {}) };
           }
           case "limit": {
+            // Out of time, but its last word was a sign-in code or link for the person: it waits on them (option B). A part
+            // that ended on a report of its own is out of time as before.
+            if ((words === "" && endsOnHandBack) || isHandBack(words)) return waitingOn(words, handBacks, steered);
             // Out of time for this part: the next resumes the same session where it stopped, on the advisor's advice.
             const check = await checked();
             return { kind: "answer", texts: words ? textsFromAnswer(words) : [], exhausted: true, status: firstLine(words) || "Still going on your computer", steered, ...(check ? { check } : {}) };
@@ -292,6 +322,8 @@ export async function machineTurn(
         await ask("/agent/machine/cancel", { runId: current.runId, reason: "limit" }).catch(() => null);
         delete run.machineRun;
         await hooks.keep({ machineRun: undefined });
+        // Its last word was a sign-in code or link: the process was kept alive waiting on the person (2026-11-05).
+        if (endsOnHandBack) return waitingOn("", handBacks, [...hooks.steerIds, ...delivered]);
         return { kind: "answer", texts: [], exhausted: true, status: "Still going on your computer", steered: [...hooks.steerIds, ...delivered] };
       }
       // A held read already waited for the run to move; a gateway that does not hold is read every ten seconds as before.
