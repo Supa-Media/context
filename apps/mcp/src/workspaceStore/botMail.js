@@ -219,9 +219,12 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
   }
 
   return {
-    /** The one area `bot` holds, or null when it holds none or several: the seat its mail is kept under. */
-    seatOf(bot) {
-      const held = route.seatsOf(bot);
+    /**
+     * The one area `bot` holds, or null when it holds none or several: the seat its mail is kept under. `sees` is the
+     * asking reader's clearance, so an area it may not see counts as none.
+     */
+    seatOf(bot, sees) {
+      const held = route.seatsOf(bot, sees);
       return held.length === 1 ? held[0] : null;
     },
     noted(key, change) {

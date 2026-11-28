@@ -7,6 +7,8 @@
 //     → "a reader who may not see the note learns nothing of its mail" fails.
 //  2. The `objectMail` branch dropped from `mail/footer.js`
 //     → "the footer counts new mail in the object, without reading the note" fails.
+//  3. `areasHeldBy`'s reader predicate back to `() => true` in `mailRoute.js` (applied, run, reverted; 2026-11-28)
+//     → "a bound bot's seat is withheld from a reader who may not see the area that names it" fails, alone.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
@@ -16,6 +18,8 @@ import { serveMail, MAIL_OPS } from "../src/workspaceStore/mailOps.js";
 import { judgeFor } from "../src/workspaceStore/serve.js";
 import { mailFooter } from "../src/mail/footer.js";
 import { durableSqlite } from "./durableSqlite.mjs";
+import { workspaceFacts } from "../src/workspaceStore/facts.js";
+import { botMailWatch } from "../src/workspaceStore/botMail.js";
 
 const NOTE_ID = "0199a000-0000-7000-8000-0000000000a1";
 const SECRET_ID = "0199a000-0000-7000-8000-0000000000a2";
@@ -139,4 +143,32 @@ test("the footer reads a bound connection only its own bots' mailboxes", async (
   const old = await mailFooter("mb2", { store, session: { scope: "team" } });
   assert.match(old, /joined .* as "cursor", which is not a bot this connection is/);
   assert.doesNotMatch(old, /new for/);
+});
+
+// A bound bot's seat is a note's path, and `ws.mail.bound` is a session's ask, so it is the reader's own clearance that
+// decides whether it is answered. The seat is read from the areas' `about.md` notes, which the object reads whole for
+// its own watcher (`mailRoute.js` `areasHeldBy`); an answer handed back to a connection may only name what that
+// connection may see.
+//
+test("a bound bot's seat is withheld from a reader who may not see the area that names it", async () => {
+  const { sql, transact } = durableSqlite();
+  const store = { sql, transact, objects: texObjects(sql), rows: workspaceRows(sql) };
+  store.rows.pinWorkspace("ws");
+  const CARD_ID = "0199a000-0000-7000-8000-0000000000b1";
+  store.rows.put([
+    { id: "a1", path: "areas", kind: "folder", at: 1 },
+    { id: "a2", path: "areas/secret", kind: "folder", at: 1 },
+    { id: "a3", noteId: CARD_ID, path: "areas/secret/about.md", kind: "file", at: 1, storageKey: `notes/${CARD_ID}.md` },
+  ]);
+  store.rows.putRules({ etag: "m.1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "areas/secret", visibility: "private" }], notes: [] }, "member");
+  store.rows.setHome("object");
+  store.rows.markBackfilled(1);
+  await store.objects.put(`notes/${CARD_ID}.md`, '---\nowner: "@kim"\ndelegate: Grok Bot\n---\n\n# Secret\n');
+  store.facts = workspaceFacts(sql, store.objects);
+  store.botMail = botMailWatch(sql, { rows: store.rows, objects: store.objects, facts: store.facts, tell: () => {}, findAreasRoot: () => "areas", defer: () => {} });
+
+  const bound = async (scope) => (await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judgeFor(store.rows, { scope, groups: [], audience: "member" }, null))).bots;
+  assert.deepEqual((await serveMail(store, MAIL_OPS.BIND, { grantId: "g1", bot: "grok-bot", name: "Grok Bot" }, judgeFor(store.rows, TEAM, null))).ok, true);
+  assert.deepEqual(await bound("team"), [{ bot: "grok-bot", name: "Grok Bot" }], "a team reader is told the binding and not the private area that names it");
+  assert.deepEqual(await bound("private"), [{ bot: "grok-bot", name: "Grok Bot", seat: "areas/secret" }], "a reader who may see it is told the seat");
 });
