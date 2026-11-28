@@ -54,7 +54,7 @@ anticipate — a workspace-root dependency bump, or a fifth package this app
 starts depending on before the list here is updated to match.
 
 **Why a macOS runner on every matching pull request is affordable, not just
-tolerable.** `context` is public and MIT-licensed, and GitHub does not meter
+tolerable.** `context` is public, and GitHub does not meter
 Actions minutes on a public repository's hosted runners by OS — a macOS
 runner here costs no more in billing than any `ubuntu-latest` job in this
 file. What it actually spends is queue time against a smaller concurrency

@@ -3,8 +3,8 @@ const { afterEach, beforeEach, describe, expect, test } = require("@jest/globals
 /**
  * The EAS project id used to be a literal committed to `app.config.js` —
  * `apps/mobile/eas.json`'s Apple team id sat beside it the same way. Both are
- * account identifiers with no business in a public, MIT-licensed repository
- * (see CLAUDE.md, "This repository is public and MIT licensed"), so the id
+ * account identifiers with no business in a public repository
+ * (see CLAUDE.md, "This repository is public and source-available"), so the id
  * now comes from `process.env.EAS_PROJECT_ID`, set from the `EAS_PROJECT_ID`
  * secret (`scripts/secrets-allowlist.json`) in CI and from `.env.local`
  * locally.

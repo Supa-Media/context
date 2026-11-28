@@ -131,5 +131,8 @@ for private reporting.
 
 ## Licensing
 
-Context is MIT. By contributing, you agree your contributions are licensed the
-same way.
+Context is source-available under the Functional Source License, FSL-1.1-ALv2
+(see `LICENSE`); each version becomes Apache 2.0 two years after release.
+`plugins/context`, `packages/encryption-decryptor` and
+`apps/mobile/modules/context-native-crypto` stay MIT. By contributing, you
+agree your contributions are licensed the same way as the code they change.

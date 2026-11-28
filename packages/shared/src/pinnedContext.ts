@@ -43,7 +43,7 @@
  * the deployment that matters.
  *
  * The cost is stated rather than discovered, because this repository is
- * self-hostable and MIT licensed: a self-hoster who clones this gets a pinned
+ * self-hostable and source-available: a self-hoster who clones this gets a pinned
  * context only if a workspace with this slug exists in *their* control plane,
  * and on a fresh deployment none does. `pinnedContextWorkspace` resolves
  * through the `by_slug` index and answers `null` when there is no such row, so

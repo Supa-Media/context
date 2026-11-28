@@ -3,7 +3,7 @@
  * Fetch the real community-plugin releases `pluginBundles.spec.ts` runs.
  *
  * Not committed, and not a preference: one of these is four megabytes of
- * somebody else's minified code, and this repository is public, MIT licensed
+ * somebody else's minified code, and this repository is public
  * and not where that belongs. The spec skips when a release is absent, so the
  * suite still runs offline — this is what CI and a developer run first.
  *

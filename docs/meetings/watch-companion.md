@@ -81,7 +81,7 @@ is **not** a watchOS app: widgets and Live Activities are not a watch target.
   UI is a two-week fix, not a two-hour one.
 - **`ios.appleTeamId` has to enter `app.config.js`.** The Apple team id no
   longer lives in `eas.json` at all — it is an account identifier, and this is
-  a public, MIT-licensed repository (CLAUDE.md: "no internal hostnames, no
+  a public repository (CLAUDE.md: "no internal hostnames, no
   account identifiers"), so `submit.production.ios` carries no `appleTeamId`
   key and `eas submit` reads it from the `EXPO_APPLE_TEAM_ID` environment
   variable instead (set from the `APPLE_TEAM_ID` secret in

@@ -313,7 +313,7 @@ over the same routing, but routing is decided in exactly one place. Mounts,
 federation UI, cross-context search ranking, discovery and org administration
 are deliberately **not** built — do not foreclose them.
 
-## This repository is public and MIT licensed
+## This repository is public and source-available
 
 - **Assume every line is read by an attacker.** No secrets, no internal
   hostnames, no account identifiers, no customer data — not in code, tests,
@@ -321,7 +321,10 @@ are deliberately **not** built — do not foreclose them.
 - **Security-sensitive code gets adversarial review, not a skim.** Anything
   touching auth, token handling, tenant isolation, path resolution, signature
   verification, or credential storage needs a test proving the attack fails.
-- **Self-hosting is a supported path**: someone must be able to clone this,
+- **Self-hosting is a supported path**: the code is under
+  FSL-1.1-ALv2 (decided by the owner, 2026-11-28; code released before then
+  stays MIT), which allows any use but a competing commercial service and
+  turns each version into Apache 2.0 two years after it ships. Someone must be able to clone this,
   deploy the gateway (its objects on Cloudflare or on `workerd`) and a Convex
   deployment of their own, and have a working context without us. There is no
   mode without a control plane (decided by the owner, 2026-10-15).

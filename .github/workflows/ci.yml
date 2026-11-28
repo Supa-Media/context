@@ -469,8 +469,8 @@ jobs:
   #
   # ## Why a macOS runner, on pull requests, and this is affordable
   #
-  # `context` is public (CLAUDE.md, "This repository is public and MIT
-  # licensed"), and GitHub does not meter Actions minutes on a public
+  # `context` is public (CLAUDE.md, "This repository is public and
+  # source-available"), and GitHub does not meter Actions minutes on a public
   # repository's hosted runners by OS or otherwise — a macOS runner here
   # costs no more in billing than `ubuntu-latest` costs `desktop-bridge`
   # above. What a macOS runner actually spends is queue time against a

@@ -5,9 +5,22 @@ the same rules; this is the long form, and where they differ in wording they do
 not differ in meaning — the standing yes to opening and merging a PR is both
 places on purpose._
 
-## This repository is public and MIT licensed
+## This repository is public and source-available
 
-Open source from the first commit. That raises the bar in three concrete ways:
+Public from the first commit. Until 2026-11-28 it was MIT licensed; from then
+on it is under the Functional Source License, FSL-1.1-ALv2 (decided by the
+owner, 2026-11-28). Anyone may read, run, modify and self-host it for any
+purpose except offering a competing commercial product or service, and each
+version becomes Apache 2.0 two years after it is released. Code released
+before the change stays MIT for whoever has it. Three pieces stay MIT because
+people install them into their own machines and tools, or need them to recover
+their own data without us: `plugins/context` (the `@supa-media/context` CLI and
+agent plugin), `packages/encryption-decryptor`, and the native crypto module in
+`apps/mobile/modules/context-native-crypto`. A "simplification" back to MIT
+lets anyone resell the hosted product; one to proprietary breaks the
+self-hosting promise below.
+
+Being public raises the bar in three concrete ways:
 
 - **Assume every line is read by an attacker.** No secrets, no internal
   hostnames, no account identifiers, no customer data — not in code, tests,

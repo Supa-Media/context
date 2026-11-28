@@ -1,7 +1,7 @@
 // Fixtures for the communications suite.
 //
 // Every value here is fake. This repository is public
-// (`CLAUDE.md`, *This repository is public and MIT licensed*), so no address,
+// (`CLAUDE.md`, *This repository is public and source-available*), so no address,
 // name, domain or provider id in this file belongs to anybody: `example.com`
 // and `example.net` are the reserved documentation domains, and the message
 // ids are made up.

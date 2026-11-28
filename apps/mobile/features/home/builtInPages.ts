@@ -142,13 +142,13 @@ Each folder has a default, and a single note can differ from its folder. The rul
 An AI tool can read exactly what the person who connected it can read, and nothing more. Your private notes never reach a teammate's AI.
 `,
   "open-source": `---
-title: Open source
+title: Source available
 nav: 5
 ---
 
-# Open source
+# Source available
 
-Context is MIT licensed. The app, the gateway and the plugins are all on GitHub.
+The app, the gateway and the plugins are all on GitHub. Context is under the Functional Source License: use it, change it and run it yourself for anything but a competing service, and every version becomes Apache 2.0 two years after it ships. The plugins stay MIT.
 
 You can run the whole thing yourself, pointed at your own bucket, without us.
 

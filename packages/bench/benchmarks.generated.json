@@ -60,7 +60,7 @@
       "about": "Made-up questions as Priya, who reaches seven workspaces, written so the easy word match is the wrong note: notes that quote the question, other workspaces using the same words, long notes, archives, paraphrases.",
       "source": {
         "name": "Context's own, written for the Search suite (2026-11-21)",
-        "license": "MIT, this repository's"
+        "license": "FSL-1.1-ALv2, this repository's"
       }
     },
     {
@@ -71,7 +71,7 @@
       "about": "Real searches that failed (nothing opened, or searched again), rewritten never verbatim, each with the notes that make it hard. Split 60/20/20: Training and Dev here, Test sealed in the eval service and the search gate's.",
       "source": {
         "name": "Context's own, from the search quality log, rewritten",
-        "license": "MIT, this repository's"
+        "license": "FSL-1.1-ALv2, this repository's"
       }
     }
   ],
