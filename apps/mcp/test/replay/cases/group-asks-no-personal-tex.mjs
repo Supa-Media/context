@@ -43,7 +43,7 @@ export default {
     assert.equal(sessionForContext(asked, "@kiln-co").scope, "team", "a shared workspace stays at team");
     const room = groupOf({ group: { key: "c".repeat(64), members: "c".repeat(64), from: "ada" } }, asked);
     assert.deepEqual(room.reach, ["kiln-co"], "the asker's personal workspace is not the room's reach");
-    assert.match(groupPrompt(room, "context-lc"), /"this_turn":\{"asker":"@ada","readable":"@ada","read_only":true\}/, "the turn is told it can read them");
+    assert.match(groupPrompt(room, "context-lc"), /"this_turn":\{"asker":"@ada","readable":"@ada","notes":"all, private ones included","read_only":true,"use_for":"deciding what to do","quote_here":"only notes its owner names"\}/, "the turn is told it can read them");
     assert.doesNotMatch(groupPrompt(room, "context-lc"), /Nobody's personal notes/, "and never that nobody's can be read here");
     const plain = groupOf({ group: { key: "c".repeat(64), members: "c".repeat(64), from: "ada" } }, await resolveSession(`cat_replay_own_notes_${"0".repeat(20)}`, null, askGrant([])));
     // Part five (Dev2, 2026-11-27): a turn that reads none is told so as a fact, with who they open for, never a
