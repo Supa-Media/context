@@ -44,6 +44,8 @@ const SNIPPET_ASKS = 50;
 const SNIPPET_CHARS = 2_000;
 /** Changed rows one query looks at before it answers (`settle`); any beyond wait for the build behind it. */
 export const SETTLE_ROWS = 500;
+/** Rows of an index from before the packed copy one build packs (`packOld`). */
+export const PACK_ROWS = 500;
 /** Model calls one build has out at once. */
 export const EMBED_PARALLEL = 4;
 /** Matches a query answers with, as the search database's index does (`client.js` `QUERY_TOP_K`). */
@@ -91,10 +93,11 @@ const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray(
 /**
  * One passage as the index holds it in memory. Whether its note is archived is worked out here, once, when its path is
  * set: a query that leaves the archive out then reads a flag for every passage instead of splitting every path
- * (2026-11-28: about 30 ms per 100,000 passages on every query, half a warm query's time).
+ * (2026-11-28: about 30 ms per 100,000 passages on every query, half a warm query's time). Its bits are `WORDS`
+ * numbers of `words` from `at`, a buffer it may share with its note's other passages (`fromHeld`).
  */
-function passageEntry(path, chunk, tier, bits) {
-  return { path, chunk, tier, bits, archived: isArchived(path) };
+function passageEntry(path, chunk, tier, words, at = 0, archived = isArchived(path)) {
+  return { path, chunk, tier, words, at, archived };
 }
 
 /** Where a live row's text is in this object (as the word index reads it, `searchIndex.js`), or `null`. */
@@ -165,6 +168,10 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
   const schema = () => {
     if (!ready) {
       for (const statement of SCHEMA) sql.exec(statement);
+      // Each row's passages packed beside it (`fromHeld`): added to an index from before 2026-11-28, filled by builds.
+      const columns = new Set(all(sql.exec("SELECT name FROM pragma_table_info('ws_meaning_held')")).map((column) => column.name));
+      if (!columns.has("ids")) sql.exec("ALTER TABLE ws_meaning_held ADD COLUMN ids BLOB");
+      if (!columns.has("bits")) sql.exec("ALTER TABLE ws_meaning_held ADD COLUMN bits BLOB");
       log.ensure();
       if (meta("layout") !== LAYOUT) {
         sql.exec("DELETE FROM ws_meaning_passages");
@@ -182,15 +189,47 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
   let texHeld = null;
   const texNotes = () => (texHeld ??= texObjects(sql, { tables: TEX_TABLES }));
 
+  /**
+   * Every passage's bits from the copy packed beside each row in `ws_meaning_held` (its passages' ids and chunks, and
+   * their bits end to end): one row read a note instead of one a passage, and one buffer a note instead of one a
+   * passage, for the read an object just woken does before its first query (2026-11-28: a fifth of production's
+   * meaning queries in an hour were cold). In passage id order, the order the passages' own table reads in. `null`
+   * where any row has no packed copy, or one that does not add up: the index was written by code from before it, and
+   * is read passage by passage until a build has packed every row (`packOld`).
+   */
+  const fromHeld = () => {
+    const entries = [];
+    for (const row of all(sql.exec("SELECT path, tier, ids, bits FROM ws_meaning_held"))) {
+      if (row.ids === null || row.ids === undefined) return null;
+      const idBytes = bytesOf(row.ids);
+      if (idBytes.length < 8 || idBytes.length % 8 !== 0) return null;
+      const numbers = new Float64Array(idBytes.slice().buffer);
+      const count = numbers[0];
+      if (numbers.length !== 1 + 2 * count) return null;
+      if (count === 0) continue;
+      const bitBytes = row.bits === null || row.bits === undefined ? null : bytesOf(row.bits);
+      if (bitBytes === null || bitBytes.length !== count * WORDS * 4) return null;
+      // One buffer for the note's passages, each entry an offset into it: no array of its own a passage.
+      const words = new Uint32Array(bitBytes.slice().buffer);
+      const archived = isArchived(row.path);
+      for (let at = 0; at < count; at += 1) entries.push([numbers[1 + 2 * at], passageEntry(row.path, numbers[2 + 2 * at], row.tier, words, at * WORDS, archived)]);
+    }
+    entries.sort((a, b) => a[0] - b[0]);
+    return new Map(entries);
+  };
+
   // The bits of every passage, in memory: loaded on the first query, kept level by every write here after it.
   let held = null;
   let packed = null;
   const load = () => {
     if (held !== null) return held;
-    held = new Map();
-    for (const row of all(sql.exec("SELECT id, path, chunk, tier, bits FROM ws_meaning_passages"))) {
-      const bytes = bytesOf(row.bits);
-      held.set(Number(row.id), passageEntry(row.path, Number(row.chunk), row.tier, new Uint32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + WORDS * 4))));
+    held = fromHeld();
+    if (held === null) {
+      held = new Map();
+      for (const row of all(sql.exec("SELECT id, path, chunk, tier, bits FROM ws_meaning_passages"))) {
+        const bytes = bytesOf(row.bits);
+        held.set(Number(row.id), passageEntry(row.path, Number(row.chunk), row.tier, new Uint32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + WORDS * 4))));
+      }
     }
     packed = null;
     return held;
@@ -203,7 +242,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     const tiers = new Uint8Array(entries.length);
     entries.forEach(([id, entry], index) => {
       ids[index] = id;
-      bits.set(entry.bits, index * WORDS);
+      for (let w = 0; w < WORDS; w += 1) bits[index * WORDS + w] = entry.words[entry.at + w];
       tiers[index] = TIERS.indexOf(entry.tier);
     });
     packed = { ids, bits, tiers, entries: entries.map(([, entry]) => entry) };
@@ -241,9 +280,27 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     }
   };
 
+  /**
+   * A row's passages packed as `ws_meaning_held` keeps them (`fromHeld`): `ids` is their count, then an `[id, chunk]`
+   * pair each, as 64-bit numbers (never empty, so a row with no passages is told from one never packed); `bits` is
+   * their bits end to end.
+   */
+  const packedCopy = (passages) => {
+    const numbers = new Float64Array(1 + passages.length * 2);
+    const bits = new Uint8Array(passages.length * WORDS * 4);
+    numbers[0] = passages.length;
+    passages.forEach((passage, at) => {
+      numbers[1 + 2 * at] = passage.id;
+      numbers[2 + 2 * at] = passage.chunk;
+      bits.set(passage.bits, at * WORDS * 4);
+    });
+    return { ids: new Uint8Array(numbers.buffer), bits };
+  };
+
   /** Keep `vectors` (one per passage) as the row's passages, in place of what it had. */
   const keep = (rowId, want, vectors) => {
     forgetRow(rowId);
+    const kept = [];
     vectors.forEach((values, chunk) => {
       const vector = unit(values);
       if (vector === null) return;
@@ -253,13 +310,32 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
         "INSERT INTO ws_meaning_passages (row_id, path, chunk, tier, bits, q, scale) VALUES (?, ?, ?, ?, ?, ?, ?)",
         rowId, want.path, chunk, want.tier, new Uint8Array(bits.buffer), new Uint8Array(q.buffer), scale,
       );
-      if (held !== null) {
-        const id = Number(all(sql.exec("SELECT last_insert_rowid() AS id"))[0]?.id);
-        held.set(id, passageEntry(want.path, chunk, want.tier, bits));
-      }
+      const id = Number(all(sql.exec("SELECT last_insert_rowid() AS id"))[0]?.id);
+      kept.push({ id, chunk, bits: new Uint8Array(bits.buffer) });
+      if (held !== null) held.set(id, passageEntry(want.path, chunk, want.tier, bits));
     });
-    sql.exec("INSERT INTO ws_meaning_held (row_id, path, etag, tier) VALUES (?, ?, ?, ?)", rowId, want.path, want.etag, want.tier);
+    const copy = packedCopy(kept);
+    sql.exec("INSERT INTO ws_meaning_held (row_id, path, etag, tier, ids, bits) VALUES (?, ?, ?, ?, ?, ?)", rowId, want.path, want.etag, want.tier, copy.ids, copy.bits);
     packed = null;
+  };
+
+  /**
+   * Pack up to `limit` rows an index from before the packed copy holds without one, from their passages: what a
+   * build does before its own work until every row has one. Answers whether any are still left.
+   */
+  let allPacked = false;
+  const packOld = (limit = PACK_ROWS) => {
+    // Once every row has a copy it stays so: every write here packs its row. Code rolled back writes none, and a
+    // deploy starts this object again, so the next build looks again.
+    if (allPacked) return false;
+    const unpacked = all(sql.exec("SELECT row_id FROM ws_meaning_held WHERE ids IS NULL LIMIT ?", limit + 1));
+    for (const { row_id: rowId } of unpacked.slice(0, limit)) {
+      const passages = all(sql.exec("SELECT id, chunk, bits FROM ws_meaning_passages WHERE row_id = ? ORDER BY id", rowId)).map((row) => ({ id: Number(row.id), chunk: Number(row.chunk), bits: bytesOf(row.bits) }));
+      const copy = packedCopy(passages);
+      sql.exec("UPDATE ws_meaning_held SET ids = ?, bits = ? WHERE row_id = ?", copy.ids, copy.bits, rowId);
+    }
+    allPacked = unpacked.length <= limit;
+    return !allPacked;
   };
 
   let running = false;
@@ -379,6 +455,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     running = true;
     try {
       const { parsed, overrides } = rulesNow(rules);
+      const unpacked = packOld();
       let spent = 0;
       const round = [];
       while (spent < budget) {
@@ -434,7 +511,8 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       }
       const waiting = log.pending();
       if (waiting === 0 && meta("complete") === null) setMeta("complete", String(Date.now()));
-      return { waiting };
+      // Rows still to pack count as one change waiting, so the build goes on (the gateway's loop, then the alarm).
+      return { waiting: waiting + (unpacked ? 1 : 0) };
     } finally {
       running = false;
     }

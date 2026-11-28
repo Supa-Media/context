@@ -15,6 +15,14 @@ search is then the embedding and one call to the object, and the embedding is th
   memory) and one byte per dimension (1 KB, with its scale). A query scans every passage's bits by Hamming distance,
   keeps the closest `CANDIDATES` (400), and scores those by their bytes. Locally, 52,000 passages take about 20 ms per
   query once loaded. The first query after the object starts reads the bits in, which took about 0.3 s locally.
+- **Read in a note at a time when woken** (2026-11-28). Beside each row in `ws_meaning_held`, its passages' ids and
+  chunks (`ids`) and their bits end to end (`bits`) are kept too, written with the passages by every build. An object
+  just woken reads that copy: one row and one buffer a note, not one a passage (50,000 passages, 5 a note: 52 ms
+  against 179 locally; a fifth of production's meaning queries in an hour were the first after a wake). It is read in
+  passage id order, the order the passages' own table reads in, so every answer is the same. A row with no copy (an
+  index written before it, or by code rolled back to before it) or one that does not add up makes the whole read go
+  passage by passage, as before; each build packs up to `PACK_ROWS` such rows first and counts what is left as a
+  change waiting. The copy adds about 144 bytes a passage to the 1.2 KB the passage already takes.
 - **Caught up behind, never in front.** The same trigger-written change log as the word index (`changeLog.js`, as
   `ws_meaning`) says which rows changed. `ws.meaning.build` embeds at most `BUILD_PASSAGES` (512) per call behind a
   response, and the object answers other calls while it waits on the model. A row whose text is unchanged (a move, a
@@ -106,4 +114,5 @@ after a failed model, the batched model calls or the served-after-build rule goe
 `apps/mcp/test/workspaceIndexBuild.test.mjs` fails if the alarm stops building, never stops, or stops backing off.
 `apps/mcp/test/meaningQueryFirst.test.mjs` fails if a search stops reading its own writes (a save, a move, a removal,
 a change of tier, a changed text), if the build is sent ahead of the query again, or if it is sent with nothing
-waiting.
+waiting. `apps/mcp/test/meaningPackedRead.test.mjs` fails if a woken object's packed read gives any other answer than
+the passages' own table, reads every passage when every row is packed, or trusts a missing or broken copy.
