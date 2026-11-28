@@ -163,7 +163,7 @@ test("a check records its time, and items in notes the reader can't see are left
   assert.deepEqual(w.routines.inbox.checks(), [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:30:00.000Z") }]);
   const state = w.routines.state();
   assert.deepEqual(state.checks, [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:30:00.000Z") }]);
-  assert.deepEqual(state.inbox, [{ bot: "grok-bot", count: 1 }]);
+  assert.deepEqual(state.inbox, [{ bot: "grok-bot", count: 1, asks: 0 }]);
   assert.deepEqual(w.routines.state((path) => path !== KIM).inbox, []);
   // A note gone from the tree takes its item with it.
   w.notes.delete("k1");
@@ -231,6 +231,7 @@ test("a check with something new lists who and where and how to read it, never t
       `- mail from @kim, 2026-11-25T14:01:00Z in ${AREA}: ${KIM}`,
       `- routine score-every-area in ${AREA}: ${ROUTINE}`,
       `Read one: fetch { id: "<path>", args: { mail: true } }, or its whole area first: orient { area: "<area>" }. Everything: orient { for: "Grok Bot" }.`,
+      "Answer in the note each line names, as a line of mail there: that is what tells the sender and clears it here.",
     ].join("\n"),
   );
   assert.doesNotMatch(out, /launch code|4471/);
@@ -389,7 +390,7 @@ test("the workspace object keeps mail for a bot with no webhook and answers ws.b
     assert.doesNotMatch(JSON.stringify(answer), /launch code|4471/);
     const after = await call("ws.bots.state", { workspaceId: "ws_fake", scope: "team", groups: [], audience: "member" });
     assert.equal(after.checks[0].bot, "grok-bot");
-    assert.deepEqual(after.inbox, [{ bot: "grok-bot", count: 1 }]);
+    assert.deepEqual(after.inbox, [{ bot: "grok-bot", count: 1, asks: 0 }]);
   } finally {
     globalThis.fetch = realFetch;
   }
