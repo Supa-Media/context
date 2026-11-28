@@ -24,7 +24,7 @@ export default {
   // vault_add link" back in the group prompt, and this fails. Sabotage (2026-11-27): put "You can't text anyone outside the
   // chat. " back alone, or make `crossChat.js` `backTo` return null, and this fails. Sabotage
   // (2026-11-28): drop `followedUp` from the Tapback node's tagged check, or let a guest's call keep an aside, or send `to` naming the tagger to the calendar
-  // aside, or drop text_privately from `toolCatalogue.js`, and this fails.
+  // aside, or drop text_privately from `toolCatalogue.js`, or drop `answer_here` from its answer, and this fails.
   async run() {
     const group = { ...groupOf({ group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "shyoh", people: ["shyoh", "seyi"], reach: ["supa"] } }), home: { folder: "tex/groups/cactus-lotus-badge" } };
     const told = groupPrompt(group, "supa");
@@ -52,7 +52,9 @@ export default {
     const shown = fixedCarriers("group");
     assert.match(sixToolsOver([...shown.values()], null, { shown }).tools.find((tool) => tool.name === "send").description, /text_privately: /);
     const named = {};
-    assert.notEqual((await privateAsideTool({ group, ledger: named }).call({ to: "@shyoh", what: "Go over their week." })).isError, true, "naming the tagger in to is still their follow-up");
+    const followed = await privateAsideTool({ group, ledger: named }).call({ to: "@shyoh", what: "Go over their week." });
+    assert.notEqual(followed.isError, true, "naming the tagger in to is still their follow-up");
+    assert.equal(JSON.parse(followed.content[0].text).answer_here, "tapback", "the answer names the tapback (Lab, 2026-11-28: it texted \"Texting you now.\")");
     assert.equal(named.asides.length, 1);
     const guestCall = await privateAsideTool({ group: { ...group, from: "", guestTagger: true }, ledger: {} }).call({ what: "Go over their week." });
     assert.equal(guestCall.isError, true);
