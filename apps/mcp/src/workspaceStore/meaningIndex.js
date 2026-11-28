@@ -19,7 +19,10 @@
  * asks the model, so it never runs in front of an answer: `ws.meaning.build` does it behind a response, at most
  * `BUILD_PASSAGES` passages a call, and the object answers other calls while it waits on the model. A query is served
  * once the first build has finished, from what is held: a note saved a moment ago ranks by its last fingerprint until
- * the next build, as it did in Vectorize. Who may see a match is the gateway's live `canSee`, after this answers.
+ * the next build, as it did in Vectorize. What changed and needs no model (a move, a change of tier, a removal) the
+ * query applies itself before it answers (`settle`), and it says how many changes still wait, so the gateway sends a
+ * build behind its response only then, never ahead of the query (2026-11-28). Who may see a match is the gateway's
+ * live `canSee`, after this answers.
  *
  * Nothing here is the only copy of anything; dropping these tables loses nothing.
  */
@@ -39,6 +42,8 @@ export const BUILD_PASSAGES = 512;
 /** Notes one snippet call reads, and the longest snippet it gives (`search/meaning/objectMeaning.js`). */
 const SNIPPET_ASKS = 50;
 const SNIPPET_CHARS = 2_000;
+/** Changed rows one query looks at before it answers (`settle`); any beyond wait for the build behind it. */
+export const SETTLE_ROWS = 500;
 /** Model calls one build has out at once. */
 export const EMBED_PARALLEL = 4;
 /** Matches a query answers with, as the search database's index does (`client.js` `QUERY_TOP_K`). */
@@ -259,6 +264,70 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
 
   let running = false;
 
+  /** Which member rules the index was last brought up to. */
+  const stampOf = (rules) => JSON.stringify([rules.accessVersion ?? null, rules.etag ?? null]);
+
+  /**
+   * The member rules as the index reads them, `{parsed, overrides}`; a change of them since the last look puts the
+   * rows it concerns back on the log first.
+   */
+  const rulesNow = (rules) => {
+    const stamp = stampOf(rules);
+    const { rules: parsed, overrides } = parsedRules(rules);
+    if (meta("rules") !== stamp) {
+      // First rules: every row. A change of rules: only the rows whose tier it moves (`searchIndex.js` does the same).
+      if (meta("rules") === null) log.markAll("SELECT row_id FROM ws_meaning_held");
+      else retier(parsed, overrides);
+      setMeta("rules", stamp);
+    }
+    log.keysToRows();
+    return { parsed, overrides };
+  };
+
+  /**
+   * One changed row, as far as it goes without the model: a row with no passages to keep is forgotten, and one whose
+   * text is the same is moved or re-tiered in place, never embedded again; both are off the log. A row whose text
+   * changed is left on it and answered with what it should be indexed as, for the model.
+   */
+  const settleRow = (rowId, parsed, overrides) => {
+    const want = wantFor(rowId, parsed, overrides);
+    const was = all(sql.exec("SELECT path, etag, tier FROM ws_meaning_held WHERE row_id = ?", rowId))[0] ?? null;
+    if (want === null || want.tier === null) {
+      if (was !== null) forgetRow(rowId);
+      log.done(rowId);
+      return null;
+    }
+    if (was !== null && was.etag === want.etag) {
+      // The same text: moved or re-tiered, never embedded again.
+      if (was.path !== want.path || was.tier !== want.tier) {
+        sql.exec("UPDATE ws_meaning_passages SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
+        sql.exec("UPDATE ws_meaning_held SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
+        if (held !== null) {
+          for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) Object.assign(held.get(Number(row.id)) ?? {}, { path: want.path, tier: want.tier, archived: isArchived(want.path) });
+        }
+        packed = null;
+      }
+      log.done(rowId);
+      return null;
+    }
+    return want;
+  };
+
+  /**
+   * Before a query: what changed and needs no model (a move, a change of tier, a removal), applied now, so the query
+   * answers it, as a build sent ahead of the query used to; the rows whose text changed stay on the log for the build
+   * the gateway sends behind the response. Nothing is read from the notes' text and the model is not asked. A build
+   * running here holds rows it took off the log: then nothing is touched, as a build found busy touched nothing.
+   */
+  const settle = () => {
+    if (typeof embed !== "function" || running) return;
+    const rules = rows.rules("member");
+    if (rules === null) return;
+    if (log.pending() === 0 && meta("rules") === stampOf(rules)) return;
+    const { parsed, overrides } = rulesNow(rules);
+    for (const rowId of log.take(SETTLE_ROWS)) settleRow(rowId, parsed, overrides);
+  };
+
   /**
    * A round's passages a note at a time, for when the whole round was refused: `{vectors, refused}`, the vectors of
    * every note the model took in the round's order, and the rows it refused. A failure that is not a refusal of the
@@ -309,15 +378,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     if (running) return { busy: true, waiting: log.pending() };
     running = true;
     try {
-      const stamp = JSON.stringify([rules.accessVersion ?? null, rules.etag ?? null]);
-      const { rules: parsed, overrides } = parsedRules(rules);
-      if (meta("rules") !== stamp) {
-        // First rules: every row. A change of rules: only the rows whose tier it moves (`searchIndex.js` does the same).
-        if (meta("rules") === null) log.markAll("SELECT row_id FROM ws_meaning_held");
-        else retier(parsed, overrides);
-        setMeta("rules", stamp);
-      }
-      log.keysToRows();
+      const { parsed, overrides } = rulesNow(rules);
       let spent = 0;
       const round = [];
       while (spent < budget) {
@@ -325,26 +386,8 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
         if (ids.length === 0) break;
         let full = false;
         for (const rowId of ids) {
-          const want = wantFor(rowId, parsed, overrides);
-          const was = all(sql.exec("SELECT path, etag, tier FROM ws_meaning_held WHERE row_id = ?", rowId))[0] ?? null;
-          if (want === null || want.tier === null) {
-            if (was !== null) forgetRow(rowId);
-            log.done(rowId);
-            continue;
-          }
-          if (was !== null && was.etag === want.etag) {
-            // The same text: moved or re-tiered, never embedded again.
-            if (was.path !== want.path || was.tier !== want.tier) {
-              sql.exec("UPDATE ws_meaning_passages SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
-              sql.exec("UPDATE ws_meaning_held SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
-              if (held !== null) {
-                for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) Object.assign(held.get(Number(row.id)) ?? {}, { path: want.path, tier: want.tier, archived: isArchived(want.path) });
-              }
-              packed = null;
-            }
-            log.done(rowId);
-            continue;
-          }
+          const want = settleRow(rowId, parsed, overrides);
+          if (want === null) continue;
           const found = (want.tex ? texNotes() : objects).get(want.key);
           const texts = found && found.body !== undefined ? meaningPassages(want.path, new TextDecoder().decode(found.body)) : [];
           if (spent > 0 && spent + texts.length > budget) {
@@ -418,6 +461,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       if (!Number.isInteger(limit) || limit < 1 || limit > QUERY_TOP_K) throw new MeaningAskRefused(`a query asks for 1 to ${QUERY_TOP_K} matches`);
       schema();
       if (meta("complete") === null) return { served: false, waiting: log.pending() };
+      settle();
       // Whether this call read every passage's bits back into memory (an object just woken): told to the gateway,
       // which times the call, so the two kinds of query can be read apart (`search/meaning/objectMeaning.js`).
       const cold = held === null;
@@ -466,7 +510,8 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
         }
       }
       scored.sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : a.chunk - b.chunk));
-      return { served: true, matches: scored.slice(0, limit), cold };
+      // What still waits for the model: the gateway sends a build behind its response only then.
+      return { served: true, matches: scored.slice(0, limit), cold, waiting: log.pending() };
     },
 
     /**
