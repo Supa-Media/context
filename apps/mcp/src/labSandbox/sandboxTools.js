@@ -18,6 +18,7 @@
  * Everything else that changes something keeps today's answer in `policy.js`: recorded, and answered as done.
  */
 
+import { namesAlike, readPathOf, withNamedAlike } from "../tools/notes/namedAlike.js";
 import { SANDBOX_TTL_MS } from "../../../../packages/lab/gateway/labSandbox/object.js";
 // `MEMORY_FOLDER` in tools/notes/remember.js; importing it here would close an import cycle through the tools.
 const MEMORY_FOLDER = "inbox/memories";
@@ -207,4 +208,16 @@ export async function afterRead(name, args, result, gate) {
   }
   if (extra.length === 0) return result;
   return { ...result, content: [...(Array.isArray(result?.content) ? result.content : [{ type: "text", text: textOf(result) }]), { type: "text", text: extra.join("\n\n") }] };
+}
+
+/**
+ * A group chat's `read_note` with the notes this test chat wrote beside it named alike, joined to the real ones
+ * (`tools/notes/namedAlike.js`), so a test chat's own setlists are as known as real ones.
+ */
+export async function sandboxNamedAlike(name, args, result, gate) {
+  if (name !== "read_note" || result?.isError === true || typeof gate?.call !== "function") return result;
+  const path = readPathOf(result);
+  if (path === null) return result;
+  const notes = await notesIn(gate, placesOf(args, gate));
+  return withNamedAlike(result, namesAlike(path, notes.filter((note) => !note.gone).map((note) => note.path)));
 }

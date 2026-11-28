@@ -6,7 +6,7 @@
 
 import { withAppLink } from "../notes/appLink.js";
 import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
-import { afterRead } from "../labSandbox/sandboxTools.js";
+import { afterRead, sandboxNamedAlike } from "../labSandbox/sandboxTools.js";
 import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
@@ -274,7 +274,8 @@ export async function callToolForSession(params, store, session, options = {}) {
     const wrongPlace = etagRefusalByName(call?.name, call?.arguments, workspaceNameOf(session));
     if (wrongPlace) return inWordsOf(v2, toolError(wrongPlace));
     const stubbed = await toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
-    if (stubbed !== null) return stubbed;
+    // A note the test chat wrote is told the notes beside it named alike, as a real read is (`notes/namedAlike.js`).
+    if (stubbed !== null) return session?.actorClientId === TEXTS_GROUP_CLIENT_ID ? await sandboxNamedAlike(canonicalToolName(call?.name), call?.arguments, stubbed, sandbox) : stubbed;
   }
   // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
   if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
@@ -292,11 +293,16 @@ export async function callToolForSession(params, store, session, options = {}) {
   }
   // A model's fetch reads a long note in part unless it asks for full (`notes/readCapped.js`); the gateway's own reads are whole.
   if (v2?.tool === "fetch") options = { ...options, fetchCap: true };
-  // A group chat's Tex is told which search hits are private notes (`search.js` `PRIVATE_HIT_LABEL`; `roomCheck.js`).
-  if (session?.actorClientId === TEXTS_GROUP_CLIENT_ID) options = { ...options, markPrivate: true };
+  // A group chat's Tex is told which search hits are private notes (`search.js` `PRIVATE_HIT_LABEL`; `roomCheck.js`)
+  // and, on a read, which notes beside it are named alike (`notes/namedAlike.js`).
+  const groupClient = session?.actorClientId === TEXTS_GROUP_CLIENT_ID;
+  if (groupClient) options = { ...options, markPrivate: true, namedAlike: true };
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
-  if (sandbox !== null && typeof sandbox.call === "function") return inWordsOf(v2, await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox));
+  if (sandbox !== null && typeof sandbox.call === "function") {
+    const read = await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox);
+    return inWordsOf(v2, groupClient ? await sandboxNamedAlike(canonicalToolName(call?.name), call?.arguments, read, sandbox) : read);
+  }
   return inWordsOf(v2, result);
 }
 

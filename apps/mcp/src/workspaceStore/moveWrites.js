@@ -22,7 +22,7 @@
  * on Convex's rows may show the old place for the mirror's round trip.
  */
 
-import { WAIT_FOR_MIRROR } from "./accessWrite.js";
+import { judgingSet, keepRules, WAIT_FOR_MIRROR } from "./accessWrite.js";
 import { narrowForMoves } from "./accessMove.js";
 import { auditOf, judgeOf, refused, treeChange } from "./treeWrites.js";
 import { OLD_COPIES_ROOT, treeOps } from "./treeOps.js";
@@ -142,6 +142,12 @@ function moveTo(ctx, body, to, judge, ops, trash) {
   // Every refusal was decided by the check above in this same transaction, so this cannot refuse; if it ever does,
   // throwing rolls the narrowing back with it.
   if (!result.ok) throw new WriteOpRefused(`the move refused after its check: ${result.reason}`);
+  // The rules this object judges by name notes by path, and were kept before the rows moved: rendered again now, so
+  // a moved note's own rule (a private base, a grant, the pin just written) is judged at its new name at once, and
+  // never falls to the folder it landed in until the control plane's next push (2026-11-28: an archived private note
+  // read as team). A trash keeps its rules at its old name for Restore.
+  const rerendered = !trash && judgingSet(ctx) !== null;
+  if (rerendered) keepRules(ctx, ctx.access.set().version);
   const { moved, folders, removed, count, etag, files } = result;
   const change = treeChange(moved, folders, removed, auditOf(body, "move", count), trash);
   return {
@@ -149,7 +155,7 @@ function moveTo(ctx, body, to, judge, ops, trash) {
     answer: { ok: true, from: body.from, to, count, at: moved.at, files, ...(etag === undefined ? {} : { etag }) },
     changes: narrowing === null ? [change] : [narrowing, change],
     narrows: WAIT_FOR_MIRROR,
-    ...(narrowing === null ? {} : { rules: true }),
+    ...(narrowing === null && !rerendered ? {} : { rules: true }),
   };
 }
 
