@@ -470,11 +470,11 @@ jobs:
           pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
           node packages/sandbox/src/browser.mjs
 
-      # A pull request that closed while this ran was already swept, and this run
-      # put its preview back up. Delete it again, so a closed preview never waits
-      # for the daily sweep.
+      # The cleanup sweep leaves a closed pull request's preview to the run still
+      # deploying it, so this step deletes it. It runs even when the run was
+      # cancelled or failed, so the preview never waits for the daily sweep.
       - name: Delete the preview if its pull request closed while it deployed
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
           MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}

@@ -219,6 +219,34 @@ export function writerFor(memberships) {
   return owner ?? editor ?? null;
 }
 
+/**
+ * Writes one fixture note when it is missing, or when it is the front page and lacks the staging marker.
+ * Returns `{ existing, written }`: what was found, and what was written (either may be undefined).
+ * A create that answers CONFLICT means the note appeared after the read (a race, or a read that trailed
+ * a write). It is read again: the front page is written once more if the marker is still missing, and
+ * any other note is taken as found. A CONFLICT on a write that passed an etag is a real conflict, and throws.
+ */
+export async function writeFixtureNote(client, { workspaceId, path, text }) {
+  let existing;
+  let written;
+  try { existing = await client.action(ref('functions/files:readNote'), { workspaceId, path }); }
+  catch (error) { if (error?.data?.code !== 'FILE_NOT_FOUND') throw error; }
+  if (!existing || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
+    try {
+      written = await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
+    } catch (error) {
+      if (error?.data?.code !== 'CONFLICT' || existing) throw error;
+      const reread = await client.action(ref('functions/files:readNote'), { workspaceId, path });
+      if (path === 'index.md' && !reread.text.includes('staging-personas-v1')) {
+        written = await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, expectedEtag: reread.etag });
+      } else {
+        existing = reread;
+      }
+    }
+  }
+  return { existing, written };
+}
+
 async function signIn(url, deployment, deployKey, name) {
   const client = new ConvexHttpClient(url, { logger: false });
   const email = personaEmail(name);
@@ -328,13 +356,7 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     }
 
     for (const [path, text] of Object.entries(fixture)) {
-      let existing;
-      let written;
-      try { existing = await client.action(ref('functions/files:readNote'), { workspaceId, path }); }
-      catch (error) { if (error?.data?.code !== 'FILE_NOT_FOUND') throw error; }
-      if (!existing || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
-        written = await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
-      }
+      const { existing, written } = await writeFixtureNote(client, { workspaceId, path, text });
       // The fixtures name the old PARA folders (`1-projects/`); the tree files a note under the folder the
       // template made (`projects/`) and answers with that path, so the visibility goes to the path it reports.
       const notePath = written?.path ?? existing?.path ?? path;
