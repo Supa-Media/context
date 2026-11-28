@@ -132,6 +132,20 @@ are the overflow…", "a texted turn's call tells the trim where its ask is…",
 prompt goes…") and the replay case `prompt-under-cliff`. A simplification that keeps only the newest message
 whole again loses the ask on any tool round that crosses a step.
 
+**The system prompt and tools are clipped once, to a fixed cap (2026-11-28).** App 1:1 turns 9ae6ce44, 447ed548 and
+ecb7d8b9 (2026-11-27) ran every round on haiku-5-5 with one payer, yet partway through each turn the stable system
+block's fingerprint changed and that round read 0 to 37,000 tokens from the cache and wrote 32,000 to 92,000 again
+(447ed548 round 5: 0 read, 84,495 written, 6.4 s; ecb7d8b9 twice). The clip of the longest text always found the
+215,706-character stable block, so each tool round that took the body into a higher step halved it once more: its
+bytes changed mid-turn and everything cached after them was written again. Now, when the system prompt and the tool
+list together are over `PREFIX_CAP` (two steps under the budget, 64,000 estimated tokens), the first time the clip
+reaches one of them they are halved, longest first, to the cap, and nothing in that call clips them again. The cap
+depends on their own words only, so every step makes the same cut and every round reads the same prefix. Past it,
+older history and this turn's tool results give the step, as they did for a prefix that was not the overflow. A
+prefix under the cap is not the overflow and is clipped as before. What a simplification would cost: halving per
+step brings back a full prefix rewrite at every step a turn crosses. Tests: `apps/mcp/test/promptBudget.test.mjs`
+("a turn whose tool rounds cross step after step…") and the replay case `prompt-prefix-holds`.
+
 **In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
 (`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the
 turn reads the days the way production does. The bench chat has no day summaries, so a line older than the verbatim
