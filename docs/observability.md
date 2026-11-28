@@ -177,6 +177,25 @@ than count in Convex) and the artboard were approved the same day.
   Retry/Refresh asks again without reloading the app. Never put this private
   key in an `EXPO_PUBLIC_` variable.
 
+## Sign-up channels
+
+Each new account gets one sign-up channel (Dev2, 2026-11-28), read by `@supa` `data/usage/sign-ups.csv` and the
+Growth metrics. The flow:
+
+1. **First touch, web only, before sign-in.** `apps/mobile/features/auth/firstTouch.ts` keeps, in local storage, the
+   referrer's origin (never its path or query, and none for our own hosts), `utm_source`, `utm_medium`, `ref`, and the
+   landing path's first segment from a fixed list (`/other` for anything else, so no share token or handle). No other
+   query key is read.
+2. **Sent with the sign-up.** `waitlist.enter` and `phoneSignIn.start` store it on a new waitlist row; after sign-in
+   the app sends it once to `signupChannels.fromApp`, which counts it only for an account made in the last hour.
+3. **One channel on the account.** `signupChannelOf` (`packages/shared/src/signupChannel.ts`) turns the touch, and
+   what the server knows (an invitation or referral waiting for the address, a guest pass, an account set up by
+   texting Tex), into one of `ai`, `search`, `social`, `invite`, `direct`, `other`, `tex`, `agent`. Only the word is
+   kept, in `signupChannels`, written once and deleted with the account.
+4. **Into the sheet.** `usagePeople.exportRows` adds `channel` to each sign-up; `runUsage.js` writes a real exported
+   channel over a held `unknown` or empty one, and keeps the held value when the export has none, so a hand
+   correction survives. Accounts made before this shipped have no channel and stay `unknown`: nothing is backfilled.
+
 ## Configuration
 
 Set these in the EAS environment used by each build/update. The sample rates

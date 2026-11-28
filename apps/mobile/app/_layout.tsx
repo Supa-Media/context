@@ -10,6 +10,8 @@ import { resetObservabilityUser } from "../features/observability/client";
 import { RootShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
+// Kept before the first link push replaces the URL: where this browser first came from (`firstTouch.ts`).
+import "../features/auth/firstTouch";
 import { ensureFontsLoaded } from "../features/design/fonts";
 import { keepAppShellOffline } from "../features/offline/appShell";
 import { useColors, useScheme } from "../features/design/theme";

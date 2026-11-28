@@ -10,6 +10,7 @@ import type { Id } from "./_generated/dataModel";
 import { scheduleSignupAlert } from "./functions/signupAlerts";
 import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
+import { scheduleSignupChannel } from "./functions/signupChannels";
 import { checkCode } from "./functions/phoneCodes";
 import { SIGN_IN_CODE_LENGTH, checkLinkCode } from "./functions/textSignIn";
 import { REVIEWER_PASSWORD_PROVIDER_ID, passwordAccount } from "./functions/lib/reviewerPassword";
@@ -52,6 +53,8 @@ const supaAuth = createSupaAuth({
     await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+    // Its sign-up channel, from an invitation or the waitlist row's first touch (`functions/signupChannels.ts`).
+    await scheduleSignupChannel(ctx as never, userId as Id<"users">);
     // The first accounts are Premium at no charge (`functions/lib/billing/founding.ts`).
     // Scheduled, not inline, so nothing in it can fail a sign-in.
     await ctx.scheduler.runAfter(0, internal.functions.foundingPremium.catchUp, {});

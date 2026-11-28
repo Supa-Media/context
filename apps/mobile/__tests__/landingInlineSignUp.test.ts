@@ -220,7 +220,7 @@ describe("signing in with a phone from page a", () => {
     const view = await phoneLine();
     await view.type(view.q<HTMLInputElement>("#tp-phone")!, "555 555 0100");
     await view.submit();
-    expect(mockStarted).toEqual([{ phone: "+15555550100" }]);
+    expect(mockStarted).toEqual([{ phone: "+15555550100", touch: { path: "/" } }]);
     expect(view.text()).toContain("Check your texts");
     const code = view.q<HTMLInputElement>("#tp-code")!;
     expect(document.activeElement).toBe(code);
@@ -237,7 +237,7 @@ describe("signing in with a phone from page a", () => {
     expect(view.q(".tp-cc")!.textContent).toContain("+44");
     await view.type(view.q<HTMLInputElement>("#tp-phone")!, "07700 900123");
     await view.submit();
-    expect(mockStarted).toEqual([{ phone: "+447700900123" }]);
+    expect(mockStarted).toEqual([{ phone: "+447700900123", touch: { path: "/" } }]);
     expect(view.text()).toContain("You're on the list.");
     view.unmount();
   });

@@ -129,6 +129,11 @@ export const USAGE_SHEETS = Object.freeze({
   },
 });
 
+/**
+ * The channels a sign-up can name, as `SIGNUP_CHANNELS` in `packages/shared/src/signupChannel.ts` says them (a test
+ * holds the two lists equal). Anything else an export carries is not written.
+ */
+export const SIGNUP_CHANNELS = new Set(["ai", "search", "social", "invite", "direct", "other", "tex", "agent"]);
 /** The ways a bug report comes in, as the control plane's receipts say them. */
 const BUG_CHANNELS = new Set(["app", "tex", "tex-group", "agent"]);
 /** The app's platforms and vital kinds (`apps/convex/functions/appVitals.ts`). */
@@ -228,7 +233,11 @@ export async function usageRows(exported, { key, held, now }) {
     const next = dayOf(made.at + DAY_MS);
     const activeThen = [day, next].some((d) => days.has(`${d}:${person}`));
     const old = held.signups.get(person);
-    signups.push({ person, day, channel: typeof old?.channel === "string" ? old.channel : "", day1_active: activeThen || flag(old?.day1_active) === "1" ? "1" : "0" });
+    // The channel the account recorded when it was made (`apps/convex/functions/signupChannels.ts`) wins; with none,
+    // what the sheet holds stays, so an empty export never clears a hand correction and an old `unknown` stays one.
+    const real = typeof made.channel === "string" && SIGNUP_CHANNELS.has(made.channel) ? made.channel : "";
+    const channel = real !== "" ? real : typeof old?.channel === "string" ? old.channel : "";
+    signups.push({ person, day, channel, day1_active: activeThen || flag(old?.day1_active) === "1" ? "1" : "0" });
   }
 
   for (const reply of exported.replies ?? []) {

@@ -6,6 +6,7 @@ import { api } from "@context/convex/_generated/api";
 import { OTP_LENGTH } from "./CodeBoxes";
 import { CODE_FAILED, startError, type StartStatus } from "./phoneSignIn";
 import { adCampaign } from "./adCampaign";
+import { firstTouch } from "./firstTouch";
 import { landingPage } from "./landingPage";
 import { reportMetaLead } from "./metaPixel";
 import { reportWaitlistSignUp } from "./xPixel";
@@ -44,10 +45,12 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
     try {
       const landing = landingPage();
       const campaign = adCampaign();
+      const touch = firstTouch();
       const result = (await start({
         phone: sentTo ?? phone,
         ...(landing === undefined ? {} : { landing }),
         ...(campaign === undefined ? {} : { campaign }),
+        ...(touch === undefined ? {} : { touch }),
       })) as { status: StartStatus; phone?: string; conversionId?: string; receipt?: string };
       const outcome = ["sent", "joined", "already", "unavailable", "invalid_phone", "too_many", "paused", "failed"].includes(result.status) ? result.status : "failed";
       trackEvent("signup_result", { method: "phone", result: outcome, resend: again });

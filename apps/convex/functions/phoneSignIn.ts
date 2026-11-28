@@ -12,7 +12,8 @@ import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { WAITLIST_JOINS_PER_HOUR } from "./waitlist";
-import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
+import { scheduleSignupChannel } from "./signupChannels";
+import { adCampaignValidator, firstTouchValidator, signUpOrigin } from "./lib/waitlistCampaign";
 import { waitlistConversionId } from "./lib/xConversion";
 import { phoneSignInPaused } from "./lib/emailProof";
 import { APP_REVIEW_PHONE } from "./lib/reviewerAccount";
@@ -94,7 +95,7 @@ type Reserved = typeof reservedValidator.type;
 async function joinWaitlist(
   ctx: MutationCtx,
   phone: string,
-  origin: { landing?: string; campaign?: unknown },
+  origin: { landing?: string; campaign?: unknown; touch?: unknown },
 ): Promise<Reserved> {
   const existing = await ctx.db
     .query("waitlist")
@@ -123,7 +124,7 @@ async function joinWaitlist(
  * may. A phone that may not joins the waitlist instead, and is texted nothing.
  */
 export const reserveSend = internalMutation({
-  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator) },
+  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator), touch: v.optional(firstTouchValidator) },
   returns: reservedValidator,
   handler: async (ctx, { phone, ...origin }): Promise<Reserved> => {
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
@@ -181,7 +182,7 @@ export const signInUser = internalMutation({
 export async function newPhoneAccount(
   ctx: MutationCtx,
   phone: string,
-  { adConversions = true }: { adConversions?: boolean } = {},
+  { adConversions = true, signup = {} }: { adConversions?: boolean; signup?: { via?: "tex"; invited?: boolean } } = {},
 ): Promise<Id<"users">> {
   const now = Date.now();
   const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
@@ -190,6 +191,8 @@ export async function newPhoneAccount(
   // What `onUserCreated` does for an account made by email (`auth.ts`),
   // founding Premium included: scheduled, so nothing in it fails this.
   await scheduleSignupAlert(ctx, { kind: "account", userId });
+  // Its sign-up channel: what the caller knows (set up by texting Tex, a guest pass), else the waitlist row's touch.
+  await scheduleSignupChannel(ctx, userId, signup);
   // An account made for someone in a Tex chat (`guestPass.ts`) did not sign up from an ad: no ad network hears of it.
   if (adConversions) {
     await scheduleXConversion(ctx, { kind: "account", userId });
@@ -211,7 +214,7 @@ export const spendCheck = internalMutation({
 export const start = action({
   // `landing` is the page the person saw and `campaign` the ad that sent
   // them; both are kept only if they join.
-  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator) },
+  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator), touch: v.optional(firstTouchValidator) },
   returns: v.object({
     status: startStatus,
     phone: v.optional(v.string()),
@@ -231,6 +234,7 @@ export const start = action({
         phone,
         ...(args.landing === undefined ? {} : { landing: args.landing }),
         ...(args.campaign === undefined ? {} : { campaign: args.campaign }),
+        ...(args.touch === undefined ? {} : { touch: args.touch }),
       });
     } catch (error) {
       if (error instanceof ConvexError && (error.data as { code?: string }).code === "RATE_LIMITED") {

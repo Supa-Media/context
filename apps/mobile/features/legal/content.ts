@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "November 27, 2026",
+  updated: "November 28, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -43,6 +43,7 @@ export const privacyContent: LegalPageContent = {
         "These never include your notes, their titles, your folder names, your links, your email address or your @handle. Addresses in the app are reduced to the kind of screen before they are sent.",
         "You can turn crash reports, screen counts and recordings off in Settings, under Feedback. The switches follow your account to every device you sign in on.",
         "Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account on the web, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad's click id and their browser id, never the address itself. Signups made in the iPhone or Android app are never reported to X, Meta or any other advertising network.",
+        "To learn how people find us, the first time you open Context.lc on the web, before you sign in, your browser keeps where you came from: the site that sent you (its address only, never the page), the utm_source, utm_medium and ref labels a link carried, and which kind of page you landed on. It is sent only when you sign up, and your account keeps just one word from it, such as search, social or invite. Nothing else in the address you arrived at is kept.",
         "When you send a feedback report, it goes through Context.lc to Sentry with what you typed and only the attachments you left ticked: the app version and your browser or system version, a log of the screens and errors from the last ten minutes, and a screenshot, whose words are hidden unless you choose to show them. We use reports only to fix Context.lc and to reply to you.",
       ],
     },

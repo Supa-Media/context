@@ -177,7 +177,7 @@ export const enrol = internalMutation({
       .withIndex("by_phone", (q) => q.eq("phone", phone))
       .take(1);
     if (carried.length > 0 || (await phoneHolder(ctx, phone)) !== null) return { status: "unavailable" as const };
-    const userId = await newPhoneAccount(ctx, phone, { adConversions: false });
+    const userId = await newPhoneAccount(ctx, phone, { adConversions: false, signup: { invited: true } });
     for (const chat of chats) await nameOutsider(ctx, chat, userId);
     for (const { chat, sponsor } of homes) {
       // The list the next tag would write: the accounts already named, and this one. Their way in is the home's row.
