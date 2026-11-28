@@ -14,9 +14,10 @@
 
 import { callDataSync, dataSyncStub } from "./object.js";
 import { frontMatterFields } from "./about.js";
+import { APPS } from "../connect/apps.js";
 
 /** The `source:` values whose `about.md` is a data source the sync object keeps (`about.js`, `runApp.js`, `runUsage.js`). */
-const SOURCE_KINDS = new Set(["url", "fetch", "github", "cloudflare", "stripe", "usage"]);
+const SOURCE_KINDS = new Set(["url", "fetch", "usage", ...Object.keys(APPS)]);
 const NOTE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
