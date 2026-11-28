@@ -131,7 +131,7 @@ export function texPreviewFor(pathname: string): PreviewMeta {
 }
 
 /**
- * tex.lc's robots.txt: context.lc's "allow everything", less the two places a
+ * tex.lc's robots.txt: "allow everything", less the two places a
  * search result would only ever be somebody's own page — their waitlist status
  * and their console. Sign-in is what actually protects the console; this is
  * so a crawler that follows a pasted link does not list it either.

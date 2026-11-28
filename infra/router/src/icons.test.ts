@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import { icoFromPng, ICON_PATHS } from "./icons";
+import { APEX_ROBOTS_TXT } from "./robotsTxt";
 import { renderPreviewHtml, previewFor, GENERIC_PREVIEW } from "./preview";
 import { route } from "./route";
 
@@ -114,18 +115,50 @@ describe("the icon paths", () => {
 });
 
 describe("robots.txt", () => {
-  it("allows every crawler everything, as plain text, without an upstream", async () => {
+  it("is plain text from the Worker, without an upstream", async () => {
     for (const ua of [GOOGLEBOT, BROWSER]) {
       const response = await get("https://context.lc/robots.txt", ua);
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400");
       const body = await response.text();
-      expect(body).toMatch(/^User-agent: \*$/m);
-      expect(body).toMatch(/^Allow: \/$/m);
-      expect(body).not.toMatch(/Disallow:\s*\//);
+      expect(body).toBe(APEX_ROBOTS_TXT);
       expect(body).not.toContain("<");
     }
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  /** The lines of the group that names `agent`, from its first User-agent line to the blank line. */
+  function group(body: string, agent: string): string[] {
+    const blocks = body.split(/\n\s*\n/).map((block) => block.split("\n").filter((line) => !line.startsWith("#")));
+    const found = blocks.filter((lines) => lines.includes(`User-agent: ${agent}`));
+    expect(found, `one group for ${agent}`).toHaveLength(1);
+    return found[0]!;
+  }
+
+  it("mirrors Cloudflare's managed list, with GPTBot and ClaudeBot allowed", async () => {
+    const body = await (await get("https://context.lc/robots.txt", GOOGLEBOT)).text();
+    expect(body.startsWith(
+      "# As a condition of accessing this website, you agree to abide by the following\n# content signals:\n",
+    )).toBe(true);
+    expect(body).toContain("ARTICLE 4 OF THE EUROPEAN UNION DIRECTIVE 2019/790");
+    expect(body.endsWith("\n")).toBe(true);
+    expect(body.endsWith("\n\n")).toBe(false);
+
+    expect(group(body, "*")).toEqual([
+      "User-agent: *",
+      "Content-Signal: search=yes,ai-train=no,use=reference",
+      "Allow: /",
+    ]);
+    for (const agent of ["GPTBot", "ClaudeBot"]) {
+      expect(group(body, agent)).toEqual([`User-agent: ${agent}`, "Allow: /"]);
+    }
+    for (const agent of ["Bytespider", "CCBot", "Google-Extended", "Applebot-Extended", "meta-externalagent", "Amazonbot"]) {
+      expect(group(body, agent)).toEqual([`User-agent: ${agent}`, "Disallow: /"]);
+    }
+    // Nothing else is allowed by name: the two are the only exceptions.
+    const allowed = body.split(/\n\s*\n/).filter((block) => /^Allow: \/$/m.test(block));
+    expect(allowed.map((block) => block.match(/^User-agent: (.+)$/m)![1])).toEqual(["*", "ClaudeBot", "GPTBot"]);
   });
 });
 

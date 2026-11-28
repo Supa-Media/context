@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
+import { APEX_ROBOTS_TXT } from "./robotsTxt";
 
 const ENV = {
   EXPO_ORIGIN: "https://context.expo.app",
@@ -155,8 +156,8 @@ describe("context.lc is unchanged", () => {
     expect(convexCalls("/site/home")).toBeGreaterThan(0);
   });
 
-  it("robots.txt still allows everything", async () => {
-    expect(await (await get("https://context.lc/robots.txt")).text()).toBe("User-agent: *\nAllow: /\n");
+  it("robots.txt is still the apex's own file, not Tex's", async () => {
+    expect(await (await get("https://context.lc/robots.txt")).text()).toBe(APEX_ROBOTS_TXT);
   });
 });
 

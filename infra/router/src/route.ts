@@ -22,7 +22,8 @@
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
  *     /favicon.ico etc -> the Worker's own icons (icons.ts)
- *     /robots.txt      -> allow everything, plain text (icons.ts)
+ *     /robots.txt      -> search allowed, AI training crawlers disallowed
+ *                         except GPTBot and ClaudeBot (robotsTxt.ts)
  *     /llms.txt        -> the agent index, plain text (agentDocs.ts)
  *     /grokbot.md, /claude.md -> the setup guides, markdown
  *     /agents, /grokbot, /claude -> those guides as HTML, from the same source
@@ -37,7 +38,8 @@
  *     every apex rule above, path unchanged — the same web app, the same
  *     Convex proxy, the same console — except:
  *     /og/tex-card.png -> Tex's OpenGraph card (served on every host)
- *     /robots.txt      -> the apex's, less /waitlist and /console
+ *     /robots.txt      -> its own: allow everything, less /waitlist and
+ *                         /console
  *     a crawler        -> Tex's frozen cards, never Context's copy or a
  *                         context.lc canonical, wherever the apex would have
  *                         given a static card (share, team, short-link and
