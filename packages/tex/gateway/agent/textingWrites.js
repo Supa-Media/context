@@ -30,7 +30,7 @@
 
 import { routineFromPath, routineRootOf } from "../../../shared/src/routines.cjs";
 import { normalizePath } from "../../../../apps/mcp/src/notes/paths.js";
-import { isPlumbing } from "../../../../apps/mcp/src/privacy/engine.js";
+import { isPlumbingKey } from "../contextMcp.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { datedDayWords } from "./dayWords.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
@@ -138,7 +138,7 @@ export function isRoutineFilePath(path) {
 export function isWritablePath(path) {
   if (typeof path !== "string" || path.length === 0 || normalizePath(path) !== path) return false;
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return false;
-  return !isPlumbing(path);
+  return !isPlumbingKey(path);
 }
 
 /** Every path-like string in `args`, at any depth (e.g. move_notes' moves). */

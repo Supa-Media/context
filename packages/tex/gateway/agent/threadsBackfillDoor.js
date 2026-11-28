@@ -14,7 +14,7 @@
  * counts only.
  */
 
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { controlPlaneFor } from "../contextMcp.js";
 import { json } from "../util/responses.js";
 import { carriesGatewaySecret } from "../../../../apps/mcp/src/moves/mover.js";
 import { aiGatewayConfig } from "./aiGateway.js";
@@ -45,7 +45,7 @@ export async function handleThreadsBackfill(request, env, deps = {}) {
   if (ticket === "" || ticket.length > 256 || named === null) return json({ error: "bad_request" }, 400);
   let opened;
   try {
-    opened = await (deps.controlPlane ?? createControlPlane(env)).openTexStoreTicket(ticket);
+    opened = await (deps.controlPlane ?? controlPlaneFor(env)).openTexStoreTicket(ticket);
   } catch {
     return json({ error: "control_plane_unavailable" }, 503);
   }

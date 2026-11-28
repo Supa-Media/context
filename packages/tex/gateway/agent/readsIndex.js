@@ -31,7 +31,8 @@
  * (`docs/decisions/texting-assistant/turn-trust.md`).
  */
 
-import { markUntrusted, recordRead } from "../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted } from "../../../shared/src/texContract/egressLedger.cjs";
+import { recordContextRead } from "../contextMcp.js";
 import { NOTE_READS, WEB_READS } from "./toldFacts.js";
 
 /** Most reads listed; older ones are not named. */
@@ -145,5 +146,5 @@ export function readBackTool({ reads, open, reread = null, onRead = null }) {
 /** Mark the turn's egress ledger for a read opened again, as its first call marked the turn that made it. */
 export function markRead(ledger, call) {
   if (WEB_READS.has(call?.name)) markUntrusted(ledger); // a page or a search is an outsider's words (`turnWeb.js`)
-  else recordRead(ledger, call);
+  else recordContextRead(ledger, call);
 }

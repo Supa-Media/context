@@ -16,12 +16,12 @@
  */
 
 import { sha256Hex } from "../util/sha256.js";
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { controlPlaneFor } from "../contextMcp.js";
 import { objectToken } from "../../../../apps/mcp/src/workspaceStore/access.js";
 import { workspaceClient } from "../../../../apps/mcp/src/workspaceStore/api.js";
 import { timedAccessStep } from "../../../../apps/mcp/src/workspaceStore/personClient.js";
 import { TEXTING_TOKEN_MS } from "../../../shared/src/texContract/texClients.cjs";
-import { randomToken } from "../../../../apps/mcp/src/oauth/responses.js";
+import { randomToken } from "../util/bytes.js";
 import { PHONE, textingPhoneHash } from "./textingPhone.js";
 
 export { textingPhoneHash };
@@ -51,7 +51,7 @@ async function readAsk(request) {
 }
 
 const defaultObjects = (env, personalWorkspaceId) => workspaceClient(env, personalWorkspaceId)?.access ?? null;
-const defaultCopy = (env) => (fields) => createControlPlane(env).textsOpened(fields);
+const defaultCopy = (env) => (fields) => controlPlaneFor(env).textsOpened(fields);
 
 /**
  * The `TexTexts` entrypoint's fetch. `objects` and `copy` are seams for tests: the person object's access client and

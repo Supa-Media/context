@@ -880,3 +880,4 @@ test/texContextMcp.test.mjs
 test/mailReplyRoute.test.mjs
 test/mailSeatNote.test.mjs
 test/dataSyncStatusLine.test.mjs
+test/texContractGateway.test.mjs

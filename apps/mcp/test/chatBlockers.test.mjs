@@ -14,6 +14,7 @@
  *   `blockedLine` ignoring the turn's reach                -> "an asker's workspace someone here isn't in" fails
  *   `groupReachOut` dropping blocked                     -> "Replay logs reach and who blocks it" fails
  */
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

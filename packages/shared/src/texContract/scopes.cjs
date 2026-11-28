@@ -2,13 +2,15 @@
  * The scope strings a Context grant carries, and the one check on them.
  *
  * Shared by the gateway and Tex, so both name a scope the same way. `apps/mcp/src/session.js` re-exports these, and
- * keeps `SCOPE_CAPTURE` and `SUPPORTED_SCOPES` (no Tex code names them).
+ * keeps `SUPPORTED_SCOPES`; `SCOPE_CAPTURE` is here for the role clamp (`scopeClamp.cjs`).
  */
 
 /** Read every visible note. */
 const SCOPE_READ = "context:read";
 /** Create, update, move, and archive notes. Implies capture. */
 const SCOPE_WRITE = "context:write";
+/** File into the inbox and nowhere else. */
+const SCOPE_CAPTURE = "context:capture";
 
 /**
  * Reach notes marked private.
@@ -24,4 +26,4 @@ function hasScope(session, scope) {
   return Array.isArray(session?.scopes) && session.scopes.includes(scope);
 }
 
-module.exports = { SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE, hasScope };
+module.exports = { SCOPE_READ, SCOPE_WRITE, SCOPE_CAPTURE, SCOPE_PRIVATE, hasScope };

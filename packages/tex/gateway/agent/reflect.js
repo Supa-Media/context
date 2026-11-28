@@ -38,7 +38,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { builtinMeter, dayOf } from "./jobLog.js";
 import { contextTools } from "../contextMcp.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 import { sandboxGateOf } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { failedAt, memoryNudge } from "./memoryNudge.js";
 import {

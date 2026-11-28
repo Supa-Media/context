@@ -19,7 +19,7 @@
  * ever fails a look: anything not connected or not answering is left out.
  */
 
-import { oneLine } from "../../../../apps/mcp/src/privacy/egress.js";
+import { oneLine } from "../../../shared/src/texContract/egressLedger.cjs";
 import { dayOf } from "./jobLog.js";
 
 /** The words today's calendar section opens with, also how a log tells it was shown. */

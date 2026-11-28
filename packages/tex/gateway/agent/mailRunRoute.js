@@ -17,11 +17,11 @@
 import mail from "../../../shared/src/mail.cjs";
 import { ledgerFor } from "./ledger.js";
 import { ownDispatch } from "./reflect.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 import { grantedToolsFor } from "./sixTools.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { texConfigOf, texStep } from "./texConfig.js";
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { controlPlaneFor } from "../contextMcp.js";
 import { readNoteAs, targetOf } from "./noteRunRoute.js";
 
 export const MAIL_RUN_PATH = "/tex/mail-run";
@@ -146,7 +146,7 @@ async function serveRun(request, store, session, env, deps) {
   // Read through the newest line this run answers, so the next line, and only it, wakes the next run.
   await store.mail.read(mailboxId, turn.newest).catch(() => {});
 
-  const controlPlane = deps.controlPlane ?? createControlPlane(env);
+  const controlPlane = deps.controlPlane ?? controlPlaneFor(env);
   const runNoteRun = deps.runNoteRun ?? (await import("./noteRun.js")).runNoteRun;
   let result;
   try {

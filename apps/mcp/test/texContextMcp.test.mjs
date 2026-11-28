@@ -8,7 +8,10 @@
  * Run as temporary local edits and reverted:
  *
  * 1. `callContextTool` dropping `options`: "a legacy caller keeps its option" fails.
- * 2. `heartbeat.js` importing `callToolForSession` again: "only the seam imports the gateway's MCP dispatcher" fails.
+ * 2. `heartbeat.js` importing `callToolForSession` again: "no Tex file imports the gateway's MCP dispatcher" fails.
+ *
+ * Since 2026-11-28 the seam imports no gateway module either: the gateway hands its dispatcher over when it loads
+ * (`texContract/contextGateway.cjs`), and the seam calls it from there.
  */
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -73,9 +76,12 @@ function walk(dir, out = []) {
   return out;
 }
 
-test("only the seam imports the gateway's MCP dispatcher", () => {
+test("no Tex file imports the gateway's MCP dispatcher; the seam takes it from the gateway's connection", () => {
   const importers = walk(join(ROOT, "packages/tex"))
     .filter((file) => /from\s+"[^"]*apps\/mcp\/src\/tools\/session\.js"/.test(readFileSync(file, "utf8")))
     .map((file) => relative(ROOT, file).split("\\").join("/"));
-  assert.deepEqual(importers, ["packages/tex/gateway/contextMcp.js"]);
+  assert.deepEqual(importers, []);
+  const seam = readFileSync(join(ROOT, "packages/tex/gateway/contextMcp.js"), "utf8");
+  assert.match(seam, /from "\.\.\/\.\.\/shared\/src\/texContract\/contextGateway\.cjs"/);
+  assert.doesNotMatch(seam, /from "[^"]*apps\/mcp\/src/);
 });

@@ -1,6 +1,6 @@
 /** Reads Tex's production setup: its prompt, history length, skills, models, router and fallback. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { searchSettingsOf } from "../../../../../apps/mcp/src/search/settings.js";
 import { pictureFallback } from "../attachments.js";
 import { builtinModel, canRunBuiltin } from "../builtin.js";

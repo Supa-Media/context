@@ -1,6 +1,6 @@
 /** Picks the write tools for this chat and opens the browser, vouched for by the person's own words. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { readUpdates } from "../customInstructions.js";
 import { chatLines, groupWriteTools } from "../groupTurn.js";
 import { appOriginOf, notePreviewSigner } from "../noteLinks.js";

@@ -7,6 +7,7 @@
 // test fails; drop `DEV_SHARE_NOT_KNOWN` from `devSharePrompt` and the second does; add a cause to the Worker's
 // `TurnCause` without wording it here and the third does; word a judged guest's turn with `INVITED_TAGGER_LINE`
 // ("The person who tagged you") and the first does.
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";

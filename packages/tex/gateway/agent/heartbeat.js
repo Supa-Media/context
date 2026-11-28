@@ -72,10 +72,10 @@ const versionOf = (env) => {
 };
 import { threadOf } from "./threadView.js";
 import { appendLogEntryWhy, builtinMeter, clock, readWithEtag } from "./jobLog.js";
-import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
+import { actorFor, contextsFor } from "../../../shared/src/texContract/identity.cjs";
 import { contextTools } from "../contextMcp.js";
 import { grantedToolsFor } from "./sixTools.js";
-import { markUntrusted, newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted, newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 import { SEARCH_WEB_TOOL, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { json } from "../util/responses.js";

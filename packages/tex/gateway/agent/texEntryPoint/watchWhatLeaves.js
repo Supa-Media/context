@@ -1,6 +1,6 @@
 /** Starts this turn's egress ledger: what it reads from outside and what it may send out. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { newLedger } from "../../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../../shared/src/texContract/egressLedger.cjs";
 import { addressedTo } from "../../../../shared/src/texContract/toolContract.cjs";
 import { ROUTINES_CLIENT_ID } from "../routine.js";
 import { CONSOLE_CLIENT_ID, TEXTS_CLIENT_ID } from "./clients.js";

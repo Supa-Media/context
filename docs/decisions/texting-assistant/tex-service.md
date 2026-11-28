@@ -34,7 +34,19 @@ Every tool call Tex makes goes through one file,
 request's params. Today it answers in-process through the gateway's MCP
 dispatcher; when Tex moves to its own Worker, that file switches to MCP over
 a service binding and no caller changes. `apps/mcp/test/texContextMcp.test.mjs`
-fails if any other Tex file imports the dispatcher.
+fails if any Tex file imports the dispatcher.
+
+The few other things Tex still takes from the gateway it runs in pass through
+the same file, never by import: marking a turn's egress ledger for a read, the
+privacy engine's `isPlumbing` and `readsAsChat`, whether a store's members read
+a path, the egress judge, and the control-plane client. The gateway hands its
+own functions over once, when its dispatcher loads
+(`packages/shared/src/texContract/contextGateway.cjs`, connected from
+`apps/mcp/src/tools/session.js`), and a second connection with other functions
+is refused; `apps/mcp/test/texContractGateway.test.mjs` holds both. Each is one
+named seam to replace with MCP when Tex moves. Logic both sides need and that
+reads nothing (the turn ledger, the role clamp, who a session acts as) lives in
+`packages/shared/src/texContract/` instead, one copy the gateway re-exports.
 
 Until the split is done, the two sides are one program: Tex's code imports
 gateway modules and gateway code imports Tex's.

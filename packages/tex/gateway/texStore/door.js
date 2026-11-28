@@ -17,7 +17,7 @@
  * the gateway's own would (`texStore/wire.js`); the answer comes back as it is.
  */
 
-import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { controlPlaneFor } from "../contextMcp.js";
 import { json } from "../util/responses.js";
 import { carriesGatewaySecret } from "../../../../apps/mcp/src/moves/mover.js";
 import { texStoreStub } from "./wire.js";
@@ -40,7 +40,7 @@ export async function handleTexStoreDoor(request, env, { controlPlane = null } =
   if (ticket === "" || ticket.length > 256 || named === null || !call) return json({ error: "bad_request" }, 400);
   let opened;
   try {
-    opened = await (controlPlane ?? createControlPlane(env)).openTexStoreTicket(ticket);
+    opened = await (controlPlane ?? controlPlaneFor(env)).openTexStoreTicket(ticket);
   } catch {
     return json({ error: "control_plane_unavailable" }, 503);
   }

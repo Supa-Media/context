@@ -14,7 +14,7 @@
  *
  * Input `{}`. Output `{ when: ["found"], open, tabs, selection, chars }` or `{ when: ["none"], why }`.
  */
-import { contextsFor } from "../../../../../../apps/mcp/src/context/identity.js";
+import { contextsFor } from "../../../../../shared/src/texContract/identity.cjs";
 import { isSheetPath } from "../../../../../shared/src/fileKinds.cjs";
 import { isAppTurn, screenForTurn } from "../../screen.js";
 

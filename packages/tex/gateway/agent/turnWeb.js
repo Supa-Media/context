@@ -27,7 +27,7 @@ import { groupViewerUrl } from "./hubLinks.js";
 import { decisionEngine } from "./decide.js";
 import { resolveUpload } from "./uploads.js";
 import { keepDownload } from "./downloads.js";
-import { markUntrusted } from "../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted } from "../../../shared/src/texContract/egressLedger.cjs";
 import { handoffRefusedIn } from "./browse.js";
 
 /** How many of their earlier texts vouch for what the browser may type and open. */

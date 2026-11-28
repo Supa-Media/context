@@ -6,6 +6,7 @@
 // ... is dropped" fails); writing the near note before checking the far one exists ("a link to a note that is not
 // there writes nothing" fails); appending at the note's end when a Connections section exists ("a link lands at the
 // end of Connections" fails).
+import "./gatewayConnected.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

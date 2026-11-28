@@ -26,7 +26,7 @@
 
 import { json } from "../util/responses.js";
 import { hasScope, SCOPE_WRITE } from "../../../shared/src/texContract/scopes.cjs";
-import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
+import { actorFor, contextsFor } from "../../../shared/src/texContract/identity.cjs";
 import { contextTools } from "../contextMcp.js";
 import { jobMailOf } from "./background.js";
 import { jobTagged, storeLedger } from "./ledger.js";

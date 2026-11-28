@@ -30,10 +30,10 @@
  */
 
 import { json } from "../util/responses.js";
-import { contextsFor, editsPinnedContext } from "../../../../apps/mcp/src/context/identity.js";
+import { contextsFor, editsPinnedContext } from "../../../shared/src/texContract/identity.cjs";
 import { grantedToolsFor } from "./sixTools.js";
 import { contextTools } from "../contextMcp.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { newLedger } from "../../../shared/src/texContract/egressLedger.cjs";
 import { SCOPE_PRIVATE, SCOPE_READ } from "../../../shared/src/texContract/scopes.cjs";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";

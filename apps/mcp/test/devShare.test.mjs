@@ -14,6 +14,7 @@
  *  4. `!o.inGroup` dropped from `transcripts` → "a group turn is never told the 1:1's record" fails.
  */
 
+import "./gatewayConnected.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

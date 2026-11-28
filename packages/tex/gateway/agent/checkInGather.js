@@ -13,7 +13,7 @@ import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { CALENDAR_SHOWN } from "./checkInSources.js";
 import { dayOf, longDate } from "./jobLog.js";
-import { isPlumbing } from "../../../../apps/mcp/src/privacy/engine.js";
+import { isPlumbingKey } from "../contextMcp.js";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -55,7 +55,7 @@ export function changedSince(entries, since) {
     const uploaded = entry?.uploaded;
     if (typeof key !== "string" || !key.toLowerCase().endsWith(".md")) continue;
     if (!(uploaded instanceof Date) || Number.isNaN(uploaded.getTime()) || uploaded.getTime() <= since) continue;
-    if (isPlumbing(key) || isOwnOutput(key)) continue;
+    if (isPlumbingKey(key) || isOwnOutput(key)) continue;
     changed.push({ key, at: uploaded.getTime() });
   }
   return changed.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
