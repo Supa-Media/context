@@ -21,6 +21,20 @@ const word = (value) => (typeof value === "string" ? value.trim() : Array.isArra
 const isPerson = (value) => word(value).startsWith("@");
 const when = (ms) => (typeof ms === "number" ? new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z") : null);
 
+/**
+ * When `bot` last checked in and how much waits for it (`workspaceStore/botInbox.js`), the same facts the app's bot
+ * card shows (Dev, 2026-11-28: an agent reads bot health itself). "" where the object did not answer, so an unserved
+ * read never says "never".
+ */
+function healthWords(state, bot) {
+  if (state === null || typeof state !== "object" || !Array.isArray(state.checks)) return "";
+  const name = mailJoinName(bot);
+  const check = state.checks.find((row) => row?.bot === name);
+  const waiting = Array.isArray(state.inbox) ? Number(state.inbox.find((row) => row?.bot === name)?.count ?? 0) : 0;
+  const checked = typeof check?.at === "number" ? `last check-in ${when(check.at)}` : "never checked in";
+  return ` — ${checked}${waiting > 0 ? `; ${waiting} waiting in its inbox` : ""}`;
+}
+
 /** The workspace object's routines and week for this reader, or null. */
 export async function botsState(store) {
   try {
@@ -133,7 +147,7 @@ export async function capsFor(store, areasRoot, bot) {
  * `## Other bots here`: every bot card this connection can see, with whose it is and the areas it holds, and the
  * rule that bots talk only in Context mail. `held` maps a bot's name (lower-case) to the areas it holds.
  */
-export async function otherBotsSection(store, entries, areasRoot, self, held) {
+export async function otherBotsSection(store, entries, areasRoot, self, held, state = null) {
   const cards = entries
     .map(({ key }) => key)
     .filter((key) => {
@@ -152,7 +166,7 @@ export async function otherBotsSection(store, entries, areasRoot, self, held) {
     seen.add(name.toLowerCase());
     const areas = held.get(name.toLowerCase()) ?? [];
     const whose = word(props.belongs_to);
-    lines.push(`- ${name}${whose ? ` (${whose}'s)` : ""}${areas.length ? ` — holds ${areas.map((area) => `\`${area}/\` (mail \`${area}/mail/\`)`).join(", ")}` : " — holds no area yet"}`);
+    lines.push(`- ${name}${whose ? ` (${whose}'s)` : ""}${areas.length ? ` — holds ${areas.map((area) => `\`${area}/\` (mail \`${area}/mail/\`)`).join(", ")}` : " — holds no area yet"}${healthWords(state, name)}`);
     if (lines.length >= BOTS_SHOWN) break;
   }
   const own = typeof self === "string" && self.trim() !== "" ? `\nMail written to you outside any area is in \`${botsHome(areasRoot)}/${cardSlug(self)}/mail/\`, one note per sender: answer there the same way.` : "";
