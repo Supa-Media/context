@@ -268,9 +268,23 @@ export function workspaceSearch(sql, { rows, objects }) {
     return all(sql.exec(searchSql(table, options), ...searchParams(match, options)));
   };
 
+  /**
+   * How many chunks a full-text table holds, from its docsize rows: FTS5 keeps one per chunk, so the number is the
+   * table's own count. A count with no MATCH on the table itself walks every chunk's text, and a search across
+   * workspaces asks for this in every object it searches (2026-11-28: a Claude search's `ws.search` p95 13.3 s).
+   * A database that keeps no docsize rows is counted the slow way, never guessed.
+   */
+  const chunkCount = (table) => {
+    try {
+      return Number(all(sql.exec(`SELECT count(*) AS n FROM ${table}_docsize`))[0]?.n ?? 0);
+    } catch {
+      return Number(all(sql.exec(`SELECT count(*) AS n FROM ${table}`))[0]?.n ?? 0);
+    }
+  };
+
   /** A table's chunk count and, per word, the chunks holding it: `{ n, df: { word: count } }`. */
   const statsOf = (table, terms) => {
-    const n = Number(all(sql.exec(`SELECT count(*) AS n FROM ${table}`))[0]?.n ?? 0);
+    const n = chunkCount(table);
     const df = {};
     for (const term of terms) df[term] = Number(all(sql.exec(`SELECT count(*) AS n FROM ${table} WHERE ${table} MATCH ?`, `"${term.replaceAll('"', '""')}"`))[0]?.n ?? 0);
     return { n, df };

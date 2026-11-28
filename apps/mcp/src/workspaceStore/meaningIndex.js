@@ -83,6 +83,15 @@ export class MeaningAskRefused extends Error {
 
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
 
+/**
+ * One passage as the index holds it in memory. Whether its note is archived is worked out here, once, when its path is
+ * set: a query that leaves the archive out then reads a flag for every passage instead of splitting every path
+ * (2026-11-28: about 30 ms per 100,000 passages on every query, half a warm query's time).
+ */
+function passageEntry(path, chunk, tier, bits) {
+  return { path, chunk, tier, bits, archived: isArchived(path) };
+}
+
 /** Where a live row's text is in this object (as the word index reads it, `searchIndex.js`), or `null`. */
 function textAt(row) {
   const key = row.storage_key ?? (typeof row.note_id === "string" ? `notes/${row.note_id}.md` : null);
@@ -176,7 +185,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     held = new Map();
     for (const row of all(sql.exec("SELECT id, path, chunk, tier, bits FROM ws_meaning_passages"))) {
       const bytes = bytesOf(row.bits);
-      held.set(Number(row.id), { path: row.path, chunk: Number(row.chunk), tier: row.tier, bits: new Uint32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + WORDS * 4)) });
+      held.set(Number(row.id), passageEntry(row.path, Number(row.chunk), row.tier, new Uint32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + WORDS * 4))));
     }
     packed = null;
     return held;
@@ -241,7 +250,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       );
       if (held !== null) {
         const id = Number(all(sql.exec("SELECT last_insert_rowid() AS id"))[0]?.id);
-        held.set(id, { path: want.path, chunk, tier: want.tier, bits });
+        held.set(id, passageEntry(want.path, chunk, want.tier, bits));
       }
     });
     sql.exec("INSERT INTO ws_meaning_held (row_id, path, etag, tier) VALUES (?, ?, ?, ?)", rowId, want.path, want.etag, want.tier);
@@ -329,7 +338,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
               sql.exec("UPDATE ws_meaning_passages SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
               sql.exec("UPDATE ws_meaning_held SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
               if (held !== null) {
-                for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) Object.assign(held.get(Number(row.id)) ?? {}, { path: want.path, tier: want.tier });
+                for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) Object.assign(held.get(Number(row.id)) ?? {}, { path: want.path, tier: want.tier, archived: isArchived(want.path) });
               }
               packed = null;
             }
@@ -418,7 +427,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       const nominated = (i) => {
         if (allowed !== null && !allowed.has(index.tiers[i])) return false;
         const path = index.entries[i].path;
-        return (prefix === "" || path.startsWith(prefix)) && !(skipArchive && isArchived(path));
+        return (prefix === "" || path.startsWith(prefix)) && !(skipArchive && index.entries[i].archived);
       };
       const want = signBits(asked);
       const count = index.ids.length;

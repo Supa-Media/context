@@ -301,6 +301,36 @@ test("a stats ask counts a table's chunks and the chunks holding each word, quot
   assert.equal("words" in plain.body.answers[0][0], false);
 });
 
+// A cross-workspace search asks every workspace for its chunk count (`search/sharedWords.js`). A count with no MATCH on
+// an FTS5 table walks every row of its text, inside the object, on every such search (production, 2026-11-28: a
+// Claude search's `ws.search` p50 468 ms / p95 13.3 s against 33 ms / 1.7 s for one workspace). The count comes from
+// the table's docsize rows instead: the same number, one row per chunk, kept by FTS5 itself.
+// Sabotage: count `FROM ${table}` again in `statsOf` and the "never walks" assertion fails.
+test("a stats ask counts a table's chunks exactly, after edits and removals, without walking the full-text table", { skip }, async () => {
+  const object = await seeded([{ prefix: "plans", visibility: "team" }, { prefix: "own", visibility: "private" }]);
+  const long = Array.from({ length: 400 }, (_, i) => `willow line ${i} with enough words to make chunks`).join("\n");
+  await note(object, 1, "plans/a.md", `# A\n${long}`);
+  await note(object, 2, "plans/b.md", "# B\nwillow");
+  await note(object, 3, "own/c.md", "# C\nwillow oak");
+  const exact = (table) => Number(object.store.sql.exec(`SELECT count(*) AS n FROM ${table}`).toArray()[0].n);
+  const seen = [];
+  const exec = object.store.sql.exec;
+  object.store.sql.exec = (query, ...binds) => (seen.push(query), exec.call(object.store.sql, query, ...binds));
+  const stats = async () => (await object.call("ws.search", { asks: [ask(TEAM, "willow"), { table: TEAM, stats: ["willow"] }, { table: PRIVATE, stats: ["willow"] }] })).body.answers;
+  let [, team, own] = await stats();
+  object.store.sql.exec = exec;
+  assert.equal(exact(TEAM) > 2, true, "the long note is several chunks");
+  assert.equal(team.n, exact(TEAM));
+  assert.equal(own.n, exact(PRIVATE));
+  assert.equal(seen.some((query) => new RegExp(`^SELECT\\b.*\\bFROM (${TEAM}|${PRIVATE})\\s*$`, "s").test(query.trim())), false, "a stats ask never walks the full-text table");
+  // A note shortened and one removed: the count follows, exactly.
+  await note(object, 1, "plans/a.md", "# A\nwillow", 20);
+  await object.call("ws.apply", { rows: [{ id: "r2", noteId: ID(2), path: "plans/b.md", kind: "file", storageKey: `notes/${ID(2)}.md`, gone: true, at: 21 }], at: 21 });
+  [, team, own] = await stats();
+  assert.equal(team.n, exact(TEAM));
+  assert.equal(own.n, exact(PRIVATE));
+});
+
 test("asked for word statistics, the gateway's object search sums them over its tables and gives each hit its counts; not asked, it sends no stats ask", { skip }, async () => {
   const object = await seeded();
   await note(object, 1, "plans/a.md", "# A\nwillow oak");
