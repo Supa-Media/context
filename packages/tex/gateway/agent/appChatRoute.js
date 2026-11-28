@@ -43,7 +43,7 @@
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { saveSeen, validSeen } from "./screen.js";
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 import { ROWS_SHOWN, buildRows, ledgerEntries, outboxDigest, outboxOf, stepEntries, typingNow } from "./appChatRows.js";
 
 export const APP_CHAT_PATH = "/tex/app-chat";

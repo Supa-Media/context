@@ -22,7 +22,7 @@
  * privacy rule there can narrow one below the chat.
  */
 
-import { splitTexKey } from "../../../../apps/mcp/src/store/texRouting.js";
+import { splitTexKey } from "../../../shared/src/texContract/texKeys.cjs";
 import { ensureHistoryFile, homeConversationsPath, homeHistoryPath } from "./historyFile.js";
 
 /** Whether `key` names a note in this chat's own object. */

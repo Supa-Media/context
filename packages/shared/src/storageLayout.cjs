@@ -51,6 +51,19 @@ function legacyStorageKey(key) {
   return null;
 }
 
+/**
+ * A plumbing object at its v1 key, or its pre-v1 copy when the v1 key misses: over the store it is handed, so the
+ * gateway (`apps/mcp/src/storageLayout.js`, which re-exports it) and Tex read it alike.
+ */
+async function getWithLegacyFallback(store, key, options = {}) {
+  const current = await store.get(key);
+  if (current) return current;
+  const legacy = legacyStorageKey(key);
+  if (!legacy) return null;
+  if (options.beforeFallback && options.beforeFallback() === false) return null;
+  return store.get(legacy);
+}
+
 module.exports = {
   CONTEXT_ROOT,
   STORAGE_LAYOUT_VERSION,
@@ -71,4 +84,5 @@ module.exports = {
   LEGACY_STORAGE_PREFIXES,
   currentStorageKey,
   legacyStorageKey,
+  getWithLegacyFallback,
 };

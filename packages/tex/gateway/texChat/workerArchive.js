@@ -89,7 +89,7 @@ export async function archiveForTexts(request, env) {
     body = null;
   }
   if (typeof body?.id !== "string" || !OBJECT_ID.test(body.id) || entriesOf(body) === null) return new Response(null, { status: 400 });
-  const { objectByName } = await import("../../../../apps/mcp/src/objectPlace.js");
+  const { objectByName } = await import("../../../shared/src/texContract/objectPlace.cjs");
   const name = archiveName(body.id);
   const answer = await objectByName(env.TEX_CHAT, name).fetch(`https://chat${ARCHIVE_PATH}`, {
     method: "POST",

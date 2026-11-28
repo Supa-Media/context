@@ -56,7 +56,7 @@ export async function serveById(request, storage) {
 export async function indexChat(env, storage, name, senderId) {
   if (env?.TEX_CHAT === undefined || typeof name !== "string" || typeof senderId !== "string" || !OBJECT_ID.test(senderId)) return;
   if ((await storage.get(INDEXED_KEY)) === true) return;
-  const { objectByName } = await import("../../../../apps/mcp/src/objectPlace.js");
+  const { objectByName } = await import("../../../shared/src/texContract/objectPlace.cjs");
   const answer = await objectByName(env.TEX_CHAT, byIdName(senderId))
     .fetch(`https://chat${BY_ID_PATH}`, { method: "POST", headers: { "content-type": "application/json", "x-inbox-name": byIdName(senderId) }, body: JSON.stringify({ name }) })
     .catch(() => null);
@@ -84,7 +84,7 @@ export async function chatByIdForTexts(request, env) {
   if (env?.TEX_CHAT === undefined) return Response.json({ error: "no_chat_home" }, { status: 501 });
   const match = /^\/([0-9a-f]{64})(\/.*)$/.exec(path);
   if (match === null || !BY_ID_CALLS.test(match[2])) return new Response(null, { status: 404 });
-  const { objectByName } = await import("../../../../apps/mcp/src/objectPlace.js");
+  const { objectByName } = await import("../../../shared/src/texContract/objectPlace.cjs");
   const index = await objectByName(env.TEX_CHAT, byIdName(match[1])).fetch(`https://chat${BY_ID_PATH}`, { headers: { "x-inbox-name": byIdName(match[1]) } });
   if (!index.ok) return new Response(null, { status: 404 });
   const { name } = await index.json();

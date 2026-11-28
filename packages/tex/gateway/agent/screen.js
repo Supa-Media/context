@@ -13,7 +13,7 @@
  */
 
 import { texConfigOf, texStep } from "./texConfig.js";
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 
 /** The module in the front door's `ctx` that turns this on (`screen` or `screen:<chars>`). */
 export const SCREEN_MODULE = "screen";

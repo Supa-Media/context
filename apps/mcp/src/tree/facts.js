@@ -75,28 +75,8 @@ export async function factChaos(store, today) {
   return { extras, weekAgo: Number.isFinite(chaos.weekAgo) ? chaos.weekAgo : null };
 }
 
-/**
- * Which folder does each built-in job (`apps/convex/functions/lib/nodes/folderJobs.ts`),
- * as far as this connection can see: `{jobs, roots}` in the shape
- * `folderJobs` gives (`packages/shared/src/folderRoles.cjs`), or `null` when
- * the facts cannot answer. A folder this connection cannot see is `null`.
- *
- * @param {object} store
- * @returns {Promise<{ jobs: Record<string, string | null>, roots: string[] } | null>}
- */
-export async function factJobs(store) {
-  if (typeof store?.treeFacts !== "function") return null;
-  let answer;
-  try {
-    answer = await store.treeFacts({ ask: "jobs" });
-  } catch {
-    return null;
-  }
-  if (answer?.served !== true || !answer.jobs || typeof answer.jobs !== "object" || !Array.isArray(answer.roots)) return null;
-  const jobs = {};
-  for (const [job, path] of Object.entries(answer.jobs)) jobs[job] = typeof path === "string" && path !== "" ? path : null;
-  return { jobs, roots: answer.roots.filter((name) => typeof name === "string") };
-}
+// Pure over the store it is handed, and read by Tex too (`packages/shared/src/texContract/treeJobs.cjs`).
+export { factJobs } from "../../../../packages/shared/src/texContract/treeJobs.cjs";
 
 /** Notes one props request names: the control plane's `PROPS_REQUEST_PATHS`. */
 export const PROPS_REQUEST_PATHS = 100;

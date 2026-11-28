@@ -35,9 +35,23 @@
  *   Cloudflare, and answers conditional writes itself.
  */
 
-import { isTexKey, isTexStateKey } from "../privacy/engine.js";
+import {
+  AGENT_HOME_PREFIX,
+  isAgentHomeKey,
+  splitTexKey,
+} from "../../../../packages/shared/src/texContract/texKeys.cjs";
 
-/** Thrown for a Tex key this store cannot serve: another workspace's owner, or no way to reach the object. */
+// The key shapes are a pure contract Tex reads too (`packages/shared/src/texContract/texKeys.cjs`).
+export {
+  AGENT_HOME_FOLDERS,
+  goesToObject,
+  isAgentHomeKey,
+  splitTexKey,
+  texKeyFor,
+  texStateKeyFor,
+} from "../../../../packages/shared/src/texContract/texKeys.cjs";
+
+/** Thrown for a Tex key this store cannot serve: another workspace's owner, or no way to reach the object. Tex knows it by its name (`isTexStoreUnavailable`). */
 export class TexStoreUnavailable extends Error {
   constructor(reason) {
     super(`Tex's notes are not reachable here: ${reason}`);
@@ -49,49 +63,6 @@ export class TexStoreUnavailable extends Error {
 
 /** Anything shaped as a Tex owner's `state/`, so a near miss is refused rather than sent to the bucket. */
 const STATE_SHAPED = /^tex\/[^/]*:[^/]*\/state(?:\/|$)/;
-
-/** The `.context/agent/` folders a person's Tex bookkeeping lives under, in their object. */
-export const AGENT_HOME_FOLDERS = ["history", "turns", "running", "cancel", "steer", "go"];
-const AGENT_HOME = /^\.context\/agent\/(history|turns|running|cancel|steer|go)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2}[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})$/;
-const AGENT_HOME_PREFIX = /^\.context\/agent\/(history|turns|running|cancel|steer|go)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2})$/;
-
-/** Whether `key` is a person's Tex bookkeeping, kept in their object (`state/agent/...`). No `..`, no empty segment. */
-export function isAgentHomeKey(key) {
-  return typeof key === "string" && AGENT_HOME.test(key) && !key.includes("..");
-}
-
-/**
- * Whether a call goes to a Tex Durable Object rather than the bucket, by the
- * same rules as `withTexRouting`: a person's bookkeeping key, a Tex or chat
- * state key, or (for a listing, `prefix: true`) a prefix under either. For
- * timing only (`agent/texTiming.js`); the routing itself decides access.
- */
-export function goesToObject(key, { prefix = false } = {}) {
-  if (typeof key !== "string" || key.includes("..")) return false;
-  if (prefix) return AGENT_HOME_PREFIX.test(key) || /^tex\/(?:person|chat):[A-Za-z0-9_-]{1,64}\//.test(key);
-  return isAgentHomeKey(key) || splitTexKey(key) !== null;
-}
-
-/** `{owner, key}` for a Tex key or a chat's state key: whose object, and the key inside it. */
-export function splitTexKey(key) {
-  if (!isTexKey(key) && !isTexStateKey(key)) return null;
-  const cut = key.indexOf("/", "tex/".length);
-  return { owner: key.slice("tex/".length, cut), key: key.slice(cut + 1) };
-}
-
-/** The Tex key for an id key kept in `owner`'s object. */
-export function texKeyFor(owner, idKey) {
-  const key = `tex/${owner}/${idKey}`;
-  if (!isTexKey(key)) throw new TypeError("not an id key, or not an owner");
-  return key;
-}
-
-/** A group chat's state key: `name` is 64 hex (a SHA-256), kept in that chat's object alone. */
-export function texStateKeyFor(chat, name) {
-  const key = ["tex", `chat:${chat}`, "state", `${name}.json`].join("/");
-  if (!isTexStateKey(key)) throw new TypeError("not a chat, or not a state name");
-  return key;
-}
 
 /**
  * `store` with Tex keys sent to their object.

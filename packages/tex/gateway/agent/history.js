@@ -19,7 +19,7 @@
  * there, the bucket's copies are never read again.
  */
 
-import { getWithLegacyFallback } from "../../../../apps/mcp/src/storageLayout.js";
+import { getWithLegacyFallback } from "../../../shared/src/storageLayout.cjs";
 import { eventsSupported, readEventTurns } from "./events.js";
 
 /** The record. A `.context/agent/history/` key: the routing sends it to the person's object. */

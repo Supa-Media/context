@@ -11,7 +11,7 @@
  * large workspace's whole tree, built from parents since 2026-10-25, took
  * longer than 6 seconds at most check-ins, and every one of them read nothing.
  */
-import { objectOf, servedListingStore } from "../../../../apps/mcp/src/tree/served.js";
+import { objectOf, servedListingStore } from "../../../shared/src/servedListing.cjs";
 
 /** How long one page of the tree may take for a check-in. */
 export const LOOK_TREE_TIMEOUT_MS = 25_000;

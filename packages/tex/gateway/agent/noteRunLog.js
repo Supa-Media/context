@@ -5,7 +5,7 @@
  * logged by name only, never by the words in them.
  */
 
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 import { NOTE_RUNS_NAME_HEADER, NOTE_RUNS_PATH, NOTE_RUNS_PREFIX } from "../texChat/noteRuns.js";
 
 /** The object's name for one note's log. */

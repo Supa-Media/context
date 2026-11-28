@@ -24,7 +24,7 @@
  *   minted before chats were named) keeps the bucket record, as before.
  */
 
-import { TexStoreUnavailable, texStateKeyFor } from "../../../../apps/mcp/src/store/texRouting.js";
+import { isTexStoreUnavailable, texStateKeyFor } from "../../../shared/src/texContract/texKeys.cjs";
 
 /** `sha256("memory")`: the record's one name in its chat's object. */
 export const CHAT_MEMORY_NAME = "c064fbca9d9de8dd9bb0624984403b28d0da807a69365d4f7fb09123ecb0c405";
@@ -47,11 +47,11 @@ function placeOf(store, group, legacy) {
 }
 
 function logNotKept(error, step, log) {
-  const reason = error instanceof TexStoreUnavailable ? "tex_store_unavailable" : "not_this_chat";
+  const reason = isTexStoreUnavailable(error) ? "tex_store_unavailable" : "not_this_chat";
   log(JSON.stringify({ event: "group_memory_not_kept", step, reason }));
 }
 
-const isNotKept = (error) => error instanceof NotKept || error instanceof TexStoreUnavailable;
+const isNotKept = (error) => error instanceof NotKept || isTexStoreUnavailable(error);
 
 /**
  * The record's text, or null. `legacy` is the bucket key this chat and these people kept it at. A read that cannot

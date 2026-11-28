@@ -29,7 +29,7 @@
  */
 
 import { routineFromPath, routineRootOf } from "../../../shared/src/routines.cjs";
-import { normalizePath } from "../../../../apps/mcp/src/notes/paths.js";
+import { normalizePath } from "../../../shared/src/texContract/notePath.cjs";
 import { isPlumbing } from "../../../../apps/mcp/src/privacy/engine.js";
 import { toolError } from "../../../shared/src/texContract/toolContract.cjs";
 import { datedDayWords } from "./dayWords.js";

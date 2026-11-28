@@ -47,7 +47,7 @@ export function storableDownload(download, shoot) {
 }
 
 import { isPagePath, parsePage } from "../../../../shared/src/pages/parse.cjs";
-import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_BYTES_PER_WRITE, storableImage } from "../../../../../apps/mcp/src/notes/uploadedImages.js";
+import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_BYTES_PER_WRITE, storableImage } from "../../../../shared/src/texContract/uploadImages.cjs";
 import { huntPicture, within } from "./hunt.js";
 
 /**

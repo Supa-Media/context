@@ -4,7 +4,7 @@
  * on. The log line carries the kind and the outcome only, never the message and never the inbox name.
  */
 
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 import { INBOX_NAME, isArrival } from "../texChat/arrival.js";
 import { JOB_NAME } from "../texJobName.js";
 

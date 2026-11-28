@@ -14,6 +14,8 @@
  */
 "use strict";
 
+const { PERSON_SEARCH_BOUNDS } = require("../../../../../packages/shared/src/texContract/searchSettings.cjs");
+
 const SEARCH_SCHEMA_VERSION = 1;
 
 /**
@@ -21,9 +23,8 @@ const SEARCH_SCHEMA_VERSION = 1;
  * `extraNotes` and `snippetChars` are the person-facing search settings (`../settings.js`), whose defaults are here.
  */
 const SEARCH_SETTINGS_BOUNDS = Object.freeze({
-  minScore: { min: 0, max: 1, integer: false },
-  extraNotes: { min: 0, max: 10, integer: true },
-  snippetChars: { min: 50, max: 2000, integer: true },
+  // The person-facing three are a contract Tex reads too (`packages/shared/src/texContract/searchSettings.cjs`).
+  ...PERSON_SEARCH_BOUNDS,
   rrfK: { min: 1, max: 1000, integer: false },
   loosePenalty: { min: 0, max: 1000, integer: false },
   titleWeight: { min: 0, max: 1, integer: false },

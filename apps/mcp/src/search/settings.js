@@ -32,7 +32,7 @@
 
 import searchConfig from "./config/searchConfig.cjs";
 
-const { SEARCH_SETTINGS_BOUNDS, settingsOf } = searchConfig;
+const { settingsOf } = searchConfig;
 // The three numbers' defaults are settings of search's steps in its config (`config/searchConfig.json`; Dev2,
 // 2026-11-21), which a Lab draft can change: "Meaning" (`meaning`), "Meaning-only budget" (`budget`) and "Read
 // snippets" (`snippets`).
@@ -47,49 +47,9 @@ export const DEFAULT_SEARCH_SETTINGS = Object.freeze({
   snippetChars: SNIPPETS.snippetChars,
 });
 
-const BOUNDS = {
-  minScore: SEARCH_SETTINGS_BOUNDS.minScore,
-  extraNotes: SEARCH_SETTINGS_BOUNDS.extraNotes,
-  snippetChars: SEARCH_SETTINGS_BOUNDS.snippetChars,
-};
-
-/** The front-matter and JSON key for each setting. */
-export const SEARCH_SETTING_KEYS = Object.freeze({
-  everywhere: "everywhere",
-  min_score: "minScore",
-  extra_notes: "extraNotes",
-  snippet_chars: "snippetChars",
-});
-
-/**
- * Settings from a plain object of wire keys (`min_score`, …), each checked, or
- * `null` when a value is outside what it may be. Missing keys stay missing,
- * so a partial section lays over another without blanking it.
- *
- * @param {unknown} raw e.g. `{ everywhere: "true", min_score: "0.35" }`
- * @returns {Partial<typeof DEFAULT_SEARCH_SETTINGS> | null}
- */
-export function readSearchSettings(raw) {
-  if (raw === undefined || raw === null) return {};
-  if (typeof raw !== "object" || Array.isArray(raw)) return null;
-  const out = {};
-  for (const [key, value] of Object.entries(raw)) {
-    const name = SEARCH_SETTING_KEYS[key];
-    if (!name) return null;
-    if (name === "everywhere") {
-      if (value === true || value === "true") out.everywhere = true;
-      else if (value === false || value === "false") out.everywhere = false;
-      else return null;
-      continue;
-    }
-    const number = typeof value === "number" ? value : typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : NaN;
-    const bound = BOUNDS[name];
-    if (!Number.isFinite(number) || number < bound.min || number > bound.max) return null;
-    if (bound.integer && !Number.isInteger(number)) return null;
-    out[name] = number;
-  }
-  return out;
-}
+// Reading a setup's `search:` section is a pure contract Tex reads too (`packages/shared/src/texContract/searchSettings.cjs`).
+import { SEARCH_SETTING_KEYS, readSearchSettings } from "../../../../packages/shared/src/texContract/searchSettings.cjs";
+export { SEARCH_SETTING_KEYS, readSearchSettings } from "../../../../packages/shared/src/texContract/searchSettings.cjs";
 
 /**
  * The deployment's settings from the Worker's vars, over the defaults. A var

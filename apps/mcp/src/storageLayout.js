@@ -319,14 +319,7 @@ export async function objectExists(store, key, { metadataOnly = false } = {}) {
   }
 }
 
-export async function getWithLegacyFallback(store, key, options = {}) {
-  const current = await store.get(key);
-  if (current) return current;
-  const legacy = legacyStorageKey(key);
-  if (!legacy) return null;
-  if (options.beforeFallback && options.beforeFallback() === false) return null;
-  return store.get(legacy);
-}
+export { getWithLegacyFallback } from "../../../packages/shared/src/storageLayout.cjs";
 
 /** Delete a v1 plumbing object and any pre-v1 copy that could resurrect it. */
 export async function deleteWithLegacyFallback(store, key, options) {

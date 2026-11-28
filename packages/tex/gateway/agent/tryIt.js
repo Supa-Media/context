@@ -42,7 +42,7 @@ import { meterParts, turnRouter } from "./modelPlan.js";
 import { readProductionSkill, readSetupAt } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { trimHistory } from "./conversation.js";
-import { searchSettingsOf } from "../../../../apps/mcp/src/search/settings.js";
+import { overSearchSettings } from "./searchOver.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { agentTools, MAX_QUESTION_LENGTH, runTurn } from "./turn.js";
 
@@ -190,7 +190,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
 
   const reader = readOnlySession(session);
   // The setup's own search settings, as `/agent` applies a live one's.
-  if (setup.search) store.searchSettings = searchSettingsOf(store, setup.search);
+  if (setup.search) store.searchSettings = overSearchSettings(store, setup.search);
   const offered = await grantedToolsFor(reader, store);
   const skills = skillSession(setup.skills ?? [], (path) => readProductionSkill(store, session, path));
   const persona = tryPersona(body.as);

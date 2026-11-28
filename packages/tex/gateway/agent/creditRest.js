@@ -25,7 +25,7 @@
  * isolate then keeps its own rest, as it did before this object existed.
  */
 
-import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
+import { objectByName } from "../../../shared/src/texContract/objectPlace.cjs";
 
 /** How long a spent payer is skipped before one caller tries it again. */
 export const CREDIT_REST_MS = 15 * 60_000;

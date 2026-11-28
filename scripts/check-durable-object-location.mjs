@@ -20,6 +20,8 @@ import { join } from "node:path";
 
 const ROOTS = [
   "apps/mcp/src",
+  "packages/shared/src/texContract",
+  "packages/tex/gateway",
   "packages/tex/worker",
   "infra/egress-service/src",
   "infra/photon-bridge/src",
@@ -35,6 +37,7 @@ const ROOTS = [
 /** The only files that make stubs, one place per Worker. */
 const PLACERS = new Set([
   "apps/mcp/src/objectPlace.js",
+  "packages/shared/src/texContract/objectPlace.cjs",
   "packages/tex/worker/objectPlace.ts",
   "infra/egress-service/src/handler.ts",
   "infra/photon-bridge/src/index.ts",
@@ -66,7 +69,7 @@ function walk(dir, out = []) {
   for (const name of entries) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(ts|js|mjs)$/.test(name) && !/\.test\./.test(name)) out.push(full);
+    else if (/\.(ts|js|mjs|cjs)$/.test(name) && !/\.test\./.test(name)) out.push(full);
   }
   return out;
 }

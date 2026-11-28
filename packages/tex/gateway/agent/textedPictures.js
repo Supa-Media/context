@@ -24,7 +24,7 @@
 import { IMAGE_TYPES } from "./attachments.js";
 import { appendLogEntry, clock, longDate, readWithEtag } from "./jobLog.js";
 import { wallClock } from "../../../shared/src/routines.cjs";
-import { MAX_UPLOADED_BYTES_PER_WRITE, embeddedUploadLeaf, prepareNoteImages } from "../../../../apps/mcp/src/notes/uploadedImages.js";
+import { MAX_UPLOADED_BYTES_PER_WRITE, embeddedUploadLeaf, sentPictureLeaf } from "../../../shared/src/texContract/uploadImages.cjs";
 
 export const PICTURES_FOLDER = "tex/pictures";
 /** One write takes at most this many pictures (`write_note`'s `images`). */
@@ -53,10 +53,10 @@ export async function keepTextedPictures(dispatch, { now, timeZone, attachments,
     if (attachment?.carried || typeof attachment?.data !== "string" || !IMAGE_TYPES.has(attachment.mediaType)) continue;
     if (found.length >= MAX_PICTURES) break;
     const data = `data:${attachment.mediaType};base64,${attachment.data}`;
-    const prepared = await prepareNoteImages("", [{ name: "picture", data }]).catch(() => null);
-    const image = prepared?.images?.[0];
-    if (!image?.leaf || bytes + image.bytes.byteLength > MAX_UPLOADED_BYTES_PER_WRITE) continue;
-    bytes += image.bytes.byteLength;
+    // Named as the write will name it, before it is written (the write checks it again).
+    const image = await sentPictureLeaf(data).catch(() => null);
+    if (!image?.leaf || bytes + image.bytes > MAX_UPLOADED_BYTES_PER_WRITE) continue;
+    bytes += image.bytes;
     found.push({ index, leaf: image.leaf, name: plainName(attachment.name), data });
   }
   if (found.length === 0) return [];
