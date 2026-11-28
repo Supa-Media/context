@@ -48,7 +48,7 @@ export default {
     const plain = groupOf({ group: { key: "c".repeat(64), members: "c".repeat(64), from: "ada" } }, await resolveSession(`cat_replay_own_notes_${"0".repeat(20)}`, null, askGrant([])));
     // Part five (Dev2, 2026-11-27): a turn that reads none is told so as a fact, with who they open for, never a
     // sentence that nobody's can be read: that sentence made Tex take back a listing it read on its owner's own ask.
-    assert.match(groupPrompt(plain, "context-lc"), /"personal_notes_in_this_chat":\{"open_to":"their owner, on that owner's own ask only","this_turn":"none"\}/, "without the control plane's mark, none this turn, as data");
+    assert.match(groupPrompt(plain, "context-lc"), /"personal_notes_in_this_chat":\{"this_turn":"none","opens_on":"its owner's own ask"\}/, "without the control plane's mark, none this turn, as data");
     assert.doesNotMatch(groupPrompt(plain, "context-lc"), /Nobody's personal notes/, "and no scripted line about it");
     const gate = (input) => crossChatGateNode(input);
     const counts = { hour: 0, day: 0, open: [] };

@@ -86,6 +86,15 @@ Every group turn is told whose personal notes it reads as a fact (`personal_note
 on that owner's own ask only, and this turn's), never a sentence saying nobody's can be read: on a turn someone else
 asked for, that sentence made Tex take back a listing it had rightly read on its owner's own ask.
 
+Since 2026-11-28 that fact says what the asker's own notes are for on their ask: every one, private ones included,
+to decide and do what they asked, and nothing a note says goes to the room unless its owner names that note (Dev2,
+Battle of the Bots: "it can make decisions based on what it knows about my notes", and "i dont want it to state
+anything from my note unless explicitly permitted by the owner"). The old wording ("open to their owner, on that
+owner's own ask only") beside "You can read only" the shared workspaces made Tex ask its asker for an area their own
+notes held, without searching them; the shared line now names the asker's own first. The Room check
+(`roomCheck.js`) holds every note read from the asker's own personal workspace, team ones too, like a private note:
+a draft carrying two or more of its names or figures goes to the asker alone unless they named the note.
+
 ## What stays the model's
 
 What gets *said* from it in front of the room is a judgment the model makes, taught by Training conversations, never

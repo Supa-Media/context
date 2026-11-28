@@ -583,7 +583,7 @@ export function groupPrompt(group, workspace, { browser = true } = {}) {
     (homeOnly
       ? homeOnlyLines(group, workspace)
       : reach.length > 0
-      ? `You can read only ${where}: the shared ${reach.length === 1 ? "workspace" : "workspaces"} ${group.from ? `@${group.from}, who asked you,` : "this chat"} can open, by their access and never anyone else's, and only what each one's whole team can see; ` +
+      ? `${group.ownNotes ? `Besides @${group.ownNotes} (personal_notes_in_this_chat), you` : "You"} can read only ${where}: the shared ${reach.length === 1 ? "workspace" : "workspaces"} ${group.from ? `@${group.from}, who asked you,` : "this chat"} can open, by their access and never anyone else's, and only what each one's whole team can see; ` +
         `where they can only read, so can you. Name the one you mean with context: "@${reach[0]}"` +
         (reach.length > 1 ? ` (or ${reach.slice(1).map((slug) => `"@${slug}"`).join(", ")})` : "") +
         "; with none, a tool reaches only this chat's own home, which no workspace's notes are in. "

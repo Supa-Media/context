@@ -12,6 +12,7 @@
  *   (iii) roomCheck.js `privateNotesIn`: the search-hit half removed. "a search hit marked private is kept" fails.
  *   (iv)  roomCheck.js `roomVerdict`: `secretIn` ignored. "a passcode read this turn is held, even when named" fails.
  *   (v)   search.js `toolSearchNotes`: `markPrivate` ignored. "a group's search marks a private hit" fails.
+ *   (vii) roomCheck.js `privateNotesAt`: the `owned` check removed. "a team note in the asker's own notes is held" fails.
  *   (vi)  texConfig.json: the roomCheck outSchema back to before 2026-11-28 → "every field the node returns is one its
  *         config's outSchema names" fails (the live bug it was written for).
  */
@@ -108,6 +109,27 @@ test("the chat's own home is the room's, never a private note to hold", () => {
   assert.equal(privateNotesIn(home).size, 0, "a bare path is the chat's home");
   assert.equal(privateNotesIn(home, "context-lc").size, 0, "its home under tex/groups/");
   assert.equal(privateNotesIn("3 matching notes\n\ntex/groups/abc/about.md\n    (private note)\n    Rehearsal").size, 0);
+});
+
+// Battle of the Bots, 2026-11-28 (Dev2): "it can make decisions based on what it knows about my notes", but "i dont
+// want it to state anything from my note unless explicitly permitted by the owner". In the asker's own personal notes
+// a team note is held like a private one; a note they name still goes.
+test("a team note in the asker's own notes is held unless named; a search there keeps its bare hits as theirs", async () => {
+  const group = { ...GROUP, ownNotes: "ada" };
+  const home = "etag: \"e5\"\npath: life/home.md\nvisibility: team\n\n# Home\nLives on Corvane Street near Pellbrook Chapel";
+  const reads = roomReads(group);
+  const call = reads.wrap(async (name) => (name === "read_notes" ? ok(home) : ok("1 matching note\n\nlife/home.md\n    Lives on Corvane Street near Pellbrook Chapel")));
+  await call("read_notes", { context: "@ada", path: "life/home.md" });
+  await call("search_notes", { context: "@ada", query: "area" });
+  assert.deepEqual(reads.privateKeys(), ["@ada/life/home.md"]);
+  const draft = "Brunch spots near Corvane Street by Pellbrook Chapel: three good ones.";
+  assert.deepEqual(roomVerdict({ draft, reads, group, question: "tex brunch spots around my area" })?.private, ["@ada/life/home.md"]);
+  assert.equal(roomVerdict({ draft: "Three brunch spots for Sunday: Larkfield Diner, Ostwin Cafe, Moller's.", reads, group, question: "tex brunch spots around my area" }), null, "a decision made from it, saying nothing it says, goes");
+  assert.equal(roomVerdict({ draft, reads, group, question: "tex share my home note" }), null, "named by its owner");
+  // In a shared workspace a team note is still the room's.
+  const shared = roomReads(group);
+  await shared.wrap(async () => ok(TEAM))("read_notes", { context: "@bandco", path: "projects/action-items.md" });
+  assert.deepEqual(shared.privateKeys(), []);
 });
 
 // Live on 2026-11-28 the node's new `private`/`named` counts were not in its config's outSchema, so the graph failed the
