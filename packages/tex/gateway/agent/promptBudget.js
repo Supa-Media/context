@@ -137,8 +137,8 @@ function stubHistory(messages, where) {
  * Messages from `end` on are left whole. Returns false when nothing long is
  * left, so the loop stops.
  */
-function clipLargest(body, end = Infinity) {
-  const best = largestText(body, end);
+function clipLargest(body, end = Infinity, once = null) {
+  const best = largestText(body, end, once);
   if (!best || best.text.length <= EARLIER.length + 1) return false;
   const tail = Math.max(0, Math.floor(best.text.length / 2) - EARLIER.length - 1);
   const clipped = tail === 0 ? EARLIER : `${EARLIER}\n${best.text.slice(-tail)}`;
@@ -147,20 +147,24 @@ function clipLargest(body, end = Infinity) {
   return true;
 }
 
-/** The longest text `clipLargest` may clip, as { text, set }, or null. */
-function largestText(body, end = Infinity) {
+/**
+ * The longest text `clipLargest` may clip, as { text, set, key }, or null. `key` names a system block or a tool
+ * description (null for a message's text); one named in `once` was already halved in this call and is not offered again.
+ */
+function largestText(body, end = Infinity, once = null) {
   let best = null;
-  const offer = (text, set) => {
-    if (typeof text === "string" && text.length > (best?.text.length ?? EARLIER.length + 1)) best = { text, set };
+  const offer = (text, set, key = null) => {
+    if (key !== null && once?.has(key)) return;
+    if (typeof text === "string" && text.length > (best?.text.length ?? EARLIER.length + 1)) best = { text, set, key };
   };
-  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; });
+  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; }, "sys");
   else if (Array.isArray(body.system)) {
     body.system.forEach((block, index) => {
-      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; });
+      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; }, `sys/${index}`);
     });
   }
   (body.tools ?? []).forEach((tool, index) => {
-    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; });
+    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; }, `tool/${index}`);
   });
   (body.messages ?? []).forEach((message, index) => {
     if (index >= end) return; // the turn's own messages, when the cut keeps them
@@ -210,6 +214,58 @@ function cut(body, target, { older = true, newest = true, clip = true, keepFrom,
     else if (!clip || !clipLargest(body, clipFrom)) break;
     shed += 1;
   }
+  return shed;
+}
+
+/**
+ * The most the system prompt and the tool list are kept to once the clip reaches them, in estimated tokens: two steps
+ * under the budget, so the person's ask and this turn's lookups still fit beside them.
+ */
+export const PREFIX_CAP = HAIKU_INPUT_BUDGET - 2 * TRIM_STEP;
+
+/** The body with its messages left out: the system prompt and the tool list alone. */
+const prefixOf = (body) => ({ ...body, messages: [] });
+const prefixTokens = (body) => estimateBodyTokens(prefixOf(body));
+
+/**
+ * The longest system block or tool description in `body`, as { text, set }, or null: what `capPrefix` cuts next.
+ */
+function longestPrefixText(body) {
+  let best = null;
+  const offer = (text, set) => {
+    if (typeof text === "string" && text.length > (best?.text.length ?? 1)) best = { text, set };
+  };
+  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; });
+  else if (Array.isArray(body.system)) {
+    body.system.forEach((block, index) => {
+      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; });
+    });
+  }
+  (body.tools ?? []).forEach((tool, index) => {
+    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; });
+  });
+  return best;
+}
+
+/**
+ * Halve the longest system block or tool description until the two are under `PREFIX_CAP`, keeping each text's start
+ * (where the setup says who Tex is and its rules) and ending it on a whole line, then mark every one of them in
+ * `once` so nothing in this call clips them again. Their words alone decide the cut, so every step makes the same one.
+ * Returns how many clips it made.
+ */
+function capPrefix(body, once) {
+  let shed = 0;
+  while (prefixTokens(body) > PREFIX_CAP) {
+    const best = longestPrefixText(body);
+    if (!best || best.text.length < 2) break;
+    const half = Math.floor(best.text.length / 2);
+    const line = best.text.lastIndexOf("\n", half);
+    best.set(best.text.slice(0, line > half * 0.8 ? line : half));
+    shed += 1;
+  }
+  if (typeof body.system === "string") once.add("sys");
+  (Array.isArray(body.system) ? body.system : []).forEach((_, index) => once.add(`sys/${index}`));
+  (body.tools ?? []).forEach((_, index) => once.add(`tool/${index}`));
   return shed;
 }
 
@@ -270,13 +326,26 @@ export function fitHaikuBody(body, { turnFrom } = {}) {
   // turn, whichever is longer, down to the step so the same clip holds next round; a tool result goes
   // only while the call is over the budget. The turn's words are never clipped here: a lookup of a
   // few thousand characters is no reason to drop it while the system prompt is the overflow.
+  //
+  // The system prompt and the tool list sit first in the cached prefix, so the first time the clip reaches one of them
+  // and they are over `PREFIX_CAP` (a size that is the same for every round of a turn), they are cut together to it from
+  // their ends, so the setup's start (who Tex is, its rules) stays; the cut depends on their own words only, never on
+  // the step: a body that
+  // grows into a higher step sends the same prefix and its rounds keep reading it. Halving one more time per step
+  // changed the stable block's bytes mid-turn and the round read nothing from the cache (production, 2026-11-27, turn
+  // 447ed548: 0 read, 84,000 written, 6.4 s). Past the cap, older history and this turn's tool results give the step.
+  // A prefix under the cap is not the overflow, and is clipped as before, the longest text first.
   if (over()) {
+    const once = new Set();
     while (estimateBodyTokens(frame) > low) {
-      const clip = largestText(frame, start);
+      const clip = largestText(frame, start, once);
       const result = over() ? largestResult(frame.messages) : null;
       if (result && (!clip || result.length >= clip.text.length)) {
         frame.messages[result.message].content[result.block] = stubResult(frame.messages[result.message].content[result.block]);
-      } else if (!clip || !clipLargest(frame, start)) break;
+      } else if (clip?.key != null && once.size === 0 && prefixTokens(frame) > PREFIX_CAP) {
+        shed += capPrefix(frame, once);
+        continue;
+      } else if (!clip || !clipLargest(frame, start, once)) break;
       shed += 1;
     }
   }

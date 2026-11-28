@@ -25,6 +25,12 @@
  * turn's tool answers put before the clip fails "a tool round that crosses…" and "when the system prompt…";
  * `aiGateway.js` not passing `turnFrom` fails "a texted turn's call tells the trim where its ask is…"; a
  * clip always before this turn's tool result fails "a lookup longer than the system prompt goes…".
+ *
+ * Sabotage record (2026-11-28): main's rule before the fix (the system prompt halved again in every higher step)
+ * fails "a turn whose tool rounds cross step after step…" ("stable: 3 different clips across one turn", or, with the
+ * cap but its end kept, "the setup's start is kept"); the cap
+ * applied to a prefix under it, or every halving remembered so the prefix is never halved twice under the cap,
+ * fails "a tool round that crosses into a new step…" and "a later round of the same turn…".
  */
 
 import assert from "node:assert/strict";
@@ -381,4 +387,42 @@ test("a lookup longer than the system prompt goes before the system prompt is cl
   assert.equal(fit.body.messages[2].content[0].content, LEFT_OUT);
   assert.equal(fit.body.messages[0].content[0].text, "what does the lease say");
   assert.ok(fit.body.system[0].text.length >= 215_706 / 2 - EARLIER.length - 1, `the system prompt cut to ${fit.body.system[0].text.length}`);
+});
+
+test("a turn whose tool rounds cross step after step clips its system prompt and tools once, so each round reads their cache", () => {
+  // Production 2026-11-27 (turns 447ed548, ecb7d8b9): every round on one model and payer, yet each time a tool round
+  // took the body into a new step the stable block was halved again, its fingerprint changed and the round read 0
+  // from the cache and wrote 84,000 to 92,000 tokens again (6.4 s for one round).
+  // Who Tex is and its rules come first in the setup, then module after module.
+  const persona = "You are Tex. Rules: never guess anyone's pronouns.\n";
+  const stable = persona + `${"s".repeat(99)}\n`.repeat(2_157);
+  const context = "c".repeat(30_313);
+  const description = "d".repeat(96_614);
+  const ask = "send this folder to the pablo bot";
+  const history = [
+    { role: "user", content: [{ type: "text", text: `Thu 9:06 AM: ${"h".repeat(20_000)}` }] },
+    { role: "assistant", content: [{ type: "text", text: "got it" }] },
+  ];
+  const messages = [...history, { role: "user", content: [{ type: "text", text: "p".repeat(37_890) }, { type: "text", text: ask }] }];
+  const versions = { stable: new Set(), context: new Set(), tools: new Set() };
+  const steps = new Set();
+  for (let round = 1; round <= 8; round += 1) {
+    const sent = { model: "claude-haiku-5-5", system: [{ type: "text", text: stable }, { type: "text", text: context }], tools: [{ name: "fetch", description, input_schema: { type: "object" } }], messages: JSON.parse(JSON.stringify(messages)) };
+    const fit = fitHaikuBody(sent, { turnFrom: history.length });
+    assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `round ${round}: still ${fit.after}`);
+    assert.equal(fit.body.messages[history.length].content[1].text, ask, `round ${round}: the person's words are sent`);
+    steps.add(Math.ceil((fit.before - HAIKU_INPUT_BUDGET) / TRIM_STEP));
+    if (fit.body.system[0].text !== stable) versions.stable.add(fit.body.system[0].text);
+    assert.ok(fit.body.system[0].text.startsWith(persona), `round ${round}: the setup's start is kept`);
+    assert.ok(stable.startsWith(fit.body.system[0].text), `round ${round}: the stable block is cut from its end`);
+    if (fit.body.system[1].text !== context) versions.context.add(fit.body.system[1].text);
+    if (fit.body.tools[0].description !== description) versions.tools.add(fit.body.tools[0].description);
+    // The next round: one lookup of about half a step.
+    messages.push(
+      { role: "assistant", content: [{ type: "tool_use", id: `toolu_${round}`, name: "fetch", input: { id: `n${round}` } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: `toolu_${round}`, content: "r".repeat(22_000) }] },
+    );
+  }
+  assert.ok(steps.size >= 3, `the fixture crosses steps: ${[...steps]}`);
+  for (const [part, seen] of Object.entries(versions)) assert.ok(seen.size <= 1, `${part}: ${seen.size} different clips across one turn, each a full cache rewrite`);
 });
