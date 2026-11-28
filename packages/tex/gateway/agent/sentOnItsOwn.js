@@ -17,6 +17,9 @@
  *   why it went out.
  */
 
+import { OWN_SOURCES } from "../../../shared/src/texOwnSources.cjs";
+export { OWN_SOURCES };
+
 const BY_ITSELF = /^\(Not a text from them\.\s*/;
 
 /**
@@ -55,8 +58,6 @@ export function sentOnItsOwn(about) {
  * stays as it was: no backfill.
  */
 
-/** The `source` of a text Tex sent on its own, outside a reply to a text: these have a gateway note beside them. */
-export const OWN_SOURCES = new Set(["checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 /** Every `source` a Tex text event may carry (`log.js` `checkEvent`). */
 export const TEXT_SOURCES = new Set(["reply", "progress", ...OWN_SOURCES]);
 

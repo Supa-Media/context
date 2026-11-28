@@ -13,7 +13,7 @@
  */
 
 import { listedThreads, readThreads } from "../../../../../packages/tex/gateway/agent/conversationThreads.js";
-import { OWN_SOURCES } from "../../../../../packages/tex/gateway/agent/sentOnItsOwn.js";
+import { OWN_SOURCES } from "../../../../../packages/shared/src/texOwnSources.cjs";
 
 /** The most threads one list answers, and the most lines one thread does. */
 export const MAX_THREADS = 500;

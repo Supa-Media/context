@@ -24,13 +24,14 @@
 import { sha256Hex } from "../util/sha256.js";
 import { TOLD } from "./conversation.js";
 import { TEXT_SOURCES } from "./sentOnItsOwn.js";
+import { READ_CHARS } from "../../../shared/src/ledgerReadChars.cjs";
+export { READ_CHARS };
 
 export const LOG_PREFIX = ".context/agent/log/";
 export const MAX_EVENTS_PER_CALL = 50;
 /** As long as the Worker keeps a text (`packages/tex/worker/inbound.ts` `MAX_INBOUND_TEXT`): Sendblue sends at most 18,996 characters. */
 export const MAX_EVENT_TEXT = 20_000;
 export const READ_LIMIT = 400;
-export const READ_CHARS = 120_000;
 const READ_BATCH = 25;
 const DAY_MS = 86_400_000;
 const MAX_COVERS = 32;

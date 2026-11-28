@@ -24,7 +24,7 @@
 import { toolError, toolText } from "./results.js";
 import { toolReadNote } from "./notes/read.js";
 import { toolWriteNote } from "./notes/write.js";
-import { readWithEtag, appendLogEntry, clock } from "../../../../packages/tex/gateway/agent/jobLog.js";
+import { readWithEtag, appendLogEntry, clock } from "../../../../packages/shared/src/jobLogEntries.cjs";
 import {
   ATTENTION_SETTINGS_PATH,
   MAX_MESSAGE_CHARS,

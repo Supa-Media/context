@@ -42,7 +42,9 @@ import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { bearerToken, resolveSession, SessionRefusal } from "../session.js";
 import { json } from "./responses.js";
-import { browserHash } from "../../../../packages/tex/gateway/agent/handback.js";
+import { browserHash } from "../../../../packages/shared/src/browserHandback.cjs";
+import { ownHandle } from "../../../../packages/shared/src/personHub.cjs";
+export { ownHandle };
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
 const CONSOLE_CLIENT_ID = "context_console";
@@ -62,16 +64,6 @@ function pick(raw, names) {
   const out = {};
   for (const name of names) if (raw[name] !== undefined) out[name] = raw[name];
   return out;
-}
-
-/**
- * The handle a person's own page lives at: the slug of the personal workspace
- * they own, or null. Never somebody else's personal workspace they are a
- * member of, which also has kind "personal".
- */
-export function ownHandle(session) {
-  const own = (session?.workspaces || []).find((w) => w?.kind === "personal" && w?.role === "owner");
-  return typeof own?.slug === "string" && own.slug ? own.slug : null;
 }
 
 /**

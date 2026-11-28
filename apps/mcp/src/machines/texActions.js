@@ -42,7 +42,7 @@ import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { groupChatId, lentToChat, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { setupPrompt, SETUP_SYSTEMS } from "./setupPrompt.js";
-import { namesOrAnswers } from "../../../../packages/tex/gateway/agent/consentContext.js";
+import { namesOrAnswers } from "../../../../packages/shared/src/consentYes.cjs";
 
 export const COMPUTER_TOOL = "tex_computers";
 const CHAT_KEY = /^[0-9a-f]{64}$/;
