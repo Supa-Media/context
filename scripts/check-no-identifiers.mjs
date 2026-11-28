@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * No account identifier belongs in this public, MIT-licensed repository.
+ * No account identifier belongs in this public repository.
  *
  * CLAUDE.md is explicit and does not carve out an exception for "it is
  * technically public information anyway": "Assume every line is read by an

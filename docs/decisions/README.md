@@ -786,7 +786,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 
 ## [This repository is public, and review is self-review](./repository-and-review.md)
 
-- This repository is public and MIT licensed
+- This repository is public and source-available
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
 - A list every branch adds to is one entry per line, merged by union

@@ -98,7 +98,7 @@ How each layer uses Context:
 
 - [llms.txt](${GUIDE_ORIGIN}/llms.txt): the short index
 - [llms-full.txt](${GUIDE_ORIGIN}/llms-full.txt): this page and every setup guide in one file
-- [Source code](https://github.com/Supa-Media/context): public and MIT licensed, and the gateway can be self-hosted
+- [Source code](https://github.com/Supa-Media/context): public and source-available (FSL-1.1-ALv2), and the gateway can be self-hosted
 `;
 
 export const LLMS_TEXT = `# Context

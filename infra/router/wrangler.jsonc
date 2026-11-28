@@ -57,7 +57,7 @@
     // convex.site, the `.site` host, NOT the `.cloud` one the client library
     // uses — used to live here as a plaintext var. It named which Convex
     // deployment this repository's production deploy talks to, which is an
-    // account identifier a public, MIT-licensed repo does not commit
+    // account identifier a public repo does not commit
     // (CLAUDE.md: "no internal hostnames, no account identifiers").
     //
     // It is now a `wrangler secret`, set by `deploy-router.yml` from the

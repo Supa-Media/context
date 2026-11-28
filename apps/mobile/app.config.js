@@ -2,7 +2,7 @@
 
 /**
  * The EAS project id — an account identifier, not a secret, but this
- * repository is public and MIT licensed (CLAUDE.md: "no internal hostnames,
+ * repository is public and source-available (CLAUDE.md: "no internal hostnames,
  * no account identifiers... not in code"), so it is read from the
  * environment rather than committed. `updates.url` is derived from it so the
  * two cannot drift.

@@ -21,8 +21,8 @@ Four screenshots of Obsidian on iOS, all 1320×2868 — **440×956 points at @3x
 which is why every measurement below is in points at that width.
 
 They are the owner's own vault and are **deliberately not committed**: they show
-real folder names and real note content, and this repository is public and MIT
-licensed (see `CLAUDE.md`, "This repository is public"). They live outside the
+real folder names and real note content, and this repository is public and
+source-available (see `CLAUDE.md`, "This repository is public"). They live outside the
 repo, at the paths cited in the pull request.
 
 | | What it fixes |

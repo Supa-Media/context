@@ -2,7 +2,7 @@
 name = "context-machine"
 version = "0.2.9"
 edition = "2021"
-license = "MIT"
+license-file = "../../LICENSE"
 description = "Lets Tex run jobs on your own computer with your own Claude Code and Codex"
 repository = "https://github.com/Supa-Media/context"
 publish = false

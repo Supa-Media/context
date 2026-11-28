@@ -178,7 +178,7 @@ declaring fewer keys:
   plausibly-real need, and the ones that could not be justified are named in
   *what is deliberately not declared*.
 - **A person who reads the bundle sees the list.** This repository is public
-  and MIT licensed (`docs/decisions/repository-and-review.md`), so the plist is
+  and source-available (`docs/decisions/repository-and-review.md`), so the plist is
   readable by anyone regardless. A key with a bad string is worse than no key;
   a key with an honest string is a promise we can keep.
 

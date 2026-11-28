@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.version        = package["version"]
   s.summary        = "Context meeting Live Activity bridge"
   s.description    = "A gated Expo module that owns Context's local ActivityKit lifecycle."
-  s.license        = "MIT"
+  s.license        = "FSL-1.1-ALv2"
   s.author         = "Supa Media"
   s.homepage       = "https://context.lc"
   # The host still supports iOS 15.1. ActivityKit use is runtime-gated in every

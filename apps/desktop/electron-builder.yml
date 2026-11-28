@@ -65,7 +65,7 @@
 
 appId: lc.context.desktop
 productName: Context
-copyright: MIT licensed — see LICENSE
+copyright: Copyright 2026 Supa Media, FSL-1.1-ALv2 — see LICENSE
 
 directories:
   output: release

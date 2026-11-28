@@ -208,7 +208,7 @@ an invented name gets. The `.context/encryption-export-rate.json` counter that
 tool kept is left where it is in buckets that have one; nothing reads it.
 
 **And the decryptor is a file, not a promise.** `packages/encryption-decryptor`
-is dependency-free Web Crypto in an MIT-licensed public repository, and the
+is dependency-free Web Crypto in a public repository, and the
 table above is a complete spec.
 
 **Its suite runs in CI, which it did not at first** — `Test Offline Decryptor`
